@@ -2,10 +2,17 @@ describe("autenticação e navegação", () => {
   it("cria um usuário e acessa todos os itens do menu lateral", () => {
     cy.registerAndLogin();
     const routes = [
-      ["Home", "/home"],
+      ["Painel", "/home"],
+      ["Orçamento", "/orcamento-domestico"],
+      ["Metas", "/metas"],
+      ["Contas", "/contas"],
+      ["Faturas", "/faturas"],
+      ["Transações", "/transacoes"],
+      ["Tags", "/tags"],
       ["Carteira", "/carteira"],
-      ["Orçamento Doméstico", "/orcamento-domestico"],
+      ["Open Finance", "/open-finance"],
       ["Ferramentas", "/ferramentas"],
+      ["Perfil", "/perfil"],
       ["FAQ", "/faq"],
     ];
     routes.forEach(([label, path]) => {

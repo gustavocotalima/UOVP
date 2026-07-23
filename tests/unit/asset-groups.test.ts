@@ -71,4 +71,21 @@ describe("grupos de ativos", () => {
     expect(result.investedValue.toNumber()).toBe(1000);
     expect(result.currentValue.toNumber()).toBe(1050);
   });
+
+  it("usa quantidade Pluggy com preço brapi e recorre ao saldo do provedor sem cotação", () => {
+    expect(aggregateHoldingValue([{
+      pricingSource: "BRAPI",
+      providerCurrentValue: 990,
+      currentValue: null,
+      quantity: 10,
+      unitPrice: 105,
+    }]).toNumber()).toBe(1050);
+    expect(aggregateHoldingValue([{
+      pricingSource: "BRAPI",
+      providerCurrentValue: 990,
+      currentValue: null,
+      quantity: 10,
+      unitPrice: 0,
+    }]).toNumber()).toBe(990);
+  });
 });

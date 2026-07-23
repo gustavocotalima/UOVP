@@ -2,7 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useTransition, type FormEvent, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
-import { Building2, ChevronDown, ChevronRight, ExternalLink, FileSpreadsheet, KeyRound, LoaderCircle, Pencil, Plus, RefreshCw, Search, Trash2, Upload } from "lucide-react";
+import { AlertTriangle, Building2, ChevronDown, ChevronRight, FileSpreadsheet, LoaderCircle, Pencil, Plus, RefreshCw, Search, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
@@ -17,19 +17,17 @@ import {
   deleteAssetHoldingAction,
   importPortfolioRowsAction,
   refreshBrapiMarketPricesAction,
-  removeBrapiApiKeyAction,
   saveAssetAction,
   saveAssetAnswersAction,
   saveAssetHoldingAction,
-  saveBrapiApiKeyAction,
   saveFixedIncomeGroupAction,
   searchBrapiTickersAction,
 } from "./actions";
 import { parseXlsxFile } from "./xlsx-parser";
 import type { BrapiTickerSearchResult } from "./brapi";
-import type { BrapiCredentialStatus } from "./brapi-credentials";
 import { FIXED_INCOME_INDEXATIONS, FIXED_INCOME_INDEXATION_META, INSTRUMENT_TYPES, INSTRUMENT_TYPE_META, INVESTMENT_CLASSES, INVESTMENT_CLASS_META, MOCK_ASSET_CATALOG, RATE_CONVENTIONS, RATE_CONVENTION_META, type FixedIncomeIndexationKey, type InstrumentTypeKey, type InvestmentClassKey, type RateConventionKey } from "./constants";
 import type { AssetDto, AssetHoldingDto, DiagramQuestionDto, PortfolioDto } from "./types";
+import { excludePluggyDiagramLinkAction, reviewPluggyDiagramLinkAction } from "@/features/open-finance/diagram-actions";
 
 type FormAsset = {
   id?: string;
@@ -84,6 +82,14 @@ type TickerListPosition = {
   transform?: string;
 };
 
+type ReviewForm = PortfolioDto["integrationReview"][number] & {
+  instrumentType: InstrumentTypeKey | "";
+  investmentClass: InvestmentClassKey | "";
+  familyCode: string;
+  indexation: FixedIncomeIndexationKey | "";
+  score: number;
+};
+
 const emptyAsset: FormAsset = {
   instrumentType: "STOCK",
   ticker: "",
@@ -105,6 +111,206 @@ function currentValue(asset: AssetDto) {
   return Number(asset.currentValue);
 }
 
+function formatRateValue(value: string) {
+  return Number(value).toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function holdingProfitability(holding: AssetHoldingDto) {
+  if (holding.rateValue === null) return null;
+  const rate = `${formatRateValue(holding.rateValue)}%`;
+  const benchmark = holding.benchmark?.trim().toUpperCase();
+
+  if (holding.rateConvention === "INDEXER_PLUS") {
+    return benchmark ? `100,00% ${benchmark} + ${rate}` : rate;
+  }
+  if (holding.rateConvention === "PERCENT_OF_INDEXER") {
+    return benchmark ? `${rate} ${benchmark}` : rate;
+  }
+  if (holding.rateConvention === "FIXED_ANNUAL") {
+    return `${rate} a.a.`;
+  }
+  return benchmark ? `${rate} ${benchmark}` : rate;
+}
+
+function operationTypeLabel(type: string) {
+  const labels: Record<string, string> = {
+    BUY: "Compra",
+    SELL: "Venda",
+    TRANSFER: "Transferência",
+    DIVIDEND: "Dividendo",
+    INTEREST: "Juros",
+    AMORTIZATION: "Amortização",
+  };
+  return labels[type] ?? type.replaceAll("_", " ");
+}
+
+function reviewMoney(value: string, currency: string) {
+  try {
+    return new Intl.NumberFormat("pt-BR", { style: "currency", currency }).format(Number(value));
+  } catch {
+    return `${currency} ${Number(value).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`;
+  }
+}
+
+function reviewDecimal(value: string) {
+  return Number(value).toLocaleString("pt-BR", { maximumFractionDigits: 8 });
+}
+
+function reviewPercentage(value: string) {
+  return `${Number(value).toLocaleString("pt-BR", { maximumFractionDigits: 4 })}%`;
+}
+
+function reviewDate(value: string) {
+  return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short" }).format(new Date(value));
+}
+
+function reviewDateTime(value: string) {
+  return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(value));
+}
+
+function reviewProfitability(review: ReviewForm) {
+  const indexer = review.rateType?.trim().toUpperCase();
+  const base = review.rate === null ? null : reviewPercentage(review.rate);
+  const spread = review.fixedAnnualRate === null ? null : reviewPercentage(review.fixedAnnualRate);
+  if (indexer && base && spread) return `${base} ${indexer} + ${spread} a.a.`;
+  if (indexer && base) return `${base} ${indexer}`;
+  if (spread) return `${spread} a.a.`;
+  if (review.annualRate !== null) return `${reviewPercentage(review.annualRate)} a.a.`;
+  return null;
+}
+
+function ReviewDetailsGrid({ title, details }: { title: string; details: Array<{ label: string; value: string | null }> }) {
+  const visibleDetails = details.filter((detail): detail is { label: string; value: string } => detail.value !== null && detail.value !== "");
+  if (!visibleDetails.length) return null;
+  return (
+    <section>
+      <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">{title}</h3>
+      <dl className="grid gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
+        {visibleDetails.map((detail) => (
+          <div key={detail.label} className="min-w-0">
+            <dt className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">{detail.label}</dt>
+            <dd className="mt-1 break-words text-sm font-medium tabular-nums">{detail.value}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
+function PluggyReviewSourceData({ review }: { review: ReviewForm }) {
+  const metadataAvailable = Boolean(review.metadata && typeof review.metadata === "object");
+  return (
+    <div className="space-y-5 rounded-xl border bg-[var(--muted)]/15 p-4">
+      <ReviewDetailsGrid
+        title="Identificação e classificação do provedor"
+        details={[
+          { label: "Instituição", value: review.institution },
+          { label: "Emissor", value: review.issuer },
+          { label: "CNPJ do emissor", value: review.issuerCnpj },
+          { label: "CNPJ da instituição", value: review.institutionNumber },
+          { label: "Tipo Pluggy", value: review.providerType },
+          { label: "Subtipo Pluggy", value: review.providerSubtype },
+          { label: "Código / ticker", value: review.code },
+          { label: "ISIN", value: review.isin },
+          { label: "Titular", value: review.owner },
+          { label: "Número do investimento", value: review.number },
+          { label: "Seguradora", value: review.insurerName },
+          { label: "CNPJ da seguradora", value: review.insurerCnpj },
+          {
+            label: "Sugestão automática",
+            value: [
+              review.suggestedInstrumentType ? INSTRUMENT_TYPE_META[review.suggestedInstrumentType].label : null,
+              review.suggestedInvestmentClass ? INVESTMENT_CLASS_META[review.suggestedInvestmentClass].label : null,
+            ].filter(Boolean).join(" · ") || null,
+          },
+          { label: "Família sugerida", value: review.suggestedFamilyCode },
+          {
+            label: "Indexação sugerida",
+            value: review.suggestedIndexation ? FIXED_INCOME_INDEXATION_META[review.suggestedIndexation].label : null,
+          },
+        ]}
+      />
+      <ReviewDetailsGrid
+        title="Posição, valores e rentabilidade"
+        details={[
+          { label: "Saldo atual", value: reviewMoney(review.balance, review.currencyCode) },
+          { label: "Valor investido", value: review.amountOriginal === null ? null : reviewMoney(review.amountOriginal, review.currencyCode) },
+          { label: "Valor bruto informado", value: review.amount === null ? null : reviewMoney(review.amount, review.currencyCode) },
+          { label: "Lucro / prejuízo", value: review.amountProfit === null ? null : reviewMoney(review.amountProfit, review.currencyCode) },
+          { label: "Disponível para resgate", value: review.amountWithdrawal === null ? null : reviewMoney(review.amountWithdrawal, review.currencyCode) },
+          { label: "Quantidade", value: review.quantity === null ? null : reviewDecimal(review.quantity) },
+          { label: "Valor unitário", value: review.value === null ? null : reviewMoney(review.value, review.currencyCode) },
+          { label: "Rentabilidade contratada", value: reviewProfitability(review) },
+          { label: "Indexador informado", value: review.rateType },
+          { label: "Percentual do indexador", value: review.rate === null ? null : reviewPercentage(review.rate) },
+          { label: "Taxa fixa / spread", value: review.fixedAnnualRate === null ? null : `${reviewPercentage(review.fixedAnnualRate)} a.a.` },
+          { label: "Rentabilidade no mês", value: review.lastMonthRate === null ? null : reviewPercentage(review.lastMonthRate) },
+          { label: "Rentabilidade em 12 meses", value: review.lastTwelveMonthsRate === null ? null : reviewPercentage(review.lastTwelveMonthsRate) },
+          { label: "Rentabilidade anual", value: review.annualRate === null ? null : reviewPercentage(review.annualRate) },
+          { label: "Imposto de renda", value: review.taxes === null ? null : reviewMoney(review.taxes, review.currencyCode) },
+          { label: "IOF / outros impostos", value: review.taxes2 === null ? null : reviewMoney(review.taxes2, review.currencyCode) },
+          { label: "Moeda", value: review.currencyCode },
+        ]}
+      />
+      <ReviewDetailsGrid
+        title="Datas e situação"
+        details={[
+          { label: "Emissão", value: review.issueDate ? reviewDate(review.issueDate) : null },
+          { label: "Compra", value: review.purchaseDate ? reviewDate(review.purchaseDate) : null },
+          { label: "Fim da carência", value: review.gracePeriodDate ? reviewDate(review.gracePeriodDate) : null },
+          { label: "Vencimento", value: review.dueDate ? reviewDate(review.dueDate) : null },
+          { label: "Data da posição", value: review.quotaDate ? reviewDate(review.quotaDate) : null },
+          { label: "Status no provedor", value: review.status },
+          { label: "Atualizado pela instituição", value: reviewDateTime(review.updatedAt) },
+        ]}
+      />
+      {review.transactions.length > 0 && (
+        <details className="rounded-xl border bg-[var(--card)]">
+          <summary className="cursor-pointer px-4 py-3 text-sm font-semibold">Movimentações informadas ({review.transactions.length})</summary>
+          <div className="space-y-2 border-t p-3">
+            {review.transactions.map((transaction) => (
+              <div key={transaction.id} className="rounded-lg border px-3 py-2 text-xs">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <strong>{transaction.type.replaceAll("_", " ")}</strong>
+                    <p className="mt-0.5 text-[var(--muted-foreground)]">
+                      {reviewDate(transaction.date)}
+                      {transaction.quantity !== null ? ` · ${reviewDecimal(transaction.quantity)} un.` : ""}
+                      {transaction.description ? ` · ${transaction.description}` : ""}
+                    </p>
+                  </div>
+                  <strong>{transaction.amount === null ? "—" : reviewMoney(transaction.amount, review.currencyCode)}</strong>
+                </div>
+                <p className="mt-1 text-[var(--muted-foreground)]">
+                  {transaction.value !== null ? `Valor unitário: ${reviewMoney(transaction.value, review.currencyCode)}` : ""}
+                  {transaction.netAmount !== null ? `${transaction.value !== null ? " · " : ""}Líquido: ${reviewMoney(transaction.netAmount, review.currencyCode)}` : ""}
+                  {transaction.agreedRate !== null ? ` · Taxa acordada: ${reviewPercentage(transaction.agreedRate)}` : ""}
+                  {transaction.brokerageNumber ? ` · Nota: ${transaction.brokerageNumber}` : ""}
+                </p>
+                {transaction.expenses !== null && transaction.expenses !== undefined && (
+                  <details className="mt-2">
+                    <summary className="cursor-pointer text-[var(--primary)]">Despesas brutas</summary>
+                    <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-black/20 p-3 text-[10px]">{JSON.stringify(transaction.expenses, null, 2)}</pre>
+                  </details>
+                )}
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+      {metadataAvailable && (
+        <details className="rounded-xl border bg-[var(--card)]">
+          <summary className="cursor-pointer px-4 py-3 text-sm font-semibold">Metadados brutos do Pluggy</summary>
+          <pre className="max-h-80 overflow-auto whitespace-pre-wrap border-t p-4 text-[11px]">{JSON.stringify(review.metadata, null, 2)}</pre>
+        </details>
+      )}
+    </div>
+  );
+}
+
 function assetLogoUrl(asset: AssetDto) {
   if (asset.logoUrl) return asset.logoUrl;
   if (asset.instrumentType !== "ETF" && !["BRAZILIAN_STOCKS", "REAL_ESTATE_FUNDS"].includes(asset.investmentClass)) return null;
@@ -114,6 +320,11 @@ function assetLogoUrl(asset: AssetDto) {
 
 function AssetLogo({ asset }: { asset: AssetDto }) {
   const logoUrl = assetLogoUrl(asset);
+  const [loadedLogoUrl, setLoadedLogoUrl] = useState<string | null>(null);
+  const logoLoaded = loadedLogoUrl === logoUrl;
+  const captureLogoElement = useCallback((image: HTMLImageElement | null) => {
+    if (image?.complete) setLoadedLogoUrl(image.naturalWidth > 0 ? logoUrl : null);
+  }, [logoUrl]);
   return (
     <span data-asset-logo-container className="relative grid size-9 shrink-0 place-items-center overflow-hidden rounded-xl border bg-white/95 text-neutral-500">
       <Building2 className="size-4" aria-hidden="true" />
@@ -121,11 +332,15 @@ function AssetLogo({ asset }: { asset: AssetDto }) {
         // eslint-disable-next-line @next/next/no-img-element
         <img
           data-asset-logo
+          ref={captureLogoElement}
           src={logoUrl}
           alt={`Logo de ${asset.name}`}
-          className="absolute inset-[2px] h-[calc(100%-4px)] w-[calc(100%-4px)] rounded-[9px] object-contain"
+          className={`absolute inset-[2px] h-[calc(100%-4px)] w-[calc(100%-4px)] rounded-[9px] object-contain ${logoLoaded ? "opacity-100" : "opacity-0"}`}
           loading="lazy"
-          onError={(event) => { event.currentTarget.hidden = true; }}
+          onLoad={(event) => {
+            if (event.currentTarget.naturalWidth > 0) setLoadedLogoUrl(logoUrl);
+          }}
+          onError={() => setLoadedLogoUrl(null)}
         />
       )}
     </span>
@@ -142,16 +357,16 @@ export function AssetsPanel({
   assets,
   fixedIncomeFamilies,
   catalog,
+  integrationReview,
   questions,
   initialAnswers,
-  brapiCredential,
 }: {
   assets: AssetDto[];
   fixedIncomeFamilies: PortfolioDto["fixedIncomeFamilies"];
   catalog: PortfolioDto["catalog"];
+  integrationReview: PortfolioDto["integrationReview"];
   questions: DiagramQuestionDto[];
   initialAnswers: { assetId: string; questionId: string; answer: boolean }[];
-  brapiCredential: BrapiCredentialStatus;
 }) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<InvestmentClassKey | "ALL">("ALL");
@@ -159,12 +374,10 @@ export function AssetsPanel({
   const [form, setForm] = useState<FormAsset | null>(null);
   const [fixedGroupForm, setFixedGroupForm] = useState<FixedIncomeGroupForm | null>(null);
   const [holdingForm, setHoldingForm] = useState<HoldingForm | null>(null);
+  const [reviewForm, setReviewForm] = useState<ReviewForm | null>(null);
   const [expandedAssets, setExpandedAssets] = useState<Set<string>>(() => new Set());
   const [formAnswers, setFormAnswers] = useState<Record<string, boolean>>({});
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>();
-  const [brapiDialogOpen, setBrapiDialogOpen] = useState(false);
-  const [brapiApiKey, setBrapiApiKey] = useState("");
-  const [brapiError, setBrapiError] = useState<string>();
   const [tickerOptions, setTickerOptions] = useState<BrapiTickerSearchResult[]>([]);
   const [tickerSearchPending, setTickerSearchPending] = useState(false);
   const [tickerSearchError, setTickerSearchError] = useState<string>();
@@ -209,6 +422,7 @@ export function AssetsPanel({
     }),
     [assets, filter, instrumentFilter, search],
   );
+  const showAssetAveragePrice = filtered.some((asset) => asset.averagePricePaid !== null);
 
   useEffect(() => {
     const query = search.trim().toLowerCase();
@@ -224,11 +438,13 @@ export function AssetsPanel({
     value: assets.filter((asset) => asset.investmentClass === investmentClass).reduce((sum, asset) => sum + currentValue(asset), 0),
   })).filter((item) => item.value > 0);
 
-  const formQuestionType = form && form.instrumentType !== "ETF" ? questionTypeForClass(form.investmentClass) : null;
+  const formQuestionType = form && !["ETF", "MUTUAL_FUND"].includes(form.instrumentType) ? questionTypeForClass(form.investmentClass) : null;
+  const editingAsset = form?.id ? assets.find((asset) => asset.id === form.id) : undefined;
   const formQuestions = questions.filter((question) => question.active && question.type === formQuestionType);
   const positives = formQuestions.filter((question) => formAnswers[question.id] === true).length;
   const negatives = formQuestions.length - positives;
-  const tickerInvestmentClass = form && !form.id && (form.instrumentType === "ETF" || ["BRAZILIAN_STOCKS", "REAL_ESTATE_FUNDS"].includes(form.investmentClass))
+  const tickerInvestmentClass = form && !form.id && ["STOCK", "ETF", "REAL_ESTATE_FUND"].includes(form.instrumentType)
+    && (form.instrumentType === "ETF" || ["BRAZILIAN_STOCKS", "REAL_ESTATE_FUNDS"].includes(form.investmentClass))
     ? form.instrumentType === "ETF" ? "ETF" : form.investmentClass
     : null;
   const usesBrapiTickerSearch = tickerInvestmentClass !== null;
@@ -486,35 +702,6 @@ export function AssetsPanel({
     });
   }
 
-  function configureBrapi(event: FormEvent) {
-    event.preventDefault();
-    setBrapiError(undefined);
-    setMessage(undefined);
-    startTransition(async () => {
-      try {
-        await saveBrapiApiKeyAction(brapiApiKey);
-        setBrapiApiKey("");
-        setBrapiDialogOpen(false);
-        setMessage("Chave da brapi validada e salva com segurança.");
-      } catch (error) {
-        setBrapiError(error instanceof Error ? error.message : "Não foi possível validar a chave da brapi.");
-      }
-    });
-  }
-
-  function removeBrapiCredential() {
-    startTransition(async () => {
-      try {
-        await removeBrapiApiKeyAction();
-        setBrapiApiKey("");
-        setBrapiDialogOpen(false);
-        setMessage("Chave da brapi removida.");
-      } catch (error) {
-        setMessage(error instanceof Error ? error.message : "Não foi possível remover a chave da brapi.");
-      }
-    });
-  }
-
   function refreshBrapiMarketPrices() {
     setMessage(undefined);
     startTransition(async () => {
@@ -524,6 +711,66 @@ export function AssetsPanel({
         setMessage(`${result.updated} cotação(ões) de ativos da B3 atualizada(s) pela brapi.${missing}`);
       } catch (error) {
         setMessage(error instanceof Error ? error.message : "Não foi possível atualizar as cotações na brapi.");
+      }
+    });
+  }
+
+  function openReview(item: PortfolioDto["integrationReview"][number]) {
+    setReviewForm({
+      ...item,
+      instrumentType: item.suggestedInstrumentType ?? "",
+      investmentClass: item.suggestedInvestmentClass ?? "",
+      familyCode: item.suggestedFamilyCode ?? "",
+      indexation: item.suggestedIndexation ?? (item.providerType === "FIXED_INCOME" ? "PRE_FIXED" : ""),
+      score: 0,
+    });
+  }
+
+  function submitReview(event: FormEvent) {
+    event.preventDefault();
+    if (!reviewForm) return;
+    const review = reviewForm;
+    if (!review.instrumentType || !review.investmentClass) {
+      setMessage("Selecione o instrumento e a classe para metas.");
+      return;
+    }
+    const instrumentType: InstrumentTypeKey = review.instrumentType;
+    const investmentClass: InvestmentClassKey = review.investmentClass;
+    const groupedFixedIncome = instrumentType === "FIXED_INCOME"
+      || (instrumentType === "ETF"
+        && ["FIXED_INCOME", "INTERNATIONAL_FIXED_INCOME"].includes(investmentClass));
+    if (groupedFixedIncome && (!review.familyCode || !review.indexation)) {
+      setMessage("Selecione a família e a indexação da renda fixa.");
+      return;
+    }
+    setMessage(undefined);
+    startTransition(async () => {
+      try {
+        await reviewPluggyDiagramLinkAction({
+          linkId: review.id,
+          instrumentType,
+          investmentClass,
+          familyCode: review.familyCode || null,
+          indexation: review.indexation || null,
+          score: review.score,
+        });
+        setReviewForm(null);
+        setMessage("Investimento integrado ao diagrama.");
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : "Não foi possível integrar o investimento.");
+      }
+    });
+  }
+
+  function excludeReview() {
+    if (!reviewForm) return;
+    startTransition(async () => {
+      try {
+        await excludePluggyDiagramLinkAction(reviewForm.id);
+        setReviewForm(null);
+        setMessage("Investimento mantido apenas no Open Finance.");
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : "Não foi possível excluir o investimento do diagrama.");
       }
     });
   }
@@ -637,7 +884,7 @@ export function AssetsPanel({
     }
   }
 
-  const simpleScoreForm = form ? form.instrumentType === "ETF" || !questionTypeForClass(form.investmentClass) : false;
+  const simpleScoreForm = form ? ["ETF", "MUTUAL_FUND"].includes(form.instrumentType) || !questionTypeForClass(form.investmentClass) : false;
   const holdingAsset = holdingForm ? assets.find((asset) => asset.id === holdingForm.assetId) : undefined;
   const holdingCatalog = holdingAsset?.fixedIncomeFamilyCode
     ? catalog.filter((item) => item.familyCode === holdingAsset.fixedIncomeFamilyCode)
@@ -645,6 +892,18 @@ export function AssetsPanel({
 
   return (
     <div className="space-y-6">
+      {integrationReview.length > 0 && (
+        <div className="flex flex-col gap-4 rounded-2xl border border-[var(--primary)]/45 bg-[var(--primary)]/10 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 size-5 shrink-0 text-[var(--primary)]" />
+            <div>
+              <p className="font-semibold">{integrationReview.length} investimento(s) precisam de revisão</p>
+              <p className="mt-1 text-sm text-[var(--muted-foreground)]">Confirme exposição, grupo ou indexação antes de incluí-los no diagrama.</p>
+            </div>
+          </div>
+          <Button onClick={() => openReview(integrationReview[0])}>Revisar integração</Button>
+        </div>
+      )}
       <div className="grid gap-6 xl:grid-cols-[1fr_340px]">
         <Card>
           <CardHeader className="gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -653,9 +912,6 @@ export function AssetsPanel({
               <p className="mt-1 text-sm text-[var(--muted-foreground)]">{assets.length} ativos · {formatMoney(total)}</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button variant="outline" onClick={() => setBrapiDialogOpen(true)} disabled={pending}>
-                <KeyRound className="size-4" /> {brapiCredential.configured && brapiCredential.lastFour ? `brapi ••••${brapiCredential.lastFour}` : "Configurar brapi"}
-              </Button>
               <Button variant="outline" onClick={refreshBrapiMarketPrices} disabled={pending || !assets.some((asset) => asset.holdings.some((holding) => holding.pricingSource === "BRAPI"))}><RefreshCw className="size-4" /> Atualizar B3</Button>
               <input ref={fileInput} className="sr-only" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => event.target.files?.[0] && void importFile(event.target.files[0])} />
               <Button variant="outline" onClick={() => fileInput.current?.click()}><Upload className="size-4" /> Importar XLSX</Button>
@@ -686,7 +942,7 @@ export function AssetsPanel({
             </div>
             {message && <p role="status" className="mb-4 rounded-xl bg-[var(--muted)] p-3 text-sm">{message}</p>}
             <div className="overflow-x-auto scrollbar-thin">
-              <table className="w-full min-w-[1040px] table-fixed text-left text-sm">
+              <table className={`w-full table-fixed text-left text-sm ${showAssetAveragePrice ? "min-w-[1150px]" : "min-w-[1030px]"}`}>
                 <colgroup>
                   <col className="w-[300px]" />
                   <col className="w-[100px]" />
@@ -694,6 +950,7 @@ export function AssetsPanel({
                   <col className="w-[115px]" />
                   <col className="w-[70px]" />
                   <col className="w-[110px]" />
+                  {showAssetAveragePrice && <col className="w-[120px]" />}
                   <col className="w-[115px]" />
                   <col className="w-[110px]" />
                 </colgroup>
@@ -705,14 +962,25 @@ export function AssetsPanel({
                     <th className="whitespace-nowrap px-3 py-3">% da carteira</th>
                     <th className="whitespace-nowrap px-3 py-3">Nota</th>
                     <th className="whitespace-nowrap px-3 py-3">Quantidade</th>
+                    {showAssetAveragePrice && <th className="whitespace-nowrap px-3 py-3">Preço médio</th>}
                     <th className="whitespace-nowrap px-3 py-3">Atualizado</th>
                     <th className="whitespace-nowrap px-3 py-3 text-right">Ações</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.map((asset) => {
-                    const expandable = asset.instrumentType === "FIXED_INCOME";
+                    const expandable = asset.instrumentType === "FIXED_INCOME" || asset.pluggyControlled || asset.holdings.length > 1;
+                    const showsApplicationCount = ["FIXED_INCOME", "MUTUAL_FUND"].includes(asset.instrumentType);
                     const expanded = expandedAssets.has(asset.id);
+                    const holdingColumns = {
+                      invested: asset.holdings.some((holding) => holding.investedValue !== null),
+                      quantity: ["STOCK", "ETF", "REAL_ESTATE_FUND", "REIT", "CRYPTO"].includes(asset.instrumentType),
+                      averagePrice: asset.holdings.some((holding) => holding.averagePricePaid !== null),
+                      profitability: asset.holdings.some((holding) => holdingProfitability(holding) !== null),
+                      purchaseDate: asset.holdings.some((holding) => holding.purchaseDate !== null),
+                      maturityDate: asset.holdings.some((holding) => holding.maturityDate !== null),
+                    };
+                    const holdingColumnCount = 4 + Object.values(holdingColumns).filter(Boolean).length;
                     return (
                       <Fragment key={asset.id}>
                         <tr className="border-b last:border-0">
@@ -737,33 +1005,85 @@ export function AssetsPanel({
                           </td>
                           <td className="whitespace-nowrap px-3">{formatMoney(asset.currentValue)}</td>
                           <td className="whitespace-nowrap px-3">{formatPercent(total ? currentValue(asset) / total * 100 : 0)}</td>
-                          <td className="whitespace-nowrap px-3"><span className="grid size-8 place-items-center rounded-full bg-[var(--muted)] font-semibold">{asset.score}</span></td>
-                          <td className="whitespace-nowrap px-3">{expandable ? `${asset.holdings.length} aplicação(ões)` : Number(asset.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 8 })}</td>
+                          <td className="whitespace-nowrap px-3">
+                            <span className="grid size-8 place-items-center rounded-full bg-[var(--muted)] font-semibold">{asset.score}</span>
+                            {asset.needsScore && <span className="mt-1 block text-[10px] text-[var(--primary)]">Revisar nota</span>}
+                          </td>
+                          <td className="whitespace-nowrap px-3">{showsApplicationCount ? `${asset.holdings.length} aplic.` : Number(asset.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 8 })}</td>
+                          {showAssetAveragePrice && <td className="whitespace-nowrap px-3">
+                            {asset.averagePricePaid == null
+                              ? "—"
+                              : (
+                                  <>
+                                    <span>{formatMoney(asset.averagePricePaid)}</span>
+                                    {asset.averagePriceCoverage < 0.999 && (
+                                      <span
+                                        className="mt-1 block text-[10px] text-[var(--primary)]"
+                                        title={`O histórico de compras disponível cobre ${(asset.averagePriceCoverage * 100).toLocaleString("pt-BR", { maximumFractionDigits: 0 })}% da posição atual.`}
+                                      >
+                                        Histórico parcial
+                                      </span>
+                                    )}
+                                  </>
+                                )}
+                          </td>}
                           <td className="whitespace-nowrap px-3 text-xs text-[var(--muted-foreground)]">{new Date(asset.updatedAt).toLocaleDateString("pt-BR")}</td>
                           <td className="px-3"><div className="flex justify-end"><Button variant="outline" size="sm" onClick={() => edit(asset)} aria-label={`Editar ${asset.ticker}`}><Pencil className="size-4" /> Editar</Button></div></td>
                         </tr>
                         {expandable && expanded && (
                           <tr className="border-b bg-[color-mix(in_srgb,var(--muted)_42%,transparent)]">
-                            <td colSpan={8} className="px-5 py-4">
+                            <td colSpan={showAssetAveragePrice ? 9 : 8} className="px-5 py-4">
                               <div className="mb-3 flex items-center justify-between gap-3">
-                                <div><strong className="text-sm">Aplicações do grupo</strong><p className="text-xs text-[var(--muted-foreground)]">O valor do grupo é a soma das aplicações abaixo.</p></div>
-                                <Button size="sm" onClick={() => startHolding(asset)}><Plus className="size-4" /> Adicionar aplicação</Button>
+                                <div><strong className="text-sm">Posições do ativo</strong><p className="text-xs text-[var(--muted-foreground)]">O valor é a soma das posições ativas abaixo.</p></div>
+                                {asset.instrumentType === "FIXED_INCOME" && <Button size="sm" onClick={() => startHolding(asset)}><Plus className="size-4" /> Adicionar aplicação</Button>}
                               </div>
                               {asset.holdings.length ? (
                                 <div className="overflow-x-auto rounded-xl border bg-[var(--card)]">
                                   <table className="w-full min-w-[920px] text-left text-xs">
-                                    <thead className="border-b text-[var(--muted-foreground)]"><tr><th className="px-3 py-2">Tipo / produto</th><th className="px-3 py-2">Emissor</th><th className="px-3 py-2">Investido</th><th className="px-3 py-2">Atual</th><th className="px-3 py-2">Taxa</th><th className="px-3 py-2">Compra</th><th className="px-3 py-2">Vencimento</th><th className="px-3 py-2 text-right">Ações</th></tr></thead>
+                                    <thead className="border-b text-[var(--muted-foreground)]"><tr><th className="px-3 py-2">Tipo / produto</th><th className="px-3 py-2">Emissor</th>{holdingColumns.invested && <th className="px-3 py-2">Investido</th>}<th className="px-3 py-2">Atual</th>{holdingColumns.quantity && <th className="px-3 py-2">Quantidade atual</th>}{holdingColumns.averagePrice && <th className="px-3 py-2">Preço médio</th>}{holdingColumns.profitability && <th className="px-3 py-2">Rentabilidade</th>}{holdingColumns.purchaseDate && <th className="px-3 py-2">Compra</th>}{holdingColumns.maturityDate && <th className="px-3 py-2">Vencimento</th>}<th className="px-3 py-2 text-right">Fonte / ações</th></tr></thead>
                                     <tbody>{asset.holdings.map((holding) => (
-                                      <tr key={holding.id} className="border-b last:border-0">
-                                        <td className="px-3 py-3"><strong className="block max-w-52 truncate" title={holding.typeName}>{holding.typeName}</strong><span className="block max-w-52 truncate text-[var(--muted-foreground)]" title={holding.productName}>{holding.productName}</span></td>
-                                        <td className="px-3 py-3">{holding.issuer}</td>
-                                        <td className="whitespace-nowrap px-3 py-3">{holding.investedValue == null ? "—" : formatMoney(holding.investedValue)}</td>
-                                        <td className="whitespace-nowrap px-3 py-3 font-semibold">{formatMoney(holding.currentValue)}</td>
-                                        <td className="whitespace-nowrap px-3 py-3">{holding.rateValue == null ? "—" : `${Number(holding.rateValue).toLocaleString("pt-BR")} ${holding.benchmark ?? ""}`}</td>
-                                        <td className="whitespace-nowrap px-3 py-3">{holding.purchaseDate ? new Date(holding.purchaseDate).toLocaleDateString("pt-BR") : "—"}</td>
-                                        <td className="whitespace-nowrap px-3 py-3">{holding.maturityDate ? new Date(holding.maturityDate).toLocaleDateString("pt-BR") : "—"}</td>
-                                        <td className="px-3 py-3"><div className="flex justify-end gap-2"><Button variant="ghost" size="sm" onClick={() => startHolding(asset, holding)}><Pencil className="size-3.5" /> Editar</Button><Button variant="ghost" size="sm" className="text-[var(--danger)]" onClick={() => setDeleteTarget({ kind: "holding", id: holding.id, label: holding.productName })}><Trash2 className="size-3.5" /> Excluir</Button></div></td>
-                                      </tr>
+                                      <Fragment key={holding.id}>
+                                        <tr className="border-b">
+                                          <td className="px-3 py-3"><strong className="block max-w-52 truncate" title={holding.typeName}>{holding.typeName}</strong><span className="block max-w-52 truncate text-[var(--muted-foreground)]" title={holding.productName}>{holding.productName}</span></td>
+                                          <td className="px-3 py-3">{holding.issuer}</td>
+                                          {holdingColumns.invested && <td className="whitespace-nowrap px-3 py-3">{holding.investedValue == null ? "—" : formatMoney(holding.investedValue)}</td>}
+                                          <td className="whitespace-nowrap px-3 py-3 font-semibold">{formatMoney(holding.currentValue)}</td>
+                                          {holdingColumns.quantity && <td className="whitespace-nowrap px-3 py-3">{Number(holding.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 8 })}</td>}
+                                          {holdingColumns.averagePrice && <td className="whitespace-nowrap px-3 py-3">{holding.averagePricePaid == null ? "—" : formatMoney(holding.averagePricePaid)}</td>}
+                                          {holdingColumns.profitability && <td className="whitespace-nowrap px-3 py-3">{holdingProfitability(holding) ?? "—"}</td>}
+                                          {holdingColumns.purchaseDate && <td className="whitespace-nowrap px-3 py-3">{holding.purchaseDate ? new Date(holding.purchaseDate).toLocaleDateString("pt-BR") : "—"}</td>}
+                                          {holdingColumns.maturityDate && <td className="whitespace-nowrap px-3 py-3">{holding.maturityDate ? new Date(holding.maturityDate).toLocaleDateString("pt-BR") : "—"}</td>}
+                                          <td className="px-3 py-3">
+                                            {holding.positionSource === "PLUGGY"
+                                              ? <div className="text-right"><span className="rounded-full bg-[var(--primary)]/12 px-2 py-1 text-[10px] font-semibold text-[var(--primary)]">Pluggy</span><span className="mt-1 block text-[10px] text-[var(--muted-foreground)]">{holding.providerStatus ?? "Sincronizado"}</span></div>
+                                              : <div className="flex justify-end gap-2"><Button variant="ghost" size="sm" onClick={() => startHolding(asset, holding)}><Pencil className="size-3.5" /> Editar</Button><Button variant="ghost" size="sm" className="text-[var(--danger)]" onClick={() => setDeleteTarget({ kind: "holding", id: holding.id, label: holding.productName })}><Trash2 className="size-3.5" /> Excluir</Button></div>}
+                                          </td>
+                                        </tr>
+                                        {holding.transactions.length > 0 && (
+                                          <tr className="border-b last:border-0 bg-[var(--muted)]/15">
+                                            <td colSpan={holdingColumnCount} className="px-4 py-3">
+                                              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">Operações informadas ({holding.transactions.length})</p>
+                                              <div className="overflow-hidden rounded-lg border">
+                                                <div className="grid grid-cols-[110px_minmax(110px,1fr)_110px_130px_130px] gap-3 border-b bg-[var(--muted)]/25 px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
+                                                  <span>Data</span><span>Operação</span><span>Quantidade</span><span>Preço unitário</span><span className="text-right">Valor</span>
+                                                </div>
+                                                {holding.transactions.map((transaction) => {
+                                                  const operationAmount = transaction.netAmount ?? transaction.amount;
+                                                  return (
+                                                    <div key={transaction.id} className="grid grid-cols-[110px_minmax(110px,1fr)_110px_130px_130px] gap-3 border-b px-3 py-2 last:border-0">
+                                                      <span className="whitespace-nowrap">{new Date(transaction.tradeDate ?? transaction.date).toLocaleDateString("pt-BR")}</span>
+                                                      <span><strong>{operationTypeLabel(transaction.type)}</strong>{transaction.description && <span className="mt-0.5 block truncate text-[10px] text-[var(--muted-foreground)]" title={transaction.description}>{transaction.description}</span>}</span>
+                                                      <span className="whitespace-nowrap">{transaction.quantity === null ? "—" : Number(transaction.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 8 })}</span>
+                                                      <span className="whitespace-nowrap">{transaction.value === null ? "—" : reviewMoney(transaction.value, holding.currency)}</span>
+                                                      <span className="whitespace-nowrap text-right font-semibold">{operationAmount === null ? "—" : reviewMoney(operationAmount, holding.currency)}</span>
+                                                    </div>
+                                                  );
+                                                })}
+                                              </div>
+                                            </td>
+                                          </tr>
+                                        )}
+                                      </Fragment>
                                     ))}</tbody>
                                   </table>
                                 </div>
@@ -792,6 +1112,70 @@ export function AssetsPanel({
       </div>
 
       <Dialog
+        open={reviewForm !== null}
+        onOpenChange={(open) => !open && setReviewForm(null)}
+        title="Revisar integração Pluggy"
+        className="max-w-5xl"
+        footer={reviewForm && (
+          <>
+            <Button type="button" variant="outline" onClick={excludeReview} disabled={pending}>Manter só no Open Finance</Button>
+            <Button type="submit" form="pluggy-review-form" disabled={pending}>{pending ? "Integrando…" : "Integrar ao diagrama"}</Button>
+          </>
+        )}
+      >
+        {reviewForm && (
+          <form id="pluggy-review-form" onSubmit={submitReview} className="space-y-5">
+            <div className="rounded-xl border bg-[var(--muted)]/30 p-4">
+              <strong className="block">{reviewForm.investmentName}</strong>
+              <p className="mt-1 text-sm text-[var(--muted-foreground)]">{reviewForm.institution} · {reviewForm.providerType}{reviewForm.providerSubtype ? ` / ${reviewForm.providerSubtype}` : ""}</p>
+              <p className="mt-2 font-semibold">{formatMoney(reviewForm.balance)}</p>
+              {reviewForm.reviewReason && <p className="mt-3 text-sm text-[var(--primary)]">{reviewForm.reviewReason}</p>}
+            </div>
+            <PluggyReviewSourceData review={reviewForm} />
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="review-instrument">Instrumento</Label>
+                <Select id="review-instrument" className="w-full" value={reviewForm.instrumentType} onChange={(event) => setReviewForm({ ...reviewForm, instrumentType: event.target.value as InstrumentTypeKey | "" })} required>
+                  <option value="">Selecione</option>
+                  {INSTRUMENT_TYPES.map((instrumentType) => <option key={instrumentType} value={instrumentType}>{INSTRUMENT_TYPE_META[instrumentType].label}</option>)}
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="review-exposure">Classe para metas e cálculos</Label>
+                <Select id="review-exposure" className="w-full" value={reviewForm.investmentClass} onChange={(event) => setReviewForm({ ...reviewForm, investmentClass: event.target.value as InvestmentClassKey | "" })} required>
+                  <option value="">Selecione</option>
+                  {INVESTMENT_CLASSES.map((investmentClass) => <option key={investmentClass} value={investmentClass}>{INVESTMENT_CLASS_META[investmentClass].label}</option>)}
+                </Select>
+              </div>
+              {(reviewForm.instrumentType === "FIXED_INCOME" || (reviewForm.instrumentType === "ETF" && ["FIXED_INCOME", "INTERNATIONAL_FIXED_INCOME"].includes(reviewForm.investmentClass))) && (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="review-family">Família</Label>
+                    <Select id="review-family" className="w-full" value={reviewForm.familyCode} onChange={(event) => setReviewForm({ ...reviewForm, familyCode: event.target.value })} required>
+                      <option value="">Selecione</option>
+                      {fixedIncomeFamilies.map((family) => <option key={family.code} value={family.code}>{family.name}</option>)}
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="review-indexation">Indexação</Label>
+                    <Select id="review-indexation" className="w-full" value={reviewForm.indexation} onChange={(event) => setReviewForm({ ...reviewForm, indexation: event.target.value as FixedIncomeIndexationKey | "" })} required>
+                      <option value="">Selecione</option>
+                      {FIXED_INCOME_INDEXATIONS.map((indexation) => <option key={indexation} value={indexation}>{FIXED_INCOME_INDEXATION_META[indexation].label}</option>)}
+                    </Select>
+                  </div>
+                </>
+              )}
+              <div className="space-y-2 sm:col-span-2">
+                <Label htmlFor="review-score">Nota inicial</Label>
+                <Input id="review-score" type="number" min="-30" max="30" value={reviewForm.score} onChange={(event) => setReviewForm({ ...reviewForm, score: Number(event.target.value) })} />
+                <p className="text-xs text-[var(--muted-foreground)]">Nota 0 inclui o ativo nos totais, mas não nas sugestões de aporte.</p>
+              </div>
+            </div>
+          </form>
+        )}
+      </Dialog>
+
+      <Dialog
         open={form !== null}
         onOpenChange={(open) => !open && setForm(null)}
         title={form?.id ? "Editar ativo" : "Adicionar ativo"}
@@ -807,7 +1191,7 @@ export function AssetsPanel({
           <form id="asset-modal-form" onSubmit={submit} className="space-y-5">
             <div className="space-y-2">
               <Label htmlFor="asset-instrument">Instrumento</Label>
-              <Select id="asset-instrument" className="w-full" value={form.instrumentType} disabled={Boolean(form.id)} onChange={(event) => {
+              <Select id="asset-instrument" className="w-full" value={form.instrumentType} onChange={(event) => {
                 const instrumentType = event.target.value as InstrumentTypeKey;
                 if (instrumentType === "FIXED_INCOME") {
                   setForm(null);
@@ -820,17 +1204,47 @@ export function AssetsPanel({
                   REAL_ESTATE_FUND: "REAL_ESTATE_FUNDS",
                   REIT: "REITS",
                   CRYPTO: "CRYPTO",
+                  MUTUAL_FUND: "BRAZILIAN_STOCKS",
                 };
+                const investmentClass = ["ETF", "MUTUAL_FUND"].includes(instrumentType) && form.id
+                  ? form.investmentClass
+                  : defaultClass[instrumentType];
+                const keepsFixedGroup = instrumentType === "ETF"
+                  && ["FIXED_INCOME", "INTERNATIONAL_FIXED_INCOME"].includes(investmentClass);
+                const questionType = ["ETF", "MUTUAL_FUND"].includes(instrumentType)
+                  ? null
+                  : questionTypeForClass(investmentClass);
                 setSelectedBrapiTicker(undefined);
                 setTickerOptions([]);
-                setForm({ ...emptyAsset, instrumentType, investmentClass: defaultClass[instrumentType] });
+                setTickerListOpen(false);
+                setForm({
+                  ...(form.id ? form : emptyAsset),
+                  instrumentType,
+                  investmentClass,
+                  fixedIncomeFamilyCode: keepsFixedGroup ? form.fixedIncomeFamilyCode : null,
+                  indexation: keepsFixedGroup ? form.indexation ?? "OTHER" : null,
+                });
+                setFormAnswers(questionType
+                  ? Object.fromEntries(
+                      questions
+                        .filter((question) => question.active && question.type === questionType)
+                        .map((question) => [
+                          question.id,
+                          form.id
+                            ? initialAnswers.find((answer) => answer.assetId === form.id && answer.questionId === question.id)?.answer ?? false
+                            : false,
+                        ]),
+                    )
+                  : {});
               }}>
-                {INSTRUMENT_TYPES.map((instrumentType) => <option key={instrumentType} value={instrumentType}>{INSTRUMENT_TYPE_META[instrumentType].label}</option>)}
+                {INSTRUMENT_TYPES
+                  .filter((instrumentType) => !form.id || instrumentType !== "FIXED_INCOME")
+                  .map((instrumentType) => <option key={instrumentType} value={instrumentType}>{INSTRUMENT_TYPE_META[instrumentType].label}</option>)}
               </Select>
             </div>
             <div className="space-y-2">
               <Label htmlFor="asset-class">Classe para metas e cálculos</Label>
-              <Select id="asset-class" className="w-full" value={form.investmentClass} disabled={Boolean(form.id && form.instrumentType !== "ETF")} onChange={(event) => {
+              <Select id="asset-class" className="w-full" value={form.investmentClass} disabled={Boolean(form.id && !["ETF", "MUTUAL_FUND"].includes(form.instrumentType))} onChange={(event) => {
                 const investmentClass = event.target.value as InvestmentClassKey;
                 const classInstrument: Partial<Record<InvestmentClassKey, InstrumentTypeKey>> = {
                   REAL_ESTATE_FUNDS: "REAL_ESTATE_FUND",
@@ -844,7 +1258,7 @@ export function AssetsPanel({
                 setForm({
                   ...form,
                   investmentClass,
-                  instrumentType: form.instrumentType === "ETF" ? "ETF" : classInstrument[investmentClass] ?? "STOCK",
+                  instrumentType: ["ETF", "MUTUAL_FUND"].includes(form.instrumentType) ? form.instrumentType : classInstrument[investmentClass] ?? "STOCK",
                   fixedIncomeFamilyCode: keepsFixedGroup ? form.fixedIncomeFamilyCode : null,
                   indexation: keepsFixedGroup ? form.indexation ?? "OTHER" : null,
                 });
@@ -958,8 +1372,9 @@ export function AssetsPanel({
                     </>
                   )}
                 </div>
-                <div className="space-y-2"><Label htmlFor="asset-quantity">Quantidade</Label><Input id="asset-quantity" type="number" min="0" step="any" value={form.quantity} onChange={(event) => setForm({ ...form, quantity: Number(event.target.value) })} required /></div>
-                {simpleScoreForm && <div className="space-y-2 sm:col-span-2"><Label htmlFor="asset-strength">{form.instrumentType === "ETF" ? "Nota do ETF (manual)" : "Nota de força"}</Label><Input id="asset-strength" type="number" min="0" max="30" value={form.score} onChange={(event) => setForm({ ...form, score: Number(event.target.value) })} /></div>}
+                <div className="space-y-2"><Label htmlFor="asset-quantity">Quantidade</Label><Input id="asset-quantity" type="number" min="0" step="any" value={form.quantity} onChange={(event) => setForm({ ...form, quantity: Number(event.target.value) })} disabled={editingAsset?.pluggyControlled} required /></div>
+                {editingAsset?.pluggyControlled && <p className="text-xs text-[var(--muted-foreground)] sm:col-span-2">A quantidade é controlada pela Pluggy e será atualizada na próxima sincronização.</p>}
+                {simpleScoreForm && <div className="space-y-2 sm:col-span-2"><Label htmlFor="asset-strength">{form.instrumentType === "ETF" ? "Nota do ETF (manual)" : form.instrumentType === "MUTUAL_FUND" ? "Nota do fundo (manual)" : "Nota de força"}</Label><Input id="asset-strength" type="number" min="-30" max="30" value={form.score} onChange={(event) => setForm({ ...form, score: Number(event.target.value) })} /></div>}
             </div>
 
             {form.id && formQuestionType && (
@@ -1029,7 +1444,7 @@ export function AssetsPanel({
                 <option value="INTERNATIONAL_FIXED_INCOME">Renda fixa internacional</option>
               </Select>
             </div>
-            <div className="space-y-2 sm:col-span-2"><Label htmlFor="fixed-score">Nota do grupo</Label><Input id="fixed-score" type="number" min="0" max="30" value={fixedGroupForm.score} onChange={(event) => setFixedGroupForm({ ...fixedGroupForm, score: Number(event.target.value) })} required /></div>
+            <div className="space-y-2 sm:col-span-2"><Label htmlFor="fixed-score">Nota do grupo</Label><Input id="fixed-score" type="number" min="-30" max="30" value={fixedGroupForm.score} onChange={(event) => setFixedGroupForm({ ...fixedGroupForm, score: Number(event.target.value) })} required /></div>
             <p className="text-sm text-[var(--muted-foreground)] sm:col-span-2">O grupo pode ser salvo vazio. As aplicações reais são adicionadas ao expandir a linha na carteira.</p>
           </form>
         )}
@@ -1064,54 +1479,6 @@ export function AssetsPanel({
             <div className="space-y-2"><Label htmlFor="holding-maturity-date">Vencimento</Label><Input id="holding-maturity-date" type="date" value={holdingForm.maturityDate} onChange={(event) => setHoldingForm({ ...holdingForm, maturityDate: event.target.value })} /></div>
           </form>
         )}
-      </Dialog>
-
-      <Dialog
-        open={brapiDialogOpen}
-        onOpenChange={(open) => {
-          setBrapiDialogOpen(open);
-          if (!open) {
-            setBrapiApiKey("");
-            setBrapiError(undefined);
-          }
-        }}
-        title="Configurar brapi"
-        description="Cada usuário conecta sua própria chave para consultar cotações de ações brasileiras e fundos imobiliários."
-        className="max-w-xl"
-        footer={(
-          <>
-            {brapiCredential.configured && <Button type="button" variant="danger" onClick={removeBrapiCredential} disabled={pending}>Remover chave</Button>}
-            <Button type="submit" form="brapi-credential-form" disabled={pending || brapiApiKey.trim().length < 8}>{pending ? "Validando…" : "Validar e salvar"}</Button>
-          </>
-        )}
-      >
-        <form id="brapi-credential-form" onSubmit={configureBrapi} className="space-y-4">
-          {brapiError && <p role="alert" className="rounded-xl bg-[color-mix(in_srgb,var(--danger)_14%,transparent)] p-3 text-sm text-[var(--danger)]">{brapiError}</p>}
-          {brapiCredential.configured && brapiCredential.lastFour && (
-            <p className="rounded-xl border bg-[var(--muted)] p-3 text-sm">
-              Chave conectada terminando em <strong>{brapiCredential.lastFour}</strong>.
-            </p>
-          )}
-          <div className="space-y-2">
-            <Label htmlFor="brapi-api-key">Chave de API da brapi</Label>
-            <Input
-              id="brapi-api-key"
-              type="password"
-              value={brapiApiKey}
-              onChange={(event) => setBrapiApiKey(event.target.value)}
-              placeholder={brapiCredential.configured ? "Cole uma nova chave para substituir a atual" : "Cole sua chave da brapi"}
-              autoComplete="off"
-              maxLength={2000}
-              required
-            />
-          </div>
-          <p className="text-sm leading-6 text-[var(--muted-foreground)]">
-            A chave é validada pela brapi no backend, armazenada criptografada e nunca enviada ao navegador após o salvamento.
-          </p>
-          <a className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--primary)] hover:underline" href="https://brapi.dev/dashboard" target="_blank" rel="noreferrer">
-            Obter chave no painel da brapi <ExternalLink className="size-4" />
-          </a>
-        </form>
       </Dialog>
 
       <ConfirmDialog

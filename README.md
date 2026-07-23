@@ -1,4 +1,6 @@
-# Aurum Finanças
+# UOVP Finanças
+
+Uma Outra Verdade Possível.
 
 Aplicação financeira multiusuário em Next.js que reúne carteira de investimentos, orçamento doméstico, simuladores, mapa de risco e FAQ. A interface replica o escopo funcional verificado no menu lateral do aplicativo de referência, sem o cabeçalho de produtos externos.
 

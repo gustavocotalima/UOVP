@@ -10,7 +10,7 @@ export const INVESTMENT_CLASSES = [
 
 export type InvestmentClassKey = (typeof INVESTMENT_CLASSES)[number];
 
-export const INSTRUMENT_TYPES = ["STOCK", "ETF", "REAL_ESTATE_FUND", "REIT", "CRYPTO", "FIXED_INCOME"] as const;
+export const INSTRUMENT_TYPES = ["STOCK", "ETF", "REAL_ESTATE_FUND", "REIT", "CRYPTO", "FIXED_INCOME", "MUTUAL_FUND"] as const;
 export type InstrumentTypeKey = (typeof INSTRUMENT_TYPES)[number];
 
 export const INSTRUMENT_TYPE_META: Record<InstrumentTypeKey, { label: string; color: string }> = {
@@ -20,6 +20,7 @@ export const INSTRUMENT_TYPE_META: Record<InstrumentTypeKey, { label: string; co
   REIT: { label: "REIT", color: "#ec6f66" },
   CRYPTO: { label: "Cripto", color: "#f28e2b" },
   FIXED_INCOME: { label: "Renda fixa", color: "#59a14f" },
+  MUTUAL_FUND: { label: "Fundo", color: "#6f8fd8" },
 };
 
 export const FIXED_INCOME_INDEXATIONS = ["PRE_FIXED", "POST_FIXED", "INFLATION", "OTHER"] as const;

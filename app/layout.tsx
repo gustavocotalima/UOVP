@@ -3,7 +3,7 @@ import "./globals.css";
 import { ThemeProvider } from "@/components/layout/theme-provider";
 
 export const metadata: Metadata = {
-  title: { default: "Aurum Finanças", template: "%s · Aurum" },
+  title: { default: "UOVP — Uma Outra Verdade Possível", template: "%s · UOVP" },
   description: "Carteira, orçamento e ferramentas financeiras em um só lugar.",
 };
 

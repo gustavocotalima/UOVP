@@ -24,11 +24,36 @@ enum InstrumentType {
   REIT
   CRYPTO
   FIXED_INCOME
+  MUTUAL_FUND
 }
 
 enum PricingSource {
   MANUAL
   BRAPI
+  PLUGGY
+}
+
+enum PositionSource {
+  MANUAL
+  PLUGGY
+}
+
+enum ClassificationSource {
+  AUTO
+  EXISTING_OVERRIDE
+  USER_OVERRIDE
+}
+
+enum PluggyDiagramMappingStatus {
+  MAPPED
+  NEEDS_REVIEW
+  EXCLUDED
+}
+
+enum SuggestionExecutionStatus {
+  PENDING
+  AWAITING_SYNC
+  EXECUTED
 }
 
 enum FixedIncomeIndexation {
@@ -59,6 +84,21 @@ enum BudgetCategory {
   KNOWLEDGE
 }
 
+enum FinancialDataSource {
+  PLUGGY
+  MANUAL
+}
+
+enum FinancialAccountType {
+  BANK_ACCOUNT
+  CREDIT_CARD
+}
+
+enum FinanceTransactionKind {
+  INCOME
+  EXPENSE
+}
+
 enum BalanceSheetCategory {
   RECEIVABLES
   INVESTMENTS
@@ -76,25 +116,32 @@ enum SimulationStatus {
 }
 
 model User {
-  id                      String                   @id @default(cuid())
+  id                      String                        @id @default(cuid())
   name                    String?
-  email                   String?                  @unique
+  email                   String?                       @unique
   emailVerified           DateTime?
-  image                    String?
-  passwordHash             String?
-  sessionVersion           Int                      @default(0)
-  createdAt                DateTime                 @default(now())
-  updatedAt                DateTime                 @updatedAt
-  accounts                 Account[]
-  sessions                 Session[]
-  preference               UserPreference?
-  portfolio                Portfolio?
-  investmentTargets        InvestmentTarget[]
-  diagramQuestions         DiagramQuestion[]
-  budgetMonths             BudgetMonth[]
-  recurringExpenses        RecurringExpense[]
-  balanceSheetEntries      BalanceSheetEntry[]
-  contributionSimulations  ContributionSimulation[]
+  image                   String?
+  passwordHash            String?
+  sessionVersion          Int                           @default(0)
+  createdAt               DateTime                      @default(now())
+  updatedAt               DateTime                      @updatedAt
+  accounts                Account[]
+  sessions                Session[]
+  preference              UserPreference?
+  portfolio               Portfolio?
+  investmentTargets       InvestmentTarget[]
+  diagramQuestions        DiagramQuestion[]
+  budgetMonths            BudgetMonth[]
+  recurringExpenses       RecurringExpense[]
+  balanceSheetEntries     BalanceSheetEntry[]
+  contributionSimulations ContributionSimulation[]
+  pluggyItems             PluggyItem[]
+  financeProfile          FinanceProfile?
+  financeGoals            FinanceGoal[]
+  financialAccounts       FinancialAccount[]
+  financeTransactions     FinanceTransaction[]
+  financeTags             FinanceTag[]
+  pluggyDiagramLinks      PluggyInvestmentDiagramLink[]
 }
 
 model Account {
@@ -135,17 +182,23 @@ model VerificationToken {
 }
 
 model UserPreference {
-  id                       String    @id @default(cuid())
-  userId                   String    @unique
-  theme                    String    @default("system")
-  locale                   String    @default("pt-BR")
-  currency                 String    @default("BRL")
-  brapiApiKeyCiphertext    String?   @db.Text
-  brapiApiKeyLastFour      String?
-  brapiApiKeyUpdatedAt     DateTime?
-  createdAt                DateTime  @default(now())
-  updatedAt                DateTime  @updatedAt
-  user                     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                          String    @id @default(cuid())
+  userId                      String    @unique
+  theme                       String    @default("system")
+  locale                      String    @default("pt-BR")
+  currency                    String    @default("BRL")
+  brapiApiKeyCiphertext       String?   @db.Text
+  brapiApiKeyLastFour         String?
+  brapiApiKeyUpdatedAt        DateTime?
+  pluggyClientIdCiphertext     String?   @db.Text
+  pluggyClientIdLastFour       String?
+  pluggyClientSecretCiphertext String?   @db.Text
+  pluggyClientSecretLastFour   String?
+  pluggyCredentialUpdatedAt    DateTime?
+  showSoldInvestments         Boolean   @default(false)
+  createdAt                   DateTime  @default(now())
+  updatedAt                   DateTime  @updatedAt
+  user                        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Portfolio {
@@ -159,22 +212,25 @@ model Portfolio {
 }
 
 model Asset {
-  id                     String                  @id @default(cuid())
-  portfolioId            String
-  investmentClass        InvestmentClass
-  instrumentType         InstrumentType
-  ticker                 String
-  name                   String
-  fixedIncomeFamilyCode  String?
-  indexation             FixedIncomeIndexation?
-  score                  Int                     @default(0)
-  createdAt              DateTime                @default(now())
-  updatedAt              DateTime                @updatedAt
-  portfolio              Portfolio               @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
-  fixedIncomeFamily      FixedIncomeFamily?      @relation(fields: [fixedIncomeFamilyCode], references: [code], onDelete: Restrict)
-  holdings               AssetHolding[]
-  answers                AssetQuestionAnswer[]
-  suggestions            ContributionSuggestion[]
+  id                    String                   @id @default(cuid())
+  portfolioId           String
+  investmentClass       InvestmentClass
+  instrumentType        InstrumentType
+  ticker                String
+  name                  String
+  fixedIncomeFamilyCode String?
+  indexation            FixedIncomeIndexation?
+  score                 Int                      @default(0)
+  instrumentSource      ClassificationSource     @default(AUTO)
+  exposureSource        ClassificationSource     @default(AUTO)
+  groupSource           ClassificationSource     @default(AUTO)
+  createdAt             DateTime                 @default(now())
+  updatedAt             DateTime                 @updatedAt
+  portfolio             Portfolio                @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+  fixedIncomeFamily     FixedIncomeFamily?       @relation(fields: [fixedIncomeFamilyCode], references: [code], onDelete: Restrict)
+  holdings              AssetHolding[]
+  answers               AssetQuestionAnswer[]
+  suggestions           ContributionSuggestion[]
 
   @@unique([portfolioId, investmentClass, ticker])
   @@index([portfolioId, investmentClass])
@@ -215,33 +271,38 @@ model AssetCatalogItem {
 }
 
 model AssetHolding {
-  id              String          @id @default(cuid())
-  assetId         String
-  catalogItemId   Int?
-  customTypeName  String?
-  issuer          String
-  productName     String
-  pricingSource   PricingSource
-  ticker          String?
-  brapiAssetType  String?
-  brapiSubType    String?
-  currency        String          @default("BRL")
-  quantity        Decimal         @default(0) @db.Decimal(30, 10)
-  unitPrice       Decimal         @default(0) @db.Decimal(30, 10)
-  investedValue   Decimal?        @db.Decimal(30, 2)
-  currentValue    Decimal?        @db.Decimal(30, 2)
-  fractional      Boolean         @default(false)
-  rateConvention  RateConvention?
-  benchmark       String?
-  rateValue       Decimal?        @db.Decimal(12, 6)
-  purchaseDate    DateTime?
-  maturityDate    DateTime?
-  logoUrl         String?
-  priceUpdatedAt  DateTime?
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
-  asset           Asset           @relation(fields: [assetId], references: [id], onDelete: Cascade)
-  catalogItem     AssetCatalogItem? @relation(fields: [catalogItemId], references: [id], onDelete: SetNull)
+  id                   String                       @id @default(cuid())
+  assetId              String
+  catalogItemId        Int?
+  customTypeName       String?
+  issuer               String
+  productName          String
+  pricingSource        PricingSource
+  positionSource       PositionSource               @default(MANUAL)
+  ticker               String?
+  brapiAssetType       String?
+  brapiSubType         String?
+  currency             String                       @default("BRL")
+  quantity             Decimal                      @default(0) @db.Decimal(30, 10)
+  unitPrice            Decimal                      @default(0) @db.Decimal(30, 10)
+  investedValue        Decimal?                     @db.Decimal(30, 2)
+  currentValue         Decimal?                     @db.Decimal(30, 2)
+  providerCurrentValue Decimal?                     @db.Decimal(30, 2)
+  includedInTotals     Boolean                      @default(true)
+  supersededAt         DateTime?
+  fractional           Boolean                      @default(false)
+  rateConvention       RateConvention?
+  benchmark            String?
+  rateValue            Decimal?                     @db.Decimal(12, 6)
+  purchaseDate         DateTime?
+  maturityDate         DateTime?
+  logoUrl              String?
+  priceUpdatedAt       DateTime?
+  createdAt            DateTime                     @default(now())
+  updatedAt            DateTime                     @updatedAt
+  asset                Asset                        @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  catalogItem          AssetCatalogItem?            @relation(fields: [catalogItemId], references: [id], onDelete: SetNull)
+  pluggyDiagramLink    PluggyInvestmentDiagramLink?
 
   @@index([assetId])
   @@index([pricingSource, ticker])
@@ -249,13 +310,13 @@ model AssetHolding {
 }
 
 model InvestmentTarget {
-  id               String          @id @default(cuid())
-  userId           String
-  investmentClass  InvestmentClass
-  percentage       Decimal         @db.Decimal(5, 2)
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
-  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id              String          @id @default(cuid())
+  userId          String
+  investmentClass InvestmentClass
+  percentage      Decimal         @db.Decimal(5, 2)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, investmentClass])
   @@index([userId])
@@ -272,31 +333,31 @@ model InvestorProfilePreset {
 }
 
 model DiagramQuestion {
-  id          String       @id @default(cuid())
-  userId      String?
-  type        DiagramType
-  criterion   String       @default("CRITÉRIO")
-  text        String
-  sortOrder   Int          @default(0)
-  active      Boolean      @default(true)
-  isDefault   Boolean      @default(false)
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-  user        User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  answers     AssetQuestionAnswer[]
+  id        String                @id @default(cuid())
+  userId    String?
+  type      DiagramType
+  criterion String                @default("CRITÉRIO")
+  text      String
+  sortOrder Int                   @default(0)
+  active    Boolean               @default(true)
+  isDefault Boolean               @default(false)
+  createdAt DateTime              @default(now())
+  updatedAt DateTime              @updatedAt
+  user      User?                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  answers   AssetQuestionAnswer[]
 
   @@index([userId, type, sortOrder])
 }
 
 model AssetQuestionAnswer {
-  id          String          @id @default(cuid())
-  assetId     String
-  questionId  String
-  answer      Boolean
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
-  asset       Asset           @relation(fields: [assetId], references: [id], onDelete: Cascade)
-  question    DiagramQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  id         String          @id @default(cuid())
+  assetId    String
+  questionId String
+  answer     Boolean
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+  asset      Asset           @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  question   DiagramQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
 
   @@unique([assetId, questionId])
   @@index([questionId])
@@ -319,30 +380,326 @@ model BudgetMonth {
 }
 
 model BudgetTarget {
-  id             String         @id @default(cuid())
-  budgetMonthId  String
-  category       BudgetCategory
-  percentage     Decimal        @db.Decimal(5, 2)
-  budgetMonth    BudgetMonth    @relation(fields: [budgetMonthId], references: [id], onDelete: Cascade)
+  id            String         @id @default(cuid())
+  budgetMonthId String
+  category      BudgetCategory
+  percentage    Decimal        @db.Decimal(5, 2)
+  budgetMonth   BudgetMonth    @relation(fields: [budgetMonthId], references: [id], onDelete: Cascade)
 
   @@unique([budgetMonthId, category])
 }
 
-model Expense {
-  id                   String             @id @default(cuid())
-  budgetMonthId        String
-  recurringExpenseId   String?
-  name                 String
-  amount               Decimal            @db.Decimal(20, 2)
-  category             BudgetCategory
-  spentAt              DateTime
-  createdAt            DateTime           @default(now())
-  updatedAt            DateTime           @updatedAt
-  budgetMonth          BudgetMonth        @relation(fields: [budgetMonthId], references: [id], onDelete: Cascade)
-  recurringExpense     RecurringExpense?  @relation(fields: [recurringExpenseId], references: [id], onDelete: SetNull)
+model FinanceProfile {
+  id                  String   @id @default(cuid())
+  userId              String   @unique
+  monthlyIncome       Decimal  @default(0) @db.Decimal(20, 2)
+  financialMonthStart Int      @default(1)
+  objectives          String?  @db.Text
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
 
-  @@index([budgetMonthId, category])
+model FinanceGoal {
+  id         String         @id @default(cuid())
+  userId     String
+  category   BudgetCategory
+  percentage Decimal        @db.Decimal(5, 2)
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, category])
+  @@index([userId])
+}
+
+model FinancialAccount {
+  id                  String               @id @default(cuid())
+  userId              String
+  source              FinancialDataSource
+  externalId          String?              @unique
+  providerItemId      String?
+  type                FinancialAccountType
+  subtype             String?
+  name                String
+  institutionName     String?
+  institutionImageUrl String?
+  accountNumber       String?
+  agency              String?
+  numberLastFour      String?
+  bankCode            String?
+  brand               String?
+  balance             Decimal              @default(0) @db.Decimal(30, 2)
+  creditLimit         Decimal?             @db.Decimal(30, 2)
+  availableCredit     Decimal?             @db.Decimal(30, 2)
+  dueDay              Int?
+  closingDay          Int?
+  currencyCode        String               @default("BRL")
+  sortOrder           Int                  @default(0)
+  active              Boolean              @default(true)
+  providerUpdatedAt   DateTime?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  user                User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions        FinanceTransaction[]
+
+  @@index([userId, type, sortOrder])
+  @@index([userId, active])
+  @@index([userId, providerItemId])
+}
+
+model FinanceTransaction {
+  id                  String                  @id @default(cuid())
+  userId              String
+  accountId           String
+  source              FinancialDataSource
+  externalId          String?                 @unique
+  kind                FinanceTransactionKind
+  description         String
+  merchantName        String?
+  amount              Decimal                 @db.Decimal(30, 2)
+  currencyCode        String                  @default("BRL")
+  date                DateTime
+  referenceYear       Int
+  referenceMonth      Int
+  referenceOverridden Boolean                 @default(false)
+  budgetCategory      BudgetCategory?
+  providerCategory    String?
+  status              String?
+  operationType       String?
+  note                String?                 @db.Text
+  ignored             Boolean                 @default(false)
+  internalTransfer    Boolean                 @default(false)
+  deleted             Boolean                 @default(false)
+  installmentNumber   Int?
+  installmentTotal    Int?
+  providerUpdatedAt   DateTime?
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+  user                User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account             FinancialAccount        @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  tags                FinanceTransactionTag[]
+
+  @@index([userId, referenceYear, referenceMonth])
+  @@index([userId, date])
+  @@index([accountId, date])
+  @@index([userId, budgetCategory])
+}
+
+model FinanceTag {
+  id           String                  @id @default(cuid())
+  userId       String
+  name         String
+  color        String                  @default("#3b82f6")
+  createdAt    DateTime                @default(now())
+  updatedAt    DateTime                @updatedAt
+  user         User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions FinanceTransactionTag[]
+
+  @@unique([userId, name])
+  @@index([userId, name])
+}
+
+model FinanceTransactionTag {
+  transactionId String
+  tagId         String
+  transaction   FinanceTransaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  tag           FinanceTag         @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([transactionId, tagId])
+  @@index([tagId])
+}
+
+model Expense {
+  id                 String            @id @default(cuid())
+  budgetMonthId      String
+  recurringExpenseId String?
+  name               String
+  amount             Decimal           @db.Decimal(20, 2)
+  category           BudgetCategory
+  spentAt            DateTime
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  budgetMonth        BudgetMonth       @relation(fields: [budgetMonthId], references: [id], onDelete: Cascade)
+  recurringExpense   RecurringExpense? @relation(fields: [recurringExpenseId], references: [id], onDelete: SetNull)
+
   @@unique([budgetMonthId, recurringExpenseId])
+  @@index([budgetMonthId, category])
+}
+
+model PluggyItem {
+  id                    String             @id @default(cuid())
+  userId                String
+  pluggyItemId          String             @unique
+  connectorId           Int?
+  connectorName         String
+  institutionName       String?
+  connectorImageUrl     String?
+  connectorPrimaryColor String?
+  status                String
+  executionStatus       String?
+  errorCode             String?
+  errorMessage          String?            @db.Text
+  consentExpiresAt      DateTime?
+  providerUpdatedAt     DateTime?
+  lastSyncAt            DateTime?
+  syncPending           Boolean            @default(true)
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+  user                  User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accounts              PluggyAccount[]
+  investments           PluggyInvestment[]
+
+  @@index([userId, status])
+  @@index([userId, syncPending])
+}
+
+model PluggyAccount {
+  id                String              @id @default(cuid())
+  pluggyItemDbId    String
+  pluggyAccountId   String              @unique
+  type              String
+  subtype           String?
+  name              String
+  marketingName     String?
+  numberLastFour    String?
+  balance           Decimal             @default(0) @db.Decimal(30, 2)
+  currencyCode      String              @default("BRL")
+  providerCreatedAt DateTime?
+  providerUpdatedAt DateTime?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  item              PluggyItem          @relation(fields: [pluggyItemDbId], references: [id], onDelete: Cascade)
+  transactions      PluggyTransaction[]
+
+  @@index([pluggyItemDbId, type])
+}
+
+model PluggyTransaction {
+  id                      String        @id @default(cuid())
+  pluggyAccountDbId       String
+  pluggyTransactionId     String        @unique
+  description             String
+  amount                  Decimal       @db.Decimal(30, 2)
+  amountInAccountCurrency Decimal?      @db.Decimal(30, 2)
+  balance                 Decimal?      @db.Decimal(30, 2)
+  currencyCode            String        @default("BRL")
+  date                    DateTime
+  type                    String?
+  status                  String?
+  category                String?
+  categoryId              String?
+  operationType           String?
+  merchantName            String?
+  providerCreatedAt       DateTime?
+  providerUpdatedAt       DateTime?
+  createdAt               DateTime      @default(now())
+  updatedAt               DateTime      @updatedAt
+  account                 PluggyAccount @relation(fields: [pluggyAccountDbId], references: [id], onDelete: Cascade)
+
+  @@index([pluggyAccountDbId, date])
+  @@index([category])
+}
+
+model PluggyInvestment {
+  id                   String                        @id @default(cuid())
+  pluggyItemDbId       String
+  pluggyInvestmentId   String                        @unique
+  name                 String
+  code                 String?
+  isin                 String?
+  type                 String
+  subtype              String?
+  balance              Decimal                       @default(0) @db.Decimal(30, 2)
+  value                Decimal?                      @db.Decimal(30, 10)
+  quantity             Decimal?                      @db.Decimal(30, 10)
+  amount               Decimal?                      @db.Decimal(30, 2)
+  taxes                Decimal?                      @db.Decimal(30, 2)
+  taxes2               Decimal?                      @db.Decimal(30, 2)
+  amountProfit         Decimal?                      @db.Decimal(30, 2)
+  amountWithdrawal     Decimal?                      @db.Decimal(30, 2)
+  amountOriginal       Decimal?                      @db.Decimal(30, 2)
+  lastMonthRate        Decimal?                      @db.Decimal(20, 8)
+  annualRate           Decimal?                      @db.Decimal(20, 8)
+  lastTwelveMonthsRate Decimal?                      @db.Decimal(20, 8)
+  currencyCode         String                        @default("BRL")
+  quotaDate            DateTime?
+  owner                String?
+  number               String?
+  institutionName      String?
+  institutionNumber    String?
+  insurerName          String?
+  insurerCnpj          String?
+  issuer               String?
+  issuerCnpj           String?
+  rate                 Decimal?                      @db.Decimal(20, 8)
+  rateType             String?
+  fixedAnnualRate      Decimal?                      @db.Decimal(20, 8)
+  purchaseDate         DateTime?
+  dueDate              DateTime?
+  issueDate            DateTime?
+  gracePeriodDate      DateTime?
+  metadata             Json?
+  status               String?
+  providerCreatedAt    DateTime?
+  providerUpdatedAt    DateTime?
+  providerAvailable    Boolean                       @default(true)
+  providerRemovedAt    DateTime?
+  createdAt            DateTime                      @default(now())
+  updatedAt            DateTime                      @updatedAt
+  item                 PluggyItem                    @relation(fields: [pluggyItemDbId], references: [id], onDelete: Cascade)
+  transactions         PluggyInvestmentTransaction[]
+  diagramLink          PluggyInvestmentDiagramLink?
+
+  @@index([pluggyItemDbId, type])
+  @@index([code])
+}
+
+model PluggyInvestmentDiagramLink {
+  id                       String                     @id @default(cuid())
+  userId                   String
+  pluggyInvestmentDbId     String                     @unique
+  assetHoldingId           String?                    @unique
+  status                   PluggyDiagramMappingStatus @default(NEEDS_REVIEW)
+  classificationSource     ClassificationSource       @default(AUTO)
+  suggestedInvestmentClass InvestmentClass?
+  suggestedInstrumentType  InstrumentType?
+  suggestedFamilyCode      String?
+  suggestedIndexation      FixedIncomeIndexation?
+  reviewReason             String?
+  lastReconciledAt         DateTime?
+  createdAt                DateTime                   @default(now())
+  updatedAt                DateTime                   @updatedAt
+  user                     User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  investment               PluggyInvestment           @relation(fields: [pluggyInvestmentDbId], references: [id], onDelete: Cascade)
+  holding                  AssetHolding?              @relation(fields: [assetHoldingId], references: [id], onDelete: SetNull)
+
+  @@index([userId, status])
+  @@index([assetHoldingId])
+}
+
+model PluggyInvestmentTransaction {
+  id                            String           @id @default(cuid())
+  pluggyInvestmentDbId          String
+  pluggyInvestmentTransactionId String           @unique
+  description                   String?
+  type                          String
+  movementType                  String?
+  quantity                      Decimal?         @db.Decimal(30, 10)
+  value                         Decimal?         @db.Decimal(30, 10)
+  amount                        Decimal?         @db.Decimal(30, 2)
+  netAmount                     Decimal?         @db.Decimal(30, 2)
+  agreedRate                    Decimal?         @db.Decimal(20, 8)
+  brokerageNumber               String?
+  date                          DateTime
+  tradeDate                     DateTime?
+  expenses                      Json?
+  createdAt                     DateTime         @default(now())
+  updatedAt                     DateTime         @updatedAt
+  investment                    PluggyInvestment @relation(fields: [pluggyInvestmentDbId], references: [id], onDelete: Cascade)
+
+  @@index([pluggyInvestmentDbId, date])
+  @@index([type])
 }
 
 model RecurringExpense {
@@ -389,16 +746,20 @@ model ContributionSimulation {
 }
 
 model ContributionSuggestion {
-  id                            String                  @id @default(cuid())
-  simulationId                  String
-  assetId                       String
-  quantity                      Decimal                 @db.Decimal(30, 10)
-  value                         Decimal                 @db.Decimal(30, 10)
-  suggestionPercentage          Decimal                 @db.Decimal(12, 8)
-  totalAfterSuggestionPercentage Decimal                @db.Decimal(12, 8)
-  executed                      Boolean                 @default(false)
-  simulation                    ContributionSimulation  @relation(fields: [simulationId], references: [id], onDelete: Cascade)
-  asset                         Asset                   @relation(fields: [assetId], references: [id], onDelete: Restrict)
+  id                             String                    @id @default(cuid())
+  simulationId                   String
+  assetId                        String
+  quantity                       Decimal                   @db.Decimal(30, 10)
+  value                          Decimal                   @db.Decimal(30, 10)
+  suggestionPercentage           Decimal                   @db.Decimal(12, 8)
+  totalAfterSuggestionPercentage Decimal                   @db.Decimal(12, 8)
+  executed                       Boolean                   @default(false)
+  executionStatus                SuggestionExecutionStatus @default(PENDING)
+  awaitingSyncAt                 DateTime?
+  baselineQuantity               Decimal?                  @db.Decimal(30, 10)
+  baselineValue                  Decimal?                  @db.Decimal(30, 2)
+  simulation                     ContributionSimulation    @relation(fields: [simulationId], references: [id], onDelete: Cascade)
+  asset                          Asset                     @relation(fields: [assetId], references: [id], onDelete: Restrict)
 
   @@unique([simulationId, assetId])
   @@index([assetId])
@@ -413,12 +774,12 @@ model FaqCategory {
 }
 
 model FaqItem {
-  id          String      @id @default(cuid())
-  categoryId  String
-  question    String
-  answer      String
-  sortOrder   Int         @default(0)
-  category    FaqCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  id         String      @id @default(cuid())
+  categoryId String
+  question   String
+  answer     String
+  sortOrder  Int         @default(0)
+  category   FaqCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
 
   @@index([categoryId, sortOrder])
 }

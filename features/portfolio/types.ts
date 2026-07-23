@@ -7,7 +7,8 @@ export type AssetHoldingDto = {
   customTypeName: string | null;
   issuer: string;
   productName: string;
-  pricingSource: "MANUAL" | "BRAPI";
+  pricingSource: "MANUAL" | "BRAPI" | "PLUGGY";
+  positionSource: "MANUAL" | "PLUGGY";
   ticker: string | null;
   brapiAssetType: string | null;
   brapiSubType: string | null;
@@ -15,6 +16,8 @@ export type AssetHoldingDto = {
   quantity: string;
   unitPrice: string;
   investedValue: string | null;
+  averagePricePaid: string | null;
+  averagePriceCoverage: number;
   currentValue: string;
   fractional: boolean;
   rateConvention: RateConventionKey | null;
@@ -24,6 +27,22 @@ export type AssetHoldingDto = {
   maturityDate: string | null;
   logoUrl: string | null;
   priceUpdatedAt: string | null;
+  providerCurrentValue: string | null;
+  providerStatus: string | null;
+  providerAvailable: boolean;
+  transactions: Array<{
+    id: string;
+    description: string | null;
+    type: string;
+    movementType: string | null;
+    quantity: string | null;
+    value: string | null;
+    amount: string | null;
+    netAmount: string | null;
+    agreedRate: string | null;
+    date: string;
+    tradeDate: string | null;
+  }>;
   updatedAt: string;
 };
 
@@ -43,11 +62,15 @@ export type AssetDto = {
   unitPrice: string;
   manualValue: string | null;
   currentValue: string;
+  averagePricePaid: string | null;
+  averagePriceCoverage: number;
   fractional: boolean;
   score: number;
   priceUpdatedAt: string | null;
   updatedAt: string;
   holdings: AssetHoldingDto[];
+  pluggyControlled: boolean;
+  needsScore: boolean;
 };
 
 export type PortfolioDto = {
@@ -62,6 +85,66 @@ export type PortfolioDto = {
     name: string;
     summary: string;
     familyCode: string | null;
+  }>;
+  integrationReview: Array<{
+    id: string;
+    investmentName: string;
+    institution: string;
+    providerType: string;
+    providerSubtype: string | null;
+    balance: string;
+    code: string | null;
+    isin: string | null;
+    value: string | null;
+    quantity: string | null;
+    amount: string | null;
+    taxes: string | null;
+    taxes2: string | null;
+    amountProfit: string | null;
+    amountWithdrawal: string | null;
+    amountOriginal: string | null;
+    lastMonthRate: string | null;
+    annualRate: string | null;
+    lastTwelveMonthsRate: string | null;
+    currencyCode: string;
+    quotaDate: string | null;
+    owner: string | null;
+    number: string | null;
+    institutionNumber: string | null;
+    insurerName: string | null;
+    insurerCnpj: string | null;
+    issuer: string | null;
+    issuerCnpj: string | null;
+    rate: string | null;
+    rateType: string | null;
+    fixedAnnualRate: string | null;
+    purchaseDate: string | null;
+    dueDate: string | null;
+    issueDate: string | null;
+    gracePeriodDate: string | null;
+    metadata: unknown;
+    status: string | null;
+    updatedAt: string;
+    transactions: Array<{
+      id: string;
+      description: string | null;
+      type: string;
+      movementType: string | null;
+      quantity: string | null;
+      value: string | null;
+      amount: string | null;
+      netAmount: string | null;
+      agreedRate: string | null;
+      brokerageNumber: string | null;
+      date: string;
+      tradeDate: string | null;
+      expenses: unknown;
+    }>;
+    suggestedInstrumentType: InstrumentTypeKey | null;
+    suggestedInvestmentClass: InvestmentClassKey | null;
+    suggestedFamilyCode: string | null;
+    suggestedIndexation: FixedIncomeIndexationKey | null;
+    reviewReason: string | null;
   }>;
 };
 
@@ -90,6 +173,7 @@ export type SimulationDto = {
     value: string;
     suggestionPercentage: string;
     totalAfterSuggestionPercentage: string;
-    executed: boolean;
+      executed: boolean;
+      executionStatus: "PENDING" | "AWAITING_SYNC" | "EXECUTED";
   }>;
 };
