@@ -1,7 +1,8 @@
 import { prisma } from "@/lib/prisma";
+import { resolvePluggyInstitutionLogo } from "./institution-logo";
 
 export async function getOpenFinanceData(userId: string) {
-  const [items, preference] = await Promise.all([
+  const [items, preference, financialAccounts] = await Promise.all([
     prisma.pluggyItem.findMany({
       where: { userId },
       orderBy: { connectorName: "asc" },
@@ -33,7 +34,32 @@ export async function getOpenFinanceData(userId: string) {
         pluggyClientSecretCiphertext: true,
       },
     }),
+    prisma.financialAccount.findMany({
+      where: {
+        userId,
+        source: "PLUGGY",
+        providerItemId: { not: null },
+        active: true,
+      },
+      select: {
+        providerItemId: true,
+        bankCode: true,
+      },
+    }),
   ]);
+
+  const bankCodesByItem = new Map<string, Array<string | null>>();
+  for (const account of financialAccounts) {
+    if (!account.providerItemId) continue;
+    const bankCodes = bankCodesByItem.get(account.providerItemId) ?? [];
+    bankCodes.push(account.bankCode);
+    bankCodesByItem.set(account.providerItemId, bankCodes);
+  }
+  const itemLogo = (item: (typeof items)[number]) =>
+    resolvePluggyInstitutionLogo(
+      item.connectorImageUrl,
+      bankCodesByItem.get(item.pluggyItemId) ?? [],
+    );
 
   const accounts = items.flatMap((item) =>
     item.accounts.map((account) => ({
@@ -41,7 +67,7 @@ export async function getOpenFinanceData(userId: string) {
       pluggyAccountId: account.pluggyAccountId,
       itemId: item.pluggyItemId,
       institution: item.institutionName || item.connectorName,
-      institutionImageUrl: item.connectorImageUrl,
+      institutionImageUrl: itemLogo(item),
       type: account.type,
       subtype: account.subtype,
       name: account.marketingName || account.name,
@@ -78,7 +104,7 @@ export async function getOpenFinanceData(userId: string) {
       id: investment.id,
       institution: item.institutionName || item.connectorName,
       investmentInstitution: investment.institutionName,
-      institutionImageUrl: item.connectorImageUrl,
+      institutionImageUrl: itemLogo(item),
       name: investment.name,
       code: investment.code,
       isin: investment.isin,
@@ -143,7 +169,7 @@ export async function getOpenFinanceData(userId: string) {
       id: item.id,
       pluggyItemId: item.pluggyItemId,
       connectorName: item.institutionName || item.connectorName,
-      connectorImageUrl: item.connectorImageUrl,
+      connectorImageUrl: itemLogo(item),
       connectorPrimaryColor: item.connectorPrimaryColor,
       status: item.status,
       executionStatus: item.executionStatus,

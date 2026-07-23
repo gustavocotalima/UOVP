@@ -49,9 +49,13 @@ export function calculateBudgetCategories(
     const categoryTransactions = transactions.filter(
       (transaction) => transaction.budgetCategory === category && isReportable(transaction),
     );
-    const spent = categoryTransactions
+    const expenses = categoryTransactions
       .filter((transaction) => Number(transaction.amount) < 0)
       .reduce((total, transaction) => total + Math.abs(Number(transaction.amount)), 0);
+    const incomeOffsets = categoryTransactions
+      .filter((transaction) => Number(transaction.amount) > 0)
+      .reduce((total, transaction) => total + Number(transaction.amount), 0);
+    const spent = expenses - incomeOffsets;
     const target = income * (goals[category] / 100);
     return {
       category,
@@ -59,9 +63,11 @@ export function calculateBudgetCategories(
       color: BUDGET_CATEGORY_META[category].color,
       percentage: goals[category],
       spent,
+      expenses,
+      incomeOffsets,
       target,
       remaining: Math.max(0, target - spent),
-      usage: target > 0 ? (spent / target) * 100 : 0,
+      usage: target > 0 ? Math.max(0, (spent / target) * 100) : 0,
       exceeded: spent > target,
       transactions: categoryTransactions,
     };

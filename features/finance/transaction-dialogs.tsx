@@ -2,13 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { BUDGET_CATEGORIES, BUDGET_CATEGORY_META, type BudgetCategoryKey } from "@/features/budget/constants";
-import { formatMoney } from "@/lib/money";
+import { formatCurrency } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import { createFinanceTransactionAction, updateFinanceTransactionAction } from "./actions";
 import { FinanceNotice, runFinanceAction } from "./shared";
@@ -32,25 +33,40 @@ function TagPicker({
   selected: string[];
   onChange: (ids: string[]) => void;
 }) {
+  const selectedTags = tags.filter((tag) => selected.includes(tag.id));
+  const selectionLabel = selectedTags.length === 0
+    ? "Sem tags"
+    : selectedTags.length === 1
+      ? selectedTags[0].name
+      : `${selectedTags.length} tags selecionadas`;
+
   return (
-    <div className="flex flex-wrap gap-2">
-      {tags.map((tag) => {
-        const active = selected.includes(tag.id);
-        return (
-          <button
-            key={tag.id}
-            type="button"
-            aria-pressed={active}
-            onClick={() => onChange(active ? selected.filter((id) => id !== tag.id) : [...selected, tag.id])}
-            className={cn("rounded-full border px-3 py-1.5 text-xs font-medium transition", active && "border-transparent text-white")}
-            style={active ? { background: tag.color } : undefined}
-          >
-            {tag.name}
-          </button>
-        );
-      })}
-      {!tags.length && <p className="text-xs text-[var(--muted-foreground)]">Crie tags na seção Tags.</p>}
-    </div>
+    <details className="group">
+      <summary className="flex h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-xl border bg-[var(--card)] px-3 text-sm [&::-webkit-details-marker]:hidden">
+        <span className={cn("truncate", selectedTags.length === 0 && "text-[var(--muted-foreground)]")}>
+          {selectionLabel}
+        </span>
+        <ChevronDown className="size-4 shrink-0 text-[var(--muted-foreground)] transition-transform group-open:rotate-180" />
+      </summary>
+      <div className="mt-2 grid max-h-52 gap-1 overflow-y-auto rounded-xl border bg-[var(--card)] p-2 shadow-lg sm:grid-cols-2">
+        {tags.map((tag) => {
+          const active = selected.includes(tag.id);
+          return (
+            <label key={tag.id} className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm hover:bg-[var(--muted)]">
+              <input
+                type="checkbox"
+                checked={active}
+                onChange={(event) => onChange(event.target.checked ? [...selected, tag.id] : selected.filter((id) => id !== tag.id))}
+                className="size-4 accent-[var(--primary)]"
+              />
+              <span className="size-3 shrink-0 rounded-full" style={{ background: tag.color }} />
+              <span className="truncate">{tag.name}</span>
+            </label>
+          );
+        })}
+        {!tags.length && <p className="p-2 text-xs text-[var(--muted-foreground)]">Crie tags na seção Tags.</p>}
+      </div>
+    </details>
   );
 }
 
@@ -98,6 +114,11 @@ export function TransactionEditorDialog({
 
   if (!transaction) return null;
   const providerOwned = transaction.source === "PLUGGY";
+  const hasOriginalCurrency = Boolean(
+    transaction.originalAmount
+    && transaction.originalCurrencyCode
+    && transaction.originalCurrencyCode !== transaction.currencyCode,
+  );
   async function save() {
     if (!transaction) return;
     const parsedReference = parseMonth(reference);
@@ -135,7 +156,7 @@ export function TransactionEditorDialog({
     <Dialog
       open={open}
       onOpenChange={onOpenChange}
-      title={formatMoney(Number(transaction.amount))}
+      title={formatCurrency(transaction.amount, transaction.currencyCode)}
       description={new Intl.DateTimeFormat("pt-BR", { dateStyle: "long" }).format(new Date(transaction.date))}
       footer={<Button onClick={save} disabled={pending}>{pending ? "Salvando…" : "Salvar alterações"}</Button>}
     >
@@ -147,6 +168,19 @@ export function TransactionEditorDialog({
               Classificação Pluggy
             </p>
             <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
+              <ProviderDetail
+                label="Valor na moeda da conta"
+                value={formatCurrency(transaction.amount, transaction.currencyCode)}
+              />
+              {hasOriginalCurrency && (
+                <ProviderDetail
+                  label="Valor original"
+                  value={formatCurrency(
+                    transaction.originalAmount!,
+                    transaction.originalCurrencyCode!,
+                  )}
+                />
+              )}
               <ProviderDetail label="Categoria" value={transaction.providerCategory} />
               <ProviderDetail label="ID da categoria" value={transaction.providerCategoryId} />
               <ProviderDetail label="Comerciante" value={transaction.merchantName} />

@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { BUDGET_CATEGORIES, type BudgetCategoryKey } from "@/features/budget/constants";
 import { getPluggyCredentialStatus } from "@/features/open-finance/pluggy-credentials";
+import { resolvePluggyInstitutionLogo } from "@/features/open-finance/institution-logo";
 import { DEFAULT_FINANCE_TAGS } from "./classification";
 import type { FinanceData, FinanceGoalRecord, FinanceTransactionDto } from "./types";
 
@@ -57,6 +58,8 @@ function mapTransaction(
     paymentMethod: string | null;
     amount: { toString(): string };
     currencyCode: string;
+    originalAmount: { toString(): string } | null;
+    originalCurrencyCode: string | null;
     date: Date;
     referenceYear: number;
     referenceMonth: number;
@@ -78,17 +81,30 @@ function mapTransaction(
       type: "BANK_ACCOUNT" | "CREDIT_CARD";
       institutionName: string | null;
       institutionImageUrl: string | null;
+      bankCode: string | null;
+      providerItemId: string | null;
     };
     tags: Array<{ tag: { id: string; systemKey: string | null; name: string; color: string } }>;
     classificationRule: { id: string; matchLabel: string } | null;
   },
+  bankCodesByProviderItem: ReadonlyMap<string, Array<string | null>>,
 ): FinanceTransactionDto {
   return {
     id: transaction.id,
     accountId: transaction.accountId,
     accountName: transaction.account.name,
     accountType: transaction.account.type,
-    accountImageUrl: transaction.account.institutionImageUrl,
+    accountImageUrl: transaction.source === "PLUGGY"
+      ? resolvePluggyInstitutionLogo(
+          transaction.account.institutionImageUrl,
+          [
+            transaction.account.bankCode,
+            ...(transaction.account.providerItemId
+              ? bankCodesByProviderItem.get(transaction.account.providerItemId) ?? []
+              : []),
+          ],
+        )
+      : transaction.account.institutionImageUrl,
     institutionName: transaction.account.institutionName,
     source: transaction.source,
     kind: transaction.kind,
@@ -102,6 +118,8 @@ function mapTransaction(
     paymentMethod: transaction.paymentMethod,
     amount: transaction.amount.toString(),
     currencyCode: transaction.currencyCode,
+    originalAmount: transaction.originalAmount?.toString() ?? null,
+    originalCurrencyCode: transaction.originalCurrencyCode,
     date: transaction.date.toISOString(),
     referenceYear: transaction.referenceYear,
     referenceMonth: transaction.referenceMonth,
@@ -146,6 +164,8 @@ export async function getFinanceData(userId: string, year: number, month: number
             type: true,
             institutionName: true,
             institutionImageUrl: true,
+            bankCode: true,
+            providerItemId: true,
           },
         },
         tags: { include: { tag: true } },
@@ -168,7 +188,16 @@ export async function getFinanceData(userId: string, year: number, month: number
     getPluggyCredentialStatus(userId),
   ]);
 
-  const mappedTransactions = transactions.map(mapTransaction);
+  const bankCodesByProviderItem = new Map<string, Array<string | null>>();
+  for (const account of accounts) {
+    if (!account.providerItemId) continue;
+    const bankCodes = bankCodesByProviderItem.get(account.providerItemId) ?? [];
+    bankCodes.push(account.bankCode);
+    bankCodesByProviderItem.set(account.providerItemId, bankCodes);
+  }
+  const mappedTransactions = transactions.map((transaction) =>
+    mapTransaction(transaction, bankCodesByProviderItem),
+  );
   return {
     year,
     month,
@@ -191,7 +220,17 @@ export async function getFinanceData(userId: string, year: number, month: number
       subtype: account.subtype,
       name: account.name,
       institutionName: account.institutionName,
-      institutionImageUrl: account.institutionImageUrl,
+      institutionImageUrl: account.source === "PLUGGY"
+        ? resolvePluggyInstitutionLogo(
+            account.institutionImageUrl,
+            [
+              account.bankCode,
+              ...(account.providerItemId
+                ? bankCodesByProviderItem.get(account.providerItemId) ?? []
+                : []),
+            ],
+          )
+        : account.institutionImageUrl,
       accountNumber: account.accountNumber,
       agency: account.agency,
       numberLastFour: account.numberLastFour,

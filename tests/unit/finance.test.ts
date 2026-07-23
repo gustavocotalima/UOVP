@@ -74,6 +74,8 @@ function transaction(overrides: Partial<FinanceTransactionDto> = {}): FinanceTra
     paymentMethod: null,
     amount: "-100",
     currencyCode: "BRL",
+    originalAmount: null,
+    originalCurrencyCode: null,
     date: "2026-07-10T12:00:00.000Z",
     referenceYear: 2026,
     referenceMonth: 7,
@@ -107,7 +109,7 @@ describe("finanças AUVP", () => {
     expect(result).toEqual({ income: 1000, spent: 250, balance: 750 });
   });
 
-  it("usa apenas saídas no gasto da meta, mas mantém entradas categorizadas na lista", () => {
+  it("desconta entradas categorizadas do valor realizado na mesma meta", () => {
     const categories = calculateBudgetCategories(
       [
         transaction({ id: "expense", amount: "-300" }),
@@ -117,9 +119,34 @@ describe("finanças AUVP", () => {
       1000,
     );
     const fixed = categories.find((item) => item.category === "FIXED_COSTS");
-    expect(fixed?.spent).toBe(300);
+    expect(fixed?.spent).toBe(200);
+    expect(fixed?.expenses).toBe(300);
+    expect(fixed?.incomeOffsets).toBe(100);
     expect(fixed?.target).toBe(300);
     expect(fixed?.transactions).toHaveLength(2);
+  });
+
+  it("calcula somente o aumento líquido ao reinvestir um resgate", () => {
+    const categories = calculateBudgetCategories(
+      [
+        transaction({
+          id: "reinvestment",
+          amount: "-30000",
+          budgetCategory: "FINANCIAL_FREEDOM",
+        }),
+        transaction({
+          id: "redemption",
+          kind: "INCOME",
+          amount: "26399.73",
+          budgetCategory: "FINANCIAL_FREEDOM",
+        }),
+      ],
+      goals,
+      10000,
+    );
+    const freedom = categories.find((item) => item.category === "FINANCIAL_FREEDOM");
+    expect(freedom?.spent).toBeCloseTo(3600.27);
+    expect(freedom?.incomeOffsets).toBeCloseTo(26399.73);
   });
 
   it("agrupa despesas por tag e conserva o total sem tags", () => {

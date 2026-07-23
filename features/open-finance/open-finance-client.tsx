@@ -9,7 +9,6 @@ import {
   ArrowDownLeft,
   ArrowUpRight,
   BriefcaseBusiness,
-  Building2,
   ChevronDown,
   ChevronUp,
   CreditCard,
@@ -23,6 +22,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { InstitutionLogo } from "@/components/ui/institution-logo";
 import { SegmentedTabs } from "@/components/ui/segmented-tabs";
 import { cn } from "@/lib/utils";
 import type { OpenFinanceData } from "./data";
@@ -74,15 +74,6 @@ function statusLabel(status: string, executionStatus: string | null) {
   if (status === "UPDATED" && (!executionStatus || executionStatus === "SUCCESS")) return "Conectado";
   if (status.includes("UPDAT") || executionStatus === "PARTIAL_SUCCESS") return "Atualizando";
   return "Atenção";
-}
-
-function InstitutionLogo({ src, name }: { src: string | null; name: string }) {
-  return (
-    <span className="grid size-11 shrink-0 place-items-center overflow-hidden rounded-xl border bg-white p-1.5">
-      {src ? <Image src={src} alt="" width={44} height={44} unoptimized className="size-full object-contain" /> : <Building2 className="size-5 text-black/55" />}
-      <span className="sr-only">{name}</span>
-    </span>
-  );
 }
 
 export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {

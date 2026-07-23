@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useId, useRef, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { X } from "lucide-react";
+import { AlertTriangle, CircleHelp, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "./button";
 
@@ -99,8 +99,8 @@ export function ConfirmDialog({
   onOpenChange,
   title,
   description,
-  confirmLabel = "Sim",
-  cancelLabel = "Não",
+  confirmLabel = "Confirmar",
+  cancelLabel = "Cancelar",
   danger = false,
   pending = false,
   onConfirm,
@@ -115,6 +115,8 @@ export function ConfirmDialog({
   pending?: boolean;
   onConfirm: () => void;
 }) {
+  const Icon = danger ? AlertTriangle : CircleHelp;
+
   return (
     <Dialog
       open={open}
@@ -123,14 +125,77 @@ export function ConfirmDialog({
       className="max-w-lg"
       footer={
         <>
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={pending}>{cancelLabel}</Button>
-          <Button type="button" variant={danger ? "danger" : "default"} onClick={onConfirm} disabled={pending}>
+          <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => onOpenChange(false)} disabled={pending}>{cancelLabel}</Button>
+          <Button type="button" variant={danger ? "danger" : "default"} className="w-full sm:w-auto" onClick={onConfirm} disabled={pending}>
             {pending ? "Aguarde…" : confirmLabel}
           </Button>
         </>
       }
     >
-      <p className="text-sm leading-6 text-[var(--muted-foreground)]">{description}</p>
+      <div className="flex items-start gap-4 rounded-2xl border bg-[var(--muted)]/35 p-4">
+        <span
+          className={cn(
+            "grid size-10 shrink-0 place-items-center rounded-xl",
+            danger
+              ? "bg-[var(--danger)]/12 text-[var(--danger)]"
+              : "bg-[var(--primary)]/12 text-[var(--primary)]",
+          )}
+        >
+          <Icon className="size-5" />
+        </span>
+        <p className="pt-1 text-sm leading-6 text-[var(--muted-foreground)]">{description}</p>
+      </div>
     </Dialog>
   );
+}
+
+type ConfirmationOptions = {
+  title: string;
+  description: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  danger?: boolean;
+};
+
+export function useConfirmDialog() {
+  const [options, setOptions] = useState<ConfirmationOptions | null>(null);
+  const resolverRef = useRef<((confirmed: boolean) => void) | null>(null);
+
+  const settle = useCallback((confirmed: boolean) => {
+    const resolver = resolverRef.current;
+    resolverRef.current = null;
+    setOptions(null);
+    resolver?.(confirmed);
+  }, []);
+
+  const requestConfirmation = useCallback((nextOptions: ConfirmationOptions) => {
+    resolverRef.current?.(false);
+    return new Promise<boolean>((resolve) => {
+      resolverRef.current = resolve;
+      setOptions(nextOptions);
+    });
+  }, []);
+
+  useEffect(
+    () => () => {
+      resolverRef.current?.(false);
+      resolverRef.current = null;
+    },
+    [],
+  );
+
+  const confirmationDialog = (
+    <ConfirmDialog
+      open={Boolean(options)}
+      onOpenChange={(open) => !open && settle(false)}
+      title={options?.title ?? ""}
+      description={options?.description ?? ""}
+      confirmLabel={options?.confirmLabel}
+      cancelLabel={options?.cancelLabel}
+      danger={options?.danger}
+      onConfirm={() => settle(true)}
+    />
+  );
+
+  return { requestConfirmation, confirmationDialog };
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   classifyProviderTransaction,
+  financeDescriptionMatchesPrefix,
   financeRuleCandidates,
   normalizeFinanceRuleValue,
   preferredFinanceRuleCandidate,
@@ -99,6 +100,22 @@ describe("classificação financeira Pluggy", () => {
   it("normaliza regras exatas sem depender de caixa, acentos ou pontuação", () => {
     expect(normalizeFinanceRuleValue("MERCHANT_NAME", "  Café São João! ")).toBe("CAFE SAO JOAO");
     expect(normalizeFinanceRuleValue("DESCRIPTION", "PIX   enviado - José")).toBe("PIX ENVIADO JOSE");
+  });
+
+  it("classifica descrições por prefixo aceitando asterisco como curinga final", () => {
+    expect(normalizeFinanceRuleValue("DESCRIPTION_PREFIX", " if* ")).toBe("IF");
+    expect(financeDescriptionMatchesPrefix({
+      kind: "EXPENSE",
+      description: "IFD*BURGER PLACE",
+    }, "IF*")).toBe(true);
+    expect(financeDescriptionMatchesPrefix({
+      kind: "EXPENSE",
+      description: "IFOOD DIRETO",
+    }, "IF*")).toBe(true);
+    expect(financeDescriptionMatchesPrefix({
+      kind: "INCOME",
+      description: "CREDITO RESGATE FUNDO - WESTERN ASSET",
+    }, "credito resgate fundo")).toBe(true);
   });
 
   it("usa razão social e descrição bruta como fallback estável para regras aprendidas", () => {

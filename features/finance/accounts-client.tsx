@@ -1,13 +1,11 @@
 "use client";
 
-import Image from "next/image";
 import Script from "next/script";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowDown,
   ArrowUp,
-  Building2,
   CreditCard,
   Eye,
   EyeOff,
@@ -27,6 +25,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { InstitutionLogo } from "@/components/ui/institution-logo";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { formatMoney } from "@/lib/money";
@@ -36,6 +35,7 @@ import {
   reorderFinancialAccountsAction,
   saveFinancialAccountAction,
 } from "./actions";
+import { accountSubtypeLabel } from "./account-labels";
 import { calculateAccountTotals } from "./calculations";
 import { FinanceNotice, runFinanceAction } from "./shared";
 import type { FinanceData, FinancialAccountDto } from "./types";
@@ -289,7 +289,13 @@ export function AccountsClient({ data }: { data: FinanceData }) {
 }
 
 function AccountLogo({ account }: { account: FinancialAccountDto }) {
-  return <span className="grid size-11 shrink-0 place-items-center overflow-hidden rounded-xl border bg-white p-1.5">{account.institutionImageUrl ? <Image src={account.institutionImageUrl} alt="" width={44} height={44} unoptimized className="size-full object-contain" /> : account.type === "CREDIT_CARD" ? <CreditCard className="size-5 text-black/60" /> : <Building2 className="size-5 text-black/60" />}</span>;
+  return (
+    <InstitutionLogo
+      src={account.institutionImageUrl}
+      name={account.institutionName || account.name}
+      kind={account.type === "CREDIT_CARD" ? "card" : "bank"}
+    />
+  );
 }
 
 function AccountSummary({ label, value, icon: Icon, danger = false }: { label: string; value: number; icon: typeof Landmark; danger?: boolean }) {
@@ -305,7 +311,7 @@ function AccountSection({ title, accounts, view, onEdit, onDelete }: { title: st
           {accounts.map((account) => <AccountCard key={account.id} account={account} onEdit={onEdit} onDelete={onDelete} />)}
         </div>
       ) : (
-        <Card className="overflow-hidden"><div className="overflow-x-auto"><table className="w-full min-w-[820px] text-left text-sm"><thead className="border-b text-[11px] uppercase tracking-wide text-[var(--muted-foreground)]"><tr><th className="p-4">Conta</th><th>Tipo</th><th>Agência / Conta</th><th>Saldo</th><th>Sincronização</th><th className="pr-4 text-right">Ações</th></tr></thead><tbody className="divide-y">{accounts.map((account) => <tr key={account.id}><td className="p-4"><div className="flex items-center gap-3"><AccountLogo account={account} /><div><p className="font-semibold">{account.name}</p><p className="text-xs text-[var(--muted-foreground)]">{account.institutionName}</p></div></div></td><td>{account.type === "CREDIT_CARD" ? "Cartão de crédito" : account.subtype || "Conta bancária"}</td><td>{account.type === "CREDIT_CARD" ? `•••• ${account.numberLastFour || "—"}` : `${account.agency ? `Ag ${account.agency} · ` : ""}${account.accountNumber || "—"}`}</td><td className="font-semibold">{formatMoney(Number(account.balance))}</td><td className="text-xs text-[var(--muted-foreground)]">{account.providerUpdatedAt ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(account.providerUpdatedAt)) : "Manual"}</td><td className="pr-4"><div className="flex justify-end gap-1"><Button variant="ghost" size="icon" onClick={() => onEdit(account)} aria-label="Editar conta"><Pencil className="size-4" /></Button><Button variant="ghost" size="icon" onClick={() => onDelete(account)} aria-label="Excluir conta"><Trash2 className="size-4" /></Button></div></td></tr>)}</tbody></table></div></Card>
+        <Card className="overflow-hidden"><div className="overflow-x-auto"><table className="w-full min-w-[820px] text-left text-sm"><thead className="border-b text-[11px] uppercase tracking-wide text-[var(--muted-foreground)]"><tr><th className="p-4">Conta</th><th>Tipo</th><th>Agência / Conta</th><th>Saldo</th><th>Sincronização</th><th className="pr-4 text-right">Ações</th></tr></thead><tbody className="divide-y">{accounts.map((account) => <tr key={account.id}><td className="p-4"><div className="flex items-center gap-3"><AccountLogo account={account} /><div><p className="font-semibold">{account.name}</p><p className="text-xs text-[var(--muted-foreground)]">{account.institutionName}</p></div></div></td><td>{accountSubtypeLabel(account.subtype, account.type)}</td><td>{account.type === "CREDIT_CARD" ? `•••• ${account.numberLastFour || "—"}` : `${account.agency ? `Ag ${account.agency} · ` : ""}${account.accountNumber || "—"}`}</td><td className="font-semibold">{formatMoney(Number(account.balance))}</td><td className="text-xs text-[var(--muted-foreground)]">{account.providerUpdatedAt ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(account.providerUpdatedAt)) : "Manual"}</td><td className="pr-4"><div className="flex justify-end gap-1"><Button variant="ghost" size="icon" onClick={() => onEdit(account)} aria-label="Editar conta"><Pencil className="size-4" /></Button><Button variant="ghost" size="icon" onClick={() => onDelete(account)} aria-label="Excluir conta"><Trash2 className="size-4" /></Button></div></td></tr>)}</tbody></table></div></Card>
       )}
       {!accounts.length && <Card><CardContent className="py-10 text-center text-sm text-[var(--muted-foreground)]">Nenhuma conta nesta categoria.</CardContent></Card>}
     </section>
@@ -316,7 +322,85 @@ function AccountCard({ account, onEdit, onDelete }: { account: FinancialAccountD
   const [show, setShow] = useState(false);
   const used = Math.abs(Number(account.balance));
   const limit = account.creditLimit ? Number(account.creditLimit) : null;
-  return <Card><CardHeader className="flex-row items-start justify-between gap-3"><div className="flex min-w-0 items-center gap-3"><AccountLogo account={account} /><div className="min-w-0"><CardTitle className="truncate">{account.name}</CardTitle><p className="truncate text-xs text-[var(--muted-foreground)]">{account.type === "CREDIT_CARD" ? "Cartão de crédito" : account.subtype || "Conta bancária"}</p></div></div><div className="flex"><Button variant="ghost" size="icon" onClick={() => onEdit(account)} aria-label="Editar conta"><Pencil className="size-4" /></Button><Button variant="ghost" size="icon" onClick={() => onDelete(account)} aria-label="Excluir conta"><Trash2 className="size-4" /></Button></div></CardHeader><CardContent>{account.type === "BANK_ACCOUNT" ? <><p className="text-xs text-[var(--muted-foreground)]">Saldo disponível</p><p className="mt-1 text-2xl font-semibold">{formatMoney(Number(account.balance))}</p><p className="mt-4 text-xs text-[var(--muted-foreground)]">{account.providerUpdatedAt ? `Sincronizado em ${new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(account.providerUpdatedAt))}` : "Conta manual"}</p></> : <><div className="flex items-center gap-2"><p className="font-mono tracking-[0.14em]">{show ? `•••• •••• •••• ${account.numberLastFour || "0000"}` : "•••• •••• •••• ••••"}</p><Button variant="ghost" size="icon" onClick={() => setShow(!show)} aria-label={show ? "Ocultar numero" : "Mostrar numero"}>{show ? <EyeOff className="size-4" /> : <Eye className="size-4" />}</Button></div><div className="mt-5 grid grid-cols-2 gap-4"><div><p className="text-xs text-[var(--muted-foreground)]">Limite Total</p><p className="mt-1 font-semibold">{limit == null ? "•••" : formatMoney(limit)}</p></div><div><p className="text-xs text-[var(--muted-foreground)]">Utilizado</p><p className="mt-1 font-semibold">{formatMoney(used)}</p></div></div>{limit != null && <div className="mt-4"><div className="h-2 overflow-hidden rounded-full bg-[var(--muted)]"><div className="h-full bg-[var(--primary)]" style={{ width: `${Math.min(100, used / limit * 100)}%` }} /></div><p className="mt-1 text-right text-[11px] text-[var(--muted-foreground)]">{Math.round(used / limit * 100)}%</p></div>}<div className="mt-4 flex items-center justify-between text-xs"><span>{account.brand || "CARTÃO"}</span><span className="text-[var(--success)]">{account.source === "PLUGGY" ? "Sincronizado" : "Manual"}</span></div></>}</CardContent></Card>;
+  const usage = limit && limit > 0 ? Math.min(100, (used / limit) * 100) : null;
+
+  return (
+    <Card>
+      <CardHeader className="flex-row items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <AccountLogo account={account} />
+          <div className="min-w-0">
+            <CardTitle className="truncate">{account.name}</CardTitle>
+            <p className="truncate text-xs text-[var(--muted-foreground)]">
+              {accountSubtypeLabel(account.subtype, account.type)}
+            </p>
+          </div>
+        </div>
+        <div className="flex">
+          <Button variant="ghost" size="icon" onClick={() => onEdit(account)} aria-label="Editar conta"><Pencil className="size-4" /></Button>
+          <Button variant="ghost" size="icon" onClick={() => onDelete(account)} aria-label="Excluir conta"><Trash2 className="size-4" /></Button>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {account.type === "BANK_ACCOUNT" ? (
+          <>
+            <p className="text-xs text-[var(--muted-foreground)]">Saldo disponível</p>
+            <p className="mt-1 text-2xl font-semibold">{formatMoney(Number(account.balance))}</p>
+            <p className="mt-4 text-xs text-[var(--muted-foreground)]">
+              {account.providerUpdatedAt
+                ? `Sincronizado em ${new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(account.providerUpdatedAt))}`
+                : "Conta manual"}
+            </p>
+          </>
+        ) : (
+          <>
+            <div className="flex items-center gap-2">
+              <p className="font-mono tracking-[0.14em]">
+                {show ? `•••• •••• •••• ${account.numberLastFour || "0000"}` : "•••• •••• •••• ••••"}
+              </p>
+              <Button variant="ghost" size="icon" onClick={() => setShow(!show)} aria-label={show ? "Ocultar numero" : "Mostrar numero"}>
+                {show ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+              </Button>
+            </div>
+            <div className="mt-5 grid grid-cols-2 gap-4">
+              <div>
+                <p className="text-xs text-[var(--muted-foreground)]">Limite Total</p>
+                <p className="mt-1 font-semibold">{limit == null ? "•••" : formatMoney(limit)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-[var(--muted-foreground)]">Utilizado</p>
+                <p className="mt-1 font-semibold">{formatMoney(used)}</p>
+              </div>
+            </div>
+            <div className="mt-4">
+              <div
+                className="h-2 overflow-hidden rounded-full bg-[var(--muted)]"
+                role="progressbar"
+                aria-label="Percentual do limite utilizado"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={usage == null ? undefined : Math.round(usage)}
+              >
+                {usage != null && (
+                  <div
+                    className="h-full bg-[var(--primary)]"
+                    style={{ width: `${usage}%` }}
+                  />
+                )}
+              </div>
+              <p className="mt-1 text-right text-[11px] text-[var(--muted-foreground)]">
+                {usage == null ? "—" : `${Math.round(usage)}%`}
+              </p>
+            </div>
+            <div className="mt-4 flex items-center justify-between text-xs">
+              <span>{account.brand || "CARTÃO"}</span>
+              <span className="text-[var(--success)]">{account.source === "PLUGGY" ? "Sincronizado" : "Manual"}</span>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 function Choice({ icon: Icon, title, text, onClick }: { icon: typeof Landmark; title: string; text: string; onClick: () => void }) {

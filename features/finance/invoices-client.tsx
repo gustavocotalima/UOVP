@@ -1,11 +1,11 @@
 "use client";
 
-import Image from "next/image";
 import { useMemo, useState } from "react";
 import { ChevronDown, CreditCard, Info } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { InstitutionLogo } from "@/components/ui/institution-logo";
 import { Select } from "@/components/ui/select";
-import { formatMoney } from "@/lib/money";
+import { formatCurrency, formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import { calculateInvoices, categoryLabel } from "./calculations";
 import type { FinanceData } from "./types";
@@ -38,7 +38,12 @@ export function InvoicesClient({ data }: { data: FinanceData }) {
 
       <Card>
         <CardHeader className="flex-row items-center gap-4">
-          <span className="grid size-14 place-items-center overflow-hidden rounded-2xl border bg-white p-2">{account.institutionImageUrl ? <Image src={account.institutionImageUrl} alt="" width={56} height={56} unoptimized className="size-full object-contain" /> : <CreditCard className="size-6 text-black/55" />}</span>
+          <InstitutionLogo
+            src={account.institutionImageUrl}
+            name={account.institutionName || account.name}
+            kind="card"
+            size="large"
+          />
           <div className="min-w-0 flex-1"><CardTitle className="truncate text-lg">{account.name}</CardTitle><p className="mt-1 text-sm text-[var(--muted-foreground)]">•••• •••• •••• {account.numberLastFour || "0000"}</p></div>
           <div className="text-right"><p className="text-xs text-[var(--muted-foreground)]">{account.brand || "CARTÃO"}</p><p className="mt-1 text-xs">Disponível: {account.availableCredit ? formatMoney(Number(account.availableCredit)) : "—"}</p></div>
         </CardHeader>
@@ -61,7 +66,7 @@ export function InvoicesClient({ data }: { data: FinanceData }) {
                         <div className="min-w-[760px]">
                           <div className="grid grid-cols-[90px_minmax(220px,1fr)_110px_130px_150px_80px] gap-3 border-b pb-3 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]"><span>Data</span><span>Descrição</span><span className="text-right">Valor</span><span>Meta</span><span>Tags</span><span>Parcela</span></div>
                           <div className="divide-y">
-                            {invoice.transactions.map((transaction) => <div key={transaction.id} className={cn("grid grid-cols-[90px_minmax(220px,1fr)_110px_130px_150px_80px] gap-3 py-3 text-sm", transaction.ignored && "opacity-50")}><span className="text-xs text-[var(--muted-foreground)]">{new Intl.DateTimeFormat("pt-BR").format(new Date(transaction.date))}</span><span className="truncate">{transaction.description}</span><strong className="text-right">{formatMoney(Number(transaction.amount))}</strong><span className="text-xs">{categoryLabel(transaction.budgetCategory, transaction.kind)}</span><span className="flex flex-wrap gap-1">{transaction.tags.length ? transaction.tags.map((tag) => <span key={tag.id} className="rounded-full px-2 py-0.5 text-[10px] text-white" style={{ background: tag.color }}>{tag.name}</span>) : <span className="text-xs text-[var(--muted-foreground)]">—</span>}</span><span className="text-xs">{transaction.installmentNumber && transaction.installmentTotal ? `${transaction.installmentNumber}/${transaction.installmentTotal}` : "—"}</span></div>)}
+                            {invoice.transactions.map((transaction) => <div key={transaction.id} className={cn("grid grid-cols-[90px_minmax(220px,1fr)_110px_130px_150px_80px] gap-3 py-3 text-sm", transaction.ignored && "opacity-50")}><span className="text-xs text-[var(--muted-foreground)]">{new Intl.DateTimeFormat("pt-BR").format(new Date(transaction.date))}</span><span className="truncate">{transaction.description}</span><strong className="text-right">{formatCurrency(transaction.amount, transaction.currencyCode)}</strong><span className="text-xs">{categoryLabel(transaction.budgetCategory, transaction.kind)}</span><span className="flex flex-wrap gap-1">{transaction.tags.length ? transaction.tags.map((tag) => <span key={tag.id} className="rounded-full px-2 py-0.5 text-[10px] text-white" style={{ background: tag.color }}>{tag.name}</span>) : <span className="text-xs text-[var(--muted-foreground)]">—</span>}</span><span className="text-xs">{transaction.installmentNumber && transaction.installmentTotal ? `${transaction.installmentNumber}/${transaction.installmentTotal}` : "—"}</span></div>)}
                           </div>
                           {!invoice.transactions.length && <p className="py-8 text-center text-sm text-[var(--muted-foreground)]">Nenhuma transação nesta fatura.</p>}
                         </div>
