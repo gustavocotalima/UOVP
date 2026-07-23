@@ -1,0 +1,514 @@
+País,Country,Principal Índice,ETFs Americanos,S&P,Moody's,Fitch,Nível de Risco,Empresa,Ticker,Setor,GeoJSON name
+Estados Unidos,United States,S&P 500,"SPY, IVV, VOO",AA+,Aaa,AAA,aa,Apple Inc.,AAPL,Tecnologia,USA
+Estados Unidos,United States,S&P 500,"SPY, IVV, VOO",AA+,Aaa,AAA,aa,Microsoft Corp.,MSFT,Tecnologia,USA
+Estados Unidos,United States,S&P 500,"SPY, IVV, VOO",AA+,Aaa,AAA,aa,Nvidia Corp.,NVDA,Tecnologia,USA
+Estados Unidos,United States,S&P 500,"SPY, IVV, VOO",AA+,Aaa,AAA,aa,Amazon.com Inc.,AMZN,Comércio Eletrônico,USA
+Estados Unidos,United States,S&P 500,"SPY, IVV, VOO",AA+,Aaa,AAA,aa,Meta Platforms Inc.,META,Tecnologia,USA
+Estados Unidos,United States,S&P 500,"SPY, IVV, VOO",AA+,Aaa,AAA,aa,Berkshire Hathaway Inc. Class B,BRK.B,Conglomerado,USA
+Estados Unidos,United States,S&P 500,"SPY, IVV, VOO",AA+,Aaa,AAA,aa,Alphabet Inc. Class A,GOOGL,Tecnologia,USA
+Estados Unidos,United States,S&P 500,"SPY, IVV, VOO",AA+,Aaa,AAA,aa,Alphabet Inc. Class C,GOOG,Tecnologia,USA
+Estados Unidos,United States,S&P 500,"SPY, IVV, VOO",AA+,Aaa,AAA,aa,Tesla Inc.,TSLA,Automotivo,USA
+Estados Unidos,United States,S&P 500,"SPY, IVV, VOO",AA+,Aaa,AAA,aa,UnitedHealth Group Inc.,UNH,Saúde,USA
+Estados Unidos,United States,S&P 500,"SPY, IVV, VOO",AA+,Aaa,AAA,aa,Eli Lilly and Co.,LLY,Farmacêutico,USA
+Estados Unidos,United States,S&P 500,"SPY, IVV, VOO",AA+,Aaa,AAA,aa,JPMorgan Chase & Co.,JPM,Financeiro,USA
+Estados Unidos,United States,S&P 500,"SPY, IVV, VOO",AA+,Aaa,AAA,aa,Johnson & Johnson,JNJ,Saúde,USA
+Estados Unidos,United States,S&P 500,"SPY, IVV, VOO",AA+,Aaa,AAA,aa,Visa Inc. Class A,V,Financeiro,USA
+Estados Unidos,United States,S&P 500,"SPY, IVV, VOO",AA+,Aaa,AAA,aa,Exxon Mobil Corp.,XOM,Energia,USA
+Estados Unidos,United States,Nasdaq Composite,QQQ,AA+,Aaa,AAA,aa,Apple Inc.,AAPL,Tecnologia,USA
+Estados Unidos,United States,Nasdaq Composite,QQQ,AA+,Aaa,AAA,aa,Microsoft Corp.,MSFT,Tecnologia,USA
+Estados Unidos,United States,Nasdaq Composite,QQQ,AA+,Aaa,AAA,aa,Nvidia Corp.,NVDA,Tecnologia,USA
+Estados Unidos,United States,Nasdaq Composite,QQQ,AA+,Aaa,AAA,aa,Alphabet Inc. Class A,GOOGL,Tecnologia,USA
+Estados Unidos,United States,Nasdaq Composite,QQQ,AA+,Aaa,AAA,aa,Alphabet Inc. Class C,GOOG,Tecnologia,USA
+Estados Unidos,United States,Nasdaq Composite,QQQ,AA+,Aaa,AAA,aa,Amazon.com Inc.,AMZN,Comércio Eletrônico,USA
+Estados Unidos,United States,Nasdaq Composite,QQQ,AA+,Aaa,AAA,aa,Meta Platforms Inc.,META,Tecnologia,USA
+Estados Unidos,United States,Nasdaq Composite,QQQ,AA+,Aaa,AAA,aa,Tesla Inc.,TSLA,Automotivo,USA
+Estados Unidos,United States,Nasdaq Composite,QQQ,AA+,Aaa,AAA,aa,Broadcom Inc.,AVGO,Tecnologia,USA
+Estados Unidos,United States,Nasdaq Composite,QQQ,AA+,Aaa,AAA,aa,Netflix Inc.,NFLX,Entretenimento,USA
+China,China,Shanghai Composite,"ASHR, MCHI, FXI",A+,A1,A,a,Kweichow Moutai,600519,Bebidas alcoólicas,China
+China,China,Shanghai Composite,"ASHR, MCHI, FXI",A+,A1,A,a,Industrial and Commercial Bank of China,601398,Bancário,China
+China,China,Shanghai Composite,"ASHR, MCHI, FXI",A+,A1,A,a,Agricultural Bank of China,601288,Bancário,China
+China,China,Shanghai Composite,"ASHR, MCHI, FXI",A+,A1,A,a,Bank of China,601988,Bancário,China
+China,China,Shanghai Composite,"ASHR, MCHI, FXI",A+,A1,A,a,China Merchants Bank,600036,Bancário,China
+China,China,Shenzhen Component,"ASHS, CNXT",A+,A1,A,a,BYD Company,2594,Automotivo,China
+China,China,Shenzhen Component,"ASHS, CNXT",A+,A1,A,a,Contemporary Amperex Technology (CATL),300750,Baterias,China
+China,China,Shenzhen Component,"ASHS, CNXT",A+,A1,A,a,Midea Group,333,Eletrodomésticos,China
+China,China,Shenzhen Component,"ASHS, CNXT",A+,A1,A,a,Gree Electric Appliances,651,Eletrodomésticos,China
+China,China,Shenzhen Component,"ASHS, CNXT",A+,A1,A,a,Wuliangye Yibin,858,Bebidas alcoólicas,China
+Japão,Japan,Nikkei 225,"EWJ, DXJ",A+,A1,A,a,Toyota Motor Corporation,7203,Automotivo,Japan
+Japão,Japan,Nikkei 225,"EWJ, DXJ",A+,A1,A,a,Mitsubishi UFJ Financial Group,8306,Bancário,Japan
+Japão,Japan,Nikkei 225,"EWJ, DXJ",A+,A1,A,a,Sony Group Corporation,6758,Eletrônicos,Japan
+Japão,Japan,Nikkei 225,"EWJ, DXJ",A+,A1,A,a,Hitachi Ltd,6501,Conglomerado,Japan
+Japão,Japan,Nikkei 225,"EWJ, DXJ",A+,A1,A,a,Recruit Holdings Co Ltd,6098,Recursos Humanos,Japan
+Japão,Japan,Nikkei 225,"EWJ, DXJ",A+,A1,A,a,Fast Retailing Co Ltd,9983,Varejo,Japan
+Japão,Japan,Nikkei 225,"EWJ, DXJ",A+,A1,A,a,Sumitomo Mitsui Financial Group,8316,Bancário,Japan
+Japão,Japan,Nikkei 225,"EWJ, DXJ",A+,A1,A,a,SoftBank Group Corp,9984,Telecomunicações,Japan
+Japão,Japan,Nikkei 225,"EWJ, DXJ",A+,A1,A,a,Nippon Telegraph & Telephone,9432,Telecomunicações,Japan
+Japão,Japan,Nikkei 225,"EWJ, DXJ",A+,A1,A,a,Tokio Marine Holdings,8766,Seguros,Japan
+Reino Unido,United Kingdom,FTSE 100,EWU,AA,Aa3,AA-,aa,AstraZeneca,AZN,Farmacêutico,England
+Reino Unido,United Kingdom,FTSE 100,EWU,AA,Aa3,AA-,aa,Shell,SHEL,Energia,England
+Reino Unido,United Kingdom,FTSE 100,EWU,AA,Aa3,AA-,aa,HSBC Holdings,HSBA,Bancário,England
+Reino Unido,United Kingdom,FTSE 100,EWU,AA,Aa3,AA-,aa,Unilever,ULVR,Bens de Consumo,England
+Reino Unido,United Kingdom,FTSE 100,EWU,AA,Aa3,AA-,aa,RELX,REL,Mídia e Publicações,England
+Reino Unido,United Kingdom,FTSE 100,EWU,AA,Aa3,AA-,aa,BP,BP,Energia,England
+Reino Unido,United Kingdom,FTSE 100,EWU,AA,Aa3,AA-,aa,British American Tobacco,BATS,Tabaco,England
+Reino Unido,United Kingdom,FTSE 100,EWU,AA,Aa3,AA-,aa,London Stock Exchange Group,LSEG,Serviços Financeiros,England
+Reino Unido,United Kingdom,FTSE 100,EWU,AA,Aa3,AA-,aa,Rio Tinto,RIO,Mineração,England
+Reino Unido,United Kingdom,FTSE 100,EWU,AA,Aa3,AA-,aa,Diageo,DGE,Bebidas Alcoólicas,England
+Alemanha,Germany,DAX,EWG,AAA,Aaa,AAA,aaa,SAP SE,SAP,Tecnologia,Germany
+Alemanha,Germany,DAX,EWG,AAA,Aaa,AAA,aaa,Siemens AG,SIE,Conglomerado Industrial,Germany
+Alemanha,Germany,DAX,EWG,AAA,Aaa,AAA,aaa,Deutsche Telekom AG,DTE,Telecomunicações,Germany
+Alemanha,Germany,DAX,EWG,AAA,Aaa,AAA,aaa,Allianz SE,ALV,Seguros,Germany
+Alemanha,Germany,DAX,EWG,AAA,Aaa,AAA,aaa,Volkswagen AG,VOW3,Automotivo,Germany
+Alemanha,Germany,DAX,EWG,AAA,Aaa,AAA,aaa,Mercedes-Benz Group AG,MBG,Automotivo,Germany
+Alemanha,Germany,DAX,EWG,AAA,Aaa,AAA,aaa,BMW AG,BMW,Automotivo,Germany
+Alemanha,Germany,DAX,EWG,AAA,Aaa,AAA,aaa,Bayer AG,BAYN,Farmacêutico,Germany
+Alemanha,Germany,DAX,EWG,AAA,Aaa,AAA,aaa,BASF SE,BAS,Química,Germany
+Alemanha,Germany,DAX,EWG,AAA,Aaa,AAA,aaa,Deutsche Post AG,DPW,Logística,Germany
+França,France,CAC 40,EWQ,AA-,Aa2,AA-,aa,LVMH Moët Hennessy,MC,Luxo,France
+França,France,CAC 40,EWQ,AA-,Aa2,AA-,aa,TotalEnergies SE,TTE,Energia,France
+França,France,CAC 40,EWQ,AA-,Aa2,AA-,aa,Sanofi,SAN,Farmacêutico,France
+França,France,CAC 40,EWQ,AA-,Aa2,AA-,aa,L'Oréal,OR,Bens de Consumo,France
+França,France,CAC 40,EWQ,AA-,Aa2,AA-,aa,BNP Paribas,BNP,Bancário,France
+França,France,CAC 40,EWQ,AA-,Aa2,AA-,aa,Hermès International,RMS,Luxo,France
+França,France,CAC 40,EWQ,AA-,Aa2,AA-,aa,Air Liquide,AI,Química,France
+França,France,CAC 40,EWQ,AA-,Aa2,AA-,aa,Schneider Electric,SU,Energia,France
+França,France,CAC 40,EWQ,AA-,Aa2,AA-,aa,AXA,CS,Seguros,France
+França,France,CAC 40,EWQ,AA-,Aa2,AA-,aa,Kering,KER,Luxo,France
+Índia,India,Nifty 50,"INDY, INDA",BBB-,Baa3,BBB-,bbb,Reliance Industries,RELIANCE,Energia,India
+Índia,India,Nifty 50,"INDY, INDA",BBB-,Baa3,BBB-,bbb,Tata Consultancy Services,TCS,Tecnologia,India
+Índia,India,Nifty 50,"INDY, INDA",BBB-,Baa3,BBB-,bbb,HDFC Bank,HDFCBANK,Bancário,India
+Índia,India,Nifty 50,"INDY, INDA",BBB-,Baa3,BBB-,bbb,Infosys,INFY,Tecnologia,India
+Índia,India,Nifty 50,"INDY, INDA",BBB-,Baa3,BBB-,bbb,ICICI Bank,ICICIBANK,Bancário,India
+Índia,India,Nifty 50,"INDY, INDA",BBB-,Baa3,BBB-,bbb,Hindustan Unilever,HINDUNILVR,Bens de Consumo,India
+Índia,India,Nifty 50,"INDY, INDA",BBB-,Baa3,BBB-,bbb,State Bank of India,SBIN,Bancário,India
+Índia,India,Nifty 50,"INDY, INDA",BBB-,Baa3,BBB-,bbb,Bharti Airtel,BHARTIARTL,Telecomunicações,India
+Índia,India,Nifty 50,"INDY, INDA",BBB-,Baa3,BBB-,bbb,ITC Limited,ITC,Bens de Consumo,India
+Índia,India,Nifty 50,"INDY, INDA",BBB-,Baa3,BBB-,bbb,Kotak Mahindra Bank,KOTAKBANK,Bancário,India
+Brasil,Brazil,Ibovespa,EWZ,BB,Ba2,BB-,45,Petrobras,PETR4,Energia,Brazil
+Brasil,Brazil,Ibovespa,EWZ,BB,Ba2,BB-,45,Vale,VALE3,Mineração,Brazil
+Brasil,Brazil,Ibovespa,EWZ,BB,Ba2,BB-,45,Itaú Unibanco,ITUB4,Bancário,Brazil
+Brasil,Brazil,Ibovespa,EWZ,BB,Ba2,BB-,45,Bradesco,BBDC4,Bancário,Brazil
+Brasil,Brazil,Ibovespa,EWZ,BB,Ba2,BB-,45,B3,B3SA3,Financeiro,Brazil
+Brasil,Brazil,Ibovespa,EWZ,BB,Ba2,BB-,45,Ambev,ABEV3,Bebidas,Brazil
+Brasil,Brazil,Ibovespa,EWZ,BB,Ba2,BB-,45,Magazine Luiza,MGLU3,Varejo,Brazil
+Brasil,Brazil,Ibovespa,EWZ,BB,Ba2,BB-,45,Banco do Brasil,BBAS3,Bancário,Brazil
+Brasil,Brazil,Ibovespa,EWZ,BB,Ba2,BB-,45,Santander Brasil,SANB11,Bancário,Brazil
+Brasil,Brazil,Ibovespa,EWZ,BB,Ba2,BB-,45,WEG,WEGE3,Industrial,Brazil
+Canadá,Canada,S&P/TSX Composite,EWC,AAA,Aaa,AAA,aaa,Royal Bank of Canada,RY,Bancário,Canada
+Canadá,Canada,S&P/TSX Composite,EWC,AAA,Aaa,AAA,aaa,Toronto-Dominion Bank,TD,Bancário,Canada
+Canadá,Canada,S&P/TSX Composite,EWC,AAA,Aaa,AAA,aaa,Enbridge Inc.,ENB,Energia,Canada
+Canadá,Canada,S&P/TSX Composite,EWC,AAA,Aaa,AAA,aaa,Canadian National Railway,CNR,Transporte,Canada
+Canadá,Canada,S&P/TSX Composite,EWC,AAA,Aaa,AAA,aaa,Canadian Pacific Kansas City Ltd,CP,Transporte,Canada
+Canadá,Canada,S&P/TSX Composite,EWC,AAA,Aaa,AAA,aaa,Shopify Inc.,SHOP,Tecnologia,Canada
+Canadá,Canada,S&P/TSX Composite,EWC,AAA,Aaa,AAA,aaa,Bank of Montreal,BMO,Bancário,Canada
+Canadá,Canada,S&P/TSX Composite,EWC,AAA,Aaa,AAA,aaa,Bank of Nova Scotia,BNS,Bancário,Canada
+Canadá,Canada,S&P/TSX Composite,EWC,AAA,Aaa,AAA,aaa,Brookfield Corporation,BN,Financeiro,Canada
+Canadá,Canada,S&P/TSX Composite,EWC,AAA,Aaa,AAA,aaa,Canadian Natural Resources,CNQ,Energia,Canada
+Austrália,Australia,S&P/ASX 200,EWA,AAA,Aaa,AAA,aaa,BHP Group,BHP,Materiais,Australia
+Austrália,Australia,S&P/ASX 200,EWA,AAA,Aaa,AAA,aaa,Commonwealth Bank,CBA,Financeiro,Australia
+Austrália,Australia,S&P/ASX 200,EWA,AAA,Aaa,AAA,aaa,CSL Limited,CSL,Saúde,Australia
+Austrália,Australia,S&P/ASX 200,EWA,AAA,Aaa,AAA,aaa,National Australia Bank,NAB,Financeiro,Australia
+Austrália,Australia,S&P/ASX 200,EWA,AAA,Aaa,AAA,aaa,Westpac Banking Corporation,WBC,Financeiro,Australia
+Austrália,Australia,S&P/ASX 200,EWA,AAA,Aaa,AAA,aaa,ANZ Banking Group,ANZ,Financeiro,Australia
+Austrália,Australia,S&P/ASX 200,EWA,AAA,Aaa,AAA,aaa,Macquarie Group,MQG,Financeiro,Australia
+Austrália,Australia,S&P/ASX 200,EWA,AAA,Aaa,AAA,aaa,Wesfarmers,WES,Consumo Discricionário,Australia
+Austrália,Australia,S&P/ASX 200,EWA,AAA,Aaa,AAA,aaa,Woolworths Group,WOW,Consumo Discricionário,Australia
+Austrália,Australia,S&P/ASX 200,EWA,AAA,Aaa,AAA,aaa,Telstra Corporation,TLS,Telecomunicações,Australia
+Hong Kong,Hong Kong,Hang Seng Index,EWH,AA+,Aa3,AA-,aa,HSBC Holdings,5,Bancário,Hong Kong
+Hong Kong,Hong Kong,Hang Seng Index,EWH,AA+,Aa3,AA-,aa,AIA Group,1299,Seguros,Hong Kong
+Hong Kong,Hong Kong,Hang Seng Index,EWH,AA+,Aa3,AA-,aa,Tencent Holdings,700,Tecnologia,Hong Kong
+Hong Kong,Hong Kong,Hang Seng Index,EWH,AA+,Aa3,AA-,aa,Alibaba Group,9988,Tecnologia,Hong Kong
+Hong Kong,Hong Kong,Hang Seng Index,EWH,AA+,Aa3,AA-,aa,Meituan,3690,Tecnologia,Hong Kong
+Coreia do Sul,South Korea,KOSPI,EWY,AA,Aa2,AA-,aa,Samsung Electronics,005930,Tecnologia,South Korea
+Coreia do Sul,South Korea,KOSPI,EWY,AA,Aa2,AA-,aa,SK Hynix,000660,Tecnologia,South Korea
+Coreia do Sul,South Korea,KOSPI,EWY,AA,Aa2,AA-,aa,LG Chem,051910,Química,South Korea
+Coreia do Sul,South Korea,KOSPI,EWY,AA,Aa2,AA-,aa,Samsung SDI,006400,Tecnologia,South Korea
+Coreia do Sul,South Korea,KOSPI,EWY,AA,Aa2,AA-,aa,Hyundai Motor,005380,Automotivo,South Korea
+Suíça,Switzerland,SMI,EWL,AAA,Aaa,AAA,aaa,Nestlé,NESN,Alimentos,Switzerland
+Suíça,Switzerland,SMI,EWL,AAA,Aaa,AAA,aaa,Roche Holding,ROG,Farmacêutico,Switzerland
+Suíça,Switzerland,SMI,EWL,AAA,Aaa,AAA,aaa,Novartis,NOVN,Farmacêutico,Switzerland
+Suíça,Switzerland,SMI,EWL,AAA,Aaa,AAA,aaa,UBS Group,UBSG,Bancário,Switzerland
+Suíça,Switzerland,SMI,EWL,AAA,Aaa,AAA,aaa,Zurich Insurance Group,ZURN,Seguros,Switzerland
+Rússia,Russia,MOEX Russia Index,ERUS,CCC-,Caa1,B,b,Gazprom,GAZP,Energia,Russia
+Rússia,Russia,MOEX Russia Index,ERUS,CCC-,Caa1,B,b,Sberbank,SBER,Bancário,Russia
+Rússia,Russia,MOEX Russia Index,ERUS,CCC-,Caa1,B,b,Lukoil,LKOH,Energia,Russia
+Rússia,Russia,MOEX Russia Index,ERUS,CCC-,Caa1,B,b,Rosneft,ROSN,Energia,Russia
+Rússia,Russia,MOEX Russia Index,ERUS,CCC-,Caa1,B,b,Norilsk Nickel,GMKN,Mineração,Russia
+África do Sul,South Africa,FTSE/JSE Top 40,EZA,BB,Ba2,BB-,bb,Naspers,NPN,Tecnologia,South Africa
+África do Sul,South Africa,FTSE/JSE Top 40,EZA,BB,Ba2,BB-,bb,FirstRand,FSR,Bancário,South Africa
+África do Sul,South Africa,FTSE/JSE Top 40,EZA,BB,Ba2,BB-,bb,Standard Bank Group,SBK,Bancário,South Africa
+África do Sul,South Africa,FTSE/JSE Top 40,EZA,BB,Ba2,BB-,bb,MTN Group,MTN,Telecomunicações,South Africa
+África do Sul,South Africa,FTSE/JSE Top 40,EZA,BB,Ba2,BB-,bb,Sasol,SOL,Energia,South Africa
+México,Mexico,IPC,EWW,BBB,Baa2,BBB,bbb,América Móvil,AMX,Telecomunicações,Mexico
+México,Mexico,IPC,EWW,BBB,Baa2,BBB,bbb,Grupo Financiero Banorte,GFNORTEO,Bancário,Mexico
+México,Mexico,IPC,EWW,BBB,Baa2,BBB,bbb,Walmart de México,WALMEX,Varejo,Mexico
+México,Mexico,IPC,EWW,BBB,Baa2,BBB,bbb,Grupo México,GMEXICOB,Mineração,Mexico
+México,Mexico,IPC,EWW,BBB,Baa2,BBB,bbb,FEMSA,FEMSAUBD,Bebidas,Mexico
+Itália,Italy,FTSE MIB,EWI,BBB,Baa3,BBB,bbb,Enel,ENEL,Energia,Italy
+Itália,Italy,FTSE MIB,EWI,BBB,Baa3,BBB,bbb,Intesa Sanpaolo,ISP,Bancário,Italy
+Itália,Italy,FTSE MIB,EWI,BBB,Baa3,BBB,bbb,Eni,ENI,Energia,Italy
+Itália,Italy,FTSE MIB,EWI,BBB,Baa3,BBB,bbb,Ferrari,RACE,Automotivo,Italy
+Itália,Italy,FTSE MIB,EWI,BBB,Baa3,BBB,bbb,UniCredit,UCG,Bancário,Italy
+Espanha,Spain,IBEX 35,EWP,A,Baa1,A-,a,Banco Santander,SAN,Bancário,Spain
+Espanha,Spain,IBEX 35,EWP,A,Baa1,A-,a,Iberdrola,IBE,Energia,Spain
+Espanha,Spain,IBEX 35,EWP,A,Baa1,A-,a,BBVA,BBVA,Bancário,Spain
+Espanha,Spain,IBEX 35,EWP,A,Baa1,A-,a,Inditex,ITX,Varejo,Spain
+Espanha,Spain,IBEX 35,EWP,A,Baa1,A-,a,Telefónica,TEF,Telecomunicações,Spain
+Nigéria,Nigeria,NSE All-Share Index,NGE,B-,B2,B-,b,Dangote Cement,DANGCEM,Materiais de Construção,Nigeria
+Nigéria,Nigeria,NSE All-Share Index,NGE,B-,B2,B-,b,MTN Nigeria,MTNN,Telecomunicações,Nigeria
+Nigéria,Nigeria,NSE All-Share Index,NGE,B-,B2,B-,b,Guaranty Trust Bank,GUARANTY,Bancário,Nigeria
+Nigéria,Nigeria,NSE All-Share Index,NGE,B-,B2,B-,b,Zenith Bank,ZENITHBANK,Bancário,Nigeria
+Nigéria,Nigeria,NSE All-Share Index,NGE,B-,B2,B-,b,Nigerian Breweries,NB,Bebidas,Nigeria
+Argentina,Argentina,MERVAL,ARGT,CCC,Caa3,B (low),13,Grupo Financiero Galicia,GGAL,Bancário,Argentina
+Argentina,Argentina,MERVAL,ARGT,CCC,Caa3,B (low),13,YPF,YPFD,Energia,Argentina
+Argentina,Argentina,MERVAL,ARGT,CCC,Caa3,B (low),13,Banco Macro,BMA,Bancário,Argentina
+Argentina,Argentina,MERVAL,ARGT,CCC,Caa3,B (low),13,Pampa Energía,PAMP,Energia,Argentina
+Argentina,Argentina,MERVAL,ARGT,CCC,Caa3,B (low),13,Telecom Argentina,TECO2,Telecomunicações,Argentina
+Chile,Chile,IPSA,ECH,A,A2,A-,a,Falabella,FALABELLA,Varejo,Chile
+Chile,Chile,IPSA,ECH,A,A2,A-,a,Banco de Chile,CHILE,Bancário,Chile
+Chile,Chile,IPSA,ECH,A,A2,A-,a,Empresas COPEC,COPEC,Energia,Chile
+Chile,Chile,IPSA,ECH,A,A2,A-,a,Enel Américas,ENELAM,Energia,Chile
+Chile,Chile,IPSA,ECH,A,A2,A-,a,SQM,SQM-B,Materiais,Chile
+Colômbia,Colombia,COLCAP,GXG,BB+,Baa2,BB+,bb,Ecopetrol,ECOPETROL,Energia,Colombia
+Colômbia,Colombia,COLCAP,GXG,BB+,Baa2,BB+,bb,Bancolombia,BCOLOMBIA,Bancário,Colombia
+Colômbia,Colombia,COLCAP,GXG,BB+,Baa2,BB+,bb,Grupo Aval,GRUPOAVAL,Financeiro,Colombia
+Colômbia,Colombia,COLCAP,GXG,BB+,Baa2,BB+,bb,Grupo Energía Bogotá,GEB,Energia,Colombia
+Colômbia,Colombia,COLCAP,GXG,BB+,Baa2,BB+,bb,Grupo Nutresa,NUTRESA,Alimentos,Colombia
+Peru,Peru,S&P/BVL Peru General,EPU,BBB-,Baa1,BBB,bbb,Credicorp,BAP,Bancário,Peru
+Peru,Peru,S&P/BVL Peru General,EPU,BBB-,Baa1,BBB,bbb,Southern Copper,SCCO,Mineração,Peru
+Peru,Peru,S&P/BVL Peru General,EPU,BBB-,Baa1,BBB,bbb,Buenaventura,BVN,Mineração,Peru
+Peru,Peru,S&P/BVL Peru General,EPU,BBB-,Baa1,BBB,bbb,InRetail Peru,INRETC1,Varejo,Peru
+Peru,Peru,S&P/BVL Peru General,EPU,BBB-,Baa1,BBB,bbb,Alicorp,ALICORC1,Alimentos,Peru
+Venezuela,Venezuela,IBC,,,,,b,CANTV,TDV.C,Telecomunicações,Venezuela
+Venezuela,Venezuela,IBC,,,,,b,Mercantil Servicios Financieros,MVZ.A,Bancário,Venezuela
+Venezuela,Venezuela,IBC,,,,,b,Banco Provincial,BPV,Bancário,Venezuela
+Venezuela,Venezuela,IBC,,,,,b,Sivensa,SVS.A,Industrial,Venezuela
+Venezuela,Venezuela,IBC,,,,,b,Manpa,MPA.A,Industrial,Venezuela
+Singapura,Singapore,STI,EWS,AAA,Aaa,AAA,aaa,DBS Group,D05,Bancário,Singapore
+Singapura,Singapore,STI,EWS,AAA,Aaa,AAA,aaa,OCBC Bank,O39,Bancário,Singapore
+Singapura,Singapore,STI,EWS,AAA,Aaa,AAA,aaa,United Overseas Bank,U11,Bancário,Singapore
+Singapura,Singapore,STI,EWS,AAA,Aaa,AAA,aaa,Singtel,Z74,Telecomunicações,Singapore
+Singapura,Singapore,STI,EWS,AAA,Aaa,AAA,aaa,Wilmar International,F34,Agroindústria,Singapore
+Indonésia,Indonesia,IDX Composite,EIDO,BBB,Baa2,BBB,bbb,Bank Central Asia,BBCA,Bancário,Indonesia
+Indonésia,Indonesia,IDX Composite,EIDO,BBB,Baa2,BBB,bbb,Bank Rakyat Indonesia,BBRI,Bancário,Indonesia
+Indonésia,Indonesia,IDX Composite,EIDO,BBB,Baa2,BBB,bbb,Telkom Indonesia,TLKM,Telecomunicações,Indonesia
+Indonésia,Indonesia,IDX Composite,EIDO,BBB,Baa2,BBB,bbb,Bank Mandiri,BMRI,Bancário,Indonesia
+Indonésia,Indonesia,IDX Composite,EIDO,BBB,Baa2,BBB,bbb,Astra International,ASII,Conglomerado,Indonesia
+Malásia,Malaysia,KLCI,EWM,A-,A3,A-,a,Maybank,MAYBANK,Bancário,Malaysia
+Malásia,Malaysia,KLCI,EWM,A-,A3,A-,a,Public Bank,PBBANK,Bancário,Malaysia
+Malásia,Malaysia,KLCI,EWM,A-,A3,A-,a,CIMB Group,CIMB,Bancário,Malaysia
+Malásia,Malaysia,KLCI,EWM,A-,A3,A-,a,Tenaga Nasional,TENAGA,Energia,Malaysia
+Malásia,Malaysia,KLCI,EWM,A-,A3,A-,a,Petronas Chemicals,PCHEM,Química,Malaysia
+Tailândia,Thailand,SET,THD,BBB+,Baa1,BBB+,bbb,PTT PCL,PTT,Energia,Thailand
+Tailândia,Thailand,SET,THD,BBB+,Baa1,BBB+,bbb,Airports of Thailand,AOT,Transporte,Thailand
+Tailândia,Thailand,SET,THD,BBB+,Baa1,BBB+,bbb,CP ALL,CPALL,Varejo,Thailand
+Tailândia,Thailand,SET,THD,BBB+,Baa1,BBB+,bbb,Siam Cement,SCC,Materiais,Thailand
+Tailândia,Thailand,SET,THD,BBB+,Baa1,BBB+,bbb,PTT Global Chemical,PTTGC,Química,Thailand
+Filipinas,Philippines,PSEi,EPHE,BBB+,Baa2,BBB,bbb,SM Investments,SM,Conglomerado,Philippines
+Filipinas,Philippines,PSEi,EPHE,BBB+,Baa2,BBB,bbb,Ayala Land,ALI,Imobiliário,Philippines
+Filipinas,Philippines,PSEi,EPHE,BBB+,Baa2,BBB,bbb,BDO Unibank,BDO,Bancário,Philippines
+Filipinas,Philippines,PSEi,EPHE,BBB+,Baa2,BBB,bbb,SM Prime Holdings,SMPH,Imobiliário,Philippines
+Filipinas,Philippines,PSEi,EPHE,BBB+,Baa2,BBB,bbb,Ayala Corporation,AC,Conglomerado,Philippines
+Turquia,Turkey,BIST 100,TUR,B+,B3,B+,b,Garanti BBVA,GARAN,Bancário,Turkey
+Turquia,Turkey,BIST 100,TUR,B+,B3,B+,b,Akbank,AKBNK,Bancário,Turkey
+Turquia,Turkey,BIST 100,TUR,B+,B3,B+,b,Koç Holding,KCHOL,Conglomerado,Turkey
+Turquia,Turkey,BIST 100,TUR,B+,B3,B+,b,Türkiye İş Bankası,ISCTR,Bancário,Turkey
+Turquia,Turkey,BIST 100,TUR,B+,B3,B+,b,Ereğli Demir ve Çelik,EREGL,Siderurgia,Turkey
+Polônia,Poland,WIG20,EPOL,A-,A2,A-,a,PKO Bank Polski,PKO,Bancário,Poland
+Polônia,Poland,WIG20,EPOL,A-,A2,A-,a,Bank Pekao,PEO,Bancário,Poland
+Polônia,Poland,WIG20,EPOL,A-,A2,A-,a,PZU,PZU,Seguros,Poland
+Polônia,Poland,WIG20,EPOL,A-,A2,A-,a,PKN Orlen,PKN,Energia,Poland
+Polônia,Poland,WIG20,EPOL,A-,A2,A-,a,KGHM Polska Miedź,KGH,Mineração,Poland
+Taiwan,Taiwan,TAIEX,EWT,AA-,Aa3,AA-,aa,Taiwan Semiconductor Manufacturing,2330,Tecnologia,Taiwan
+Taiwan,Taiwan,TAIEX,EWT,AA-,Aa3,AA-,aa,Hon Hai Precision Industry,2317,Tecnologia,Taiwan
+Taiwan,Taiwan,TAIEX,EWT,AA-,Aa3,AA-,aa,MediaTek,2454,Tecnologia,Taiwan
+Taiwan,Taiwan,TAIEX,EWT,AA-,Aa3,AA-,aa,Cathay Financial Holding,2882,Financeiro,Taiwan
+Taiwan,Taiwan,TAIEX,EWT,AA-,Aa3,AA-,aa,Delta Electronics,2308,Tecnologia,Taiwan
+Albania,Albania,,,BB,Ba3,,40,,,,ALBANIA
+Andorra,Andorra,,,,,,,,,,ANDORRA
+Angola,Angola,Luanda Stock Exchange (BODIVA),,B-,B3,,25,,,,ANGOLA
+Armenia,Armenia,,,,,,,,,,ARMENIA
+Aruba,Aruba,,,,,,,,,,ARUBA
+Austria,Austria,ATX,,AA+,Aa1,AAA,96,,,,AUSTRIA
+Azerbaijan,Azerbaijan,,,,,,,,,,AZERBAIJAN
+Bahamas,Bahamas,,,,,,,,,,BAHAMAS
+Bahrain,Bahrain,Bahrain All Share,,,,,,,,,BAHRAIN
+Bangladesh,Bangladesh,DSEX Index,,B+,B2,,35,,,,BANGLADESH
+Barbados,Barbados,,,,,,,,,,BARBADOS
+Belarus,Belarus,,,,,,,,,,BELARUS
+Belgium,Belgium,BEL 20,,AA,Aa3,AA,87,,,,BELGIUM
+Belize,Belize,,,,,,,,,,BELIZE
+Benin,Benin,BRVM Composite,,,,,,,,,BENIN
+Bermuda,Bermuda,,,,,,,,,,BERMUDA
+Bolivia,Bolivia,,,,,,,,,,BOLIVIA
+Bosnia and Herzegovina,Bosnia and Herzegovina,,,,,,,,,,BOSNIA_AND_HERZEGOVINA
+Botswana,Botswana,,,,,,,,,,BOTSWANA
+Bulgaria,Bulgaria,SOFIX,,,,,,,,,BULGARIA
+Burkina Faso,Burkina Faso,BRVM Composite,,,,,,,,,BURKINA_FASO
+Cambodia,Cambodia,,,,,,,,,,CAMBODIA
+Cameroon,Cameroon,,,,,,,,,,CAMEROON
+Cape Verde,Cape Verde,,,,,,,,,,CAPE_VERDE
+Cayman Islands,Cayman Islands,,,,,,,,,,CAYMAN_ISLANDS
+Chad,Chad,,,,,,,,,,CHAD
+Congo,Congo,,,,,,,,,,CONGO
+Costa Rica,Costa Rica,,,,,,,,,,COSTA_RICA
+Croatia,Croatia,CROBEX,,,,,,,,,CROATIA
+Cuba,Cuba,,,,,,,,,,CUBA
+Cyprus,Cyprus,,,,,,,,,,CYPRUS
+Czech Republic,Czech Republic,PX Index,,,,,,,,,CZECH_REPUBLIC
+Denmark,Denmark,OMX Copenhagen 20,,,,,,,,,DENMARK
+Dominican Republic,Dominican Republic,,,,,,,,,,DOMINICAN_REPUBLIC
+Ecuador,Ecuador,,,,,,,,,,ECUADOR
+Egypt,Egypt,EGX 30,,,,,,,,,EGYPT
+El Salvador,El Salvador,,,,,,,,,,EL_SALVADOR
+Estonia,Estonia,OMX Tallinn,,,,,,,,,ESTONIA
+Ethiopia,Ethiopia,,,,,,,,,,ETHIOPIA
+European Union,European Union,,,,,,,,,,EUROPEAN_UNION
+Fiji,Fiji,,,,,,,,,,FIJI
+Finland,Finland,OMX Helsinki 25,,AA+,Aa1,AA (high),96,,,,FINLAND
+Gabon,Gabon,,,,,,,,,,GABON
+Georgia,Georgia,,,,,,,,,,GEORGIA
+Ghana,Ghana,,,,,,,,,,GHANA
+Greece,Greece,,,BBB-,Baa3,BBB,55,,,,GREECE
+Grenada,Grenada,,,,,,,,,,GRENADA
+Guatemala,Guatemala,,,,,,,,,,GUATEMALA
+Honduras,Honduras,,,,,,,,,,HONDURAS
+Hungary,Hungary,BUX Index,,,,,,,,,HUNGARY
+Iceland,Iceland,OMX Iceland All-Share,,A+,A1,,76,,,,ICELAND
+Iraq,Iraq,,,,,,,,,,IRAQ
+Ireland,Ireland,ISEQ Overall,,,,,,,,,IRELAND
+Isle of Man,Isle of Man,,,,,,,,,,ISLE_OF_MAN
+Israel,Israel,TA-125,,A,Baa1,,73,,,,ISRAEL
+Ivory Coast,Ivory Coast,BRVM Composite,,,,,,,,,IVORY_COAST
+Jamaica,Jamaica,,,,,,,,,,JAMAICA
+Jordan,Jordan,Amman SE General Index,,,,,,,,,JORDAN
+Kazakhstan,Kazakhstan,KASE Index,,,,,,,,,KAZAKHSTAN
+Kenya,Kenya,Nairobi Securities Exchange (NSE 20),,,,,,,,,KENYA
+Kosovo,Kosovo,,,,,,,,,,KOSOVO
+Kuwait,Kuwait,Premier Market Index,,,,,,,,,KUWAIT
+Kyrgyzstan,Kyrgyzstan,,,,,,,,,,KYRGYZSTAN
+Laos,Laos,,,,,,,,,,LAOS
+Latvia,Latvia,OMX Riga,,,,,,,,,LATVIA
+Lebanon,Lebanon,BLOM Stock Index,,,,,,,,,LEBANON
+Lesotho,Lesotho,,,,,,,,,,LESOTHO
+Liechtenstein,Liechtenstein,,,,,,,,,,LIECHTENSTEIN
+Lithuania,Lithuania,OMX Vilnius,,,,,,,,,LITHUANIA
+Luxembourg,Luxembourg,,,,,,,,,,LUXEMBOURG
+Macau,Macau,,,,,,,,,,MACAU
+Macedonia,Macedonia,,,,,,,,,,MACEDONIA
+Madagascar,Madagascar,,,,,,,,,,MADAGASCAR
+Maldives,Maldives,,,,,,,,,,MALDIVES
+Mali,Mali,BRVM Composite,,CCC+,Caa2,,15,,,,MALI
+Malta,Malta,,,,,,,,,,MALTA
+Mauritius,Mauritius,,,,,,,,,,MAURITIUS
+Moldova,Moldova,,,,,,,,,,MOLDOVA
+Mongolia,Mongolia,,,,,,,,,,MONGOLIA
+Montenegro,Montenegro,,,,,,,,,,MONTENEGRO
+Montserrat,Montserrat,,,,,,,,,,MONTSERRAT
+Morocco,Morocco,,,,,,,,,,MOROCCO
+Moçambique,Mozambique,BRVM Composite,,CCC+,Caa2,,18,,,,MOZAMBIQUE
+Namibia,Namibia,,,,,,,,,,NAMIBIA
+Nepal,Nepal,,,,,,,,,,NEPAL
+Netherlands,Netherlands,AEX,,,,,,,,,NETHERLANDS
+New Zealand,New Zealand,NZX 50,,,,,,,,,NEW_ZEALAND
+Nicaragua,Nicaragua,,,,,,,,,,NICARAGUA
+Niger,Niger,BRVM Composite,,,,,,,,,NIGER
+Norway,Norway,OSEBX,,AAA,Aaa,AAA,99,,,,NORWAY
+Oman,Oman,MSM 30,,,,,,,,,OMAN
+Pakistan,Pakistan,KSE 100,,CCC+,Caa2,,16,,,,PAKISTAN
+Panama,Panama,,,,,,,,,,PANAMA
+Papua New Guinea,Papua New Guinea,,,,,,,,,,PAPUA_NEW_GUINEA
+Paraguay,Paraguay,,,,,,,,,,PARAGUAY
+Portugal,Portugal,PSI 20,,A,A3,A (high),71,,,,PORTUGAL
+Puerto Rico,Puerto Rico,,,,,,,,,,PUERTO_RICO
+Qatar,Qatar,QE Index,,,,,,,,,QATAR
+Republic of the Congo,Republic of the Congo,,,,,,,,,,REPUBLIC_OF_THE_CONGO
+Romania,Romania,BET Index,,,,,,,,,ROMANIA
+Rwanda,Rwanda,,,,,,,,,,RWANDA
+San Marino,San Marino,,,,,,,,,,SAN_MARINO
+Saudi Arabia,Saudi Arabia,Tadawul All Share,,,,,,,,,SAUDI_ARABIA
+Senegal,Senegal,BRVM Composite,,,,,,,,,SENEGAL
+Serbia,Serbia,,,,,,,,,,SERBIA
+Seychelles,Seychelles,,,,,,,,,,SEYCHELLES
+Slovakia,Slovakia,SAX Index,,,,,,,,,SLOVAKIA
+Slovenia,Slovenia,SBITOP,,,,,,,,,SLOVENIA
+Solomon Islands,Solomon Islands,,,,,,,,,,SOLOMON_ISLANDS
+Sri Lanka,Sri Lanka,CSE All-Share,,,,,,,,,SRI_LANKA
+St Vincent and the Grenadines,St Vincent and the Grenadines,,,,,,,,,,ST_VINCENT_AND_THE_GRENADINES
+Suriname,Suriname,,,,,,,,,,SURINAME
+Swaziland,Swaziland,,,,,,,,,,SWAZILAND
+Suécia,Sweden,OMX Stockholm 30,,AAA,Aaa,AAA,99,,,,SWEDEN
+Tajikistan,Tajikistan,,,,,,,,,,TAJIKISTAN
+Tanzania,Tanzania,,,,,,,,,,TANZANIA
+Togo,Togo,BRVM Composite,,,,,,,,,TOGO
+Trinidad and Tobago,Trinidad and Tobago,,,,,,,,,,TRINIDAD_AND_TOBAGO
+Tunisia,Tunisia,,,,,,,,,,TUNISIA
+Turkmenistan,Turkmenistan,,,,,,,,,,TURKMENISTAN
+Uganda,Uganda,,,,,,,,,,UGANDA
+Ucrânia,Ukraine,PFTS Index,,SD,Ca,,11,,,,UKRAINE
+United Arab Emirates,United Arab Emirates,ADX General,,AA,Aa2,,90,,,,UNITED_ARAB_EMIRATES
+Uruguay,Uruguay,Montevideo BVM Index,,BBB+,Baa1,BBB,61,,,,URUGUAY
+Uzbekistan,Uzbekistan,,,,,,,,,,UZBEKISTAN
+Vietnam,Vietnam,VN Index,,BB+,Ba2,,46,,,,VIETNAM
+Zambia,Zambia,,,,,,,,,,ZAMBIA
+Brasil,Brazil,Ibovespa,EWZ,BB-,Ba2,BB,b,Magazine Luiza,MGLU3,Varejo,BRA
+China,China,CSI 300,"ASHR, FXI",A+,A1,A+,a,BYD Company,1211.HK,Veículos Elétricos,CHN
+Portugal,Portugal,PSI 20,PGAL,A-,Baa2,BBB+,bbb,EDP - Energias de Portugal,EDP.LS,Energia,PRT
+Suécia,Sweden,OMX Stockholm 30,EWD,AAA,Aaa,AAA,aaa,Volvo,VOLV-B.ST,Automotivo,SWE
+Israel,Israel,TA-35,EIS,AA-,A1,A+,a,Teva Pharmaceutical,TEVA,Farmacêutico,ISR
+Portugal,Portugal,PSI 20,PGAL,A-,Baa2,BBB+,bbb,Galp Energia,GALP.LS,Energia,PRT
+Portugal,Portugal,PSI 20,PGAL,A-,Baa2,BBB+,bbb,Jerónimo Martins,JMT.LS,Varejo,PRT
+Suécia,Sweden,OMX Stockholm 30,EWD,AAA,Aaa,AAA,aaa,Ericsson,ERIC-B.ST,Tecnologia,SWE
+Suécia,Sweden,OMX Stockholm 30,EWD,AAA,Aaa,AAA,aaa,H&M,HM-B.ST,Varejo,SWE
+Israel,Israel,TA-35,EIS,AA-,A1,A+,a,Bank Leumi,LUMI.TA,Financeiro,ISR
+Israel,Israel,TA-35,EIS,AA-,A1,A+,a,Check Point Software,CHKP,Cibersegurança,ISR
+Nova Zelândia,New Zealand,NZX 50,ENZL,AA+,Aaa,AA+,aa,Fisher & Paykel Healthcare,FPH.NZ,Saúde,NZL
+Nova Zelândia,New Zealand,NZX 50,ENZL,AA+,Aaa,AA+,aa,Auckland Airport,AIA.NZ,Transporte,NZL
+Noruega,Norway,OBX Index,NORW,AAA,Aaa,AAA,aaa,Equinor,EQNR,Energia,NOR
+Noruega,Norway,OBX Index,NORW,AAA,Aaa,AAA,aaa,DNB ASA,DNB.OL,Financeiro,NOR
+Finlândia,Finland,OMX Helsinki 25,EFNL,AA+,Aa1,AA+,aa,Nokia,NOKIA.HE,Tecnologia,FIN
+Finlândia,Finland,OMX Helsinki 25,EFNL,AA+,Aa1,AA+,aa,KONE,KNEBV.HE,Industrial,FIN
+Áustria,Austria,ATX,EWO,AA+,Aa1,AA+,aa,Erste Group Bank,EBS.VI,Financeiro,AUT
+Áustria,Austria,ATX,EWO,AA+,Aa1,AA+,aa,OMV,OMV.VI,Energia,AUT
+Dinamarca,Denmark,OMX Copenhagen 25,EDEN,AAA,Aaa,AAA,aaa,Novo Nordisk,NOVO-B.CO,Farmacêutico,DNK
+Dinamarca,Denmark,OMX Copenhagen 25,EDEN,AAA,Aaa,AAA,aaa,Vestas Wind Systems,VWS.CO,Energia Renovável,DNK
+Países Baixos,Netherlands,AEX,EWN,AAA,Aaa,AAA,aaa,ASML Holding,ASML,Tecnologia,NLD
+Países Baixos,Netherlands,AEX,EWN,AAA,Aaa,AAA,aaa,Heineken,HEIA.AS,Bebidas,NLD
+Arábia Saudita,Saudi Arabia,Tadawul All Share,KSA,A+,A1,A+,a,Saudi Aramco,2222.SR,Petróleo,SAU
+Arábia Saudita,Saudi Arabia,Tadawul All Share,KSA,A+,A1,A+,a,SABIC,2010.SR,Petroquímica,SAU
+Bélgica,Belgium,BEL 20,EWK,AA+,Aa3,AA,aa,Anheuser-Busch InBev,ABI.BR,Bebidas,BEL
+Bélgica,Belgium,BEL 20,EWK,AA+,Aa3,AA,aa,UCB,UCB.BR,Farmacêutico,BEL
+Irlanda,Ireland,ISEQ,EIRL,AA,A1,AA-,aa,CRH plc,CRH,Construção,IRL
+Irlanda,Ireland,ISEQ,EIRL,AA,A1,AA-,aa,Ryanair,RYAAY,Aviação,IRL
+Emirados Árabes Unidos,United Arab Emirates,ADX General,,AA,Aa2,AA-,aa,Etisalat,ETISALAT.AD,Telecomunicações,ARE
+Emirados Árabes Unidos,United Arab Emirates,ADX General,,AA,Aa2,AA-,aa,First Abu Dhabi Bank,FAB.AD,Financeiro,ARE
+Bangladesh,Bangladesh,DSEX,,BB-,Ba3,BB-,b,Grameenphone,GP.BD,Telecomunicações,BGD
+Bangladesh,Bangladesh,DSEX,,BB-,Ba3,BB-,b,Square Pharmaceuticals,SQURPHARMA.BD,Farmacêutico,BGD
+Egito,Egypt,EGX 30,,B-,B3,B-,ccc,Commercial International Bank,COMI.CA,Financeiro,EGY
+Egito,Egypt,EGX 30,,B-,B3,B-,ccc,Eastern Company,EAST.CA,Tabaco,EGY
+Vietnã,Vietnam,VN-Index,VNM,BB,Ba2,BB-,b,Vingroup,VIC.HM,Conglomerado,VNM
+Vietnã,Vietnam,VN-Index,VNM,BB,Ba2,BB-,b,Vietnam Dairy Products,VNM.HM,Alimentos,VNM
+Romênia,Romania,BET,,BBB-,Baa3,BBB-,bbb,OMV Petrom,SNP.BX,Energia,ROU
+República Tcheca,Czech Republic,PX,,AA-,Aa3,AA-,aa,CEZ Group,CEZ.PR,Energia,CZE
+Paquistão,Pakistan,KSE 100,,B-,B3,B-,ccc,Oil & Gas Development Co.,OGDC.KA,Energia,PAK
+Chile,Chile,IPSA,ECH,A,A1,A,a,Enel Chile,ENIC,Energia,CHL
+Peru,Peru,S&P/BVL Peru General,,BBB,Baa1,BBB,bbb,Credicorp,BAP,Financeiro,PER
+Grécia,Greece,ATHEX Composite,GREK,BB+,Ba1,BB,bb,OPAP,OPAP.AT,Entretenimento,GRC
+Hungria,Hungary,BUX,,BBB,Baa2,BBB,bbb,OTP Bank,OTP.BD,Financeiro,HUN
+Cazaquistão,Kazakhstan,KASE Index,,BBB,Baa2,BBB,bbb,Kazatomprom,KAP.L,Mineração,KAZ
+Ucrânia,Ukraine,PFTS,,CCC,Ca,CC,ccc,Ukrnafta,UNAF.UAX,Energia,UKR
+Kuwait,Kuwait,Premier Market Index,,A+,A1,A+,a,Kuwait Finance House,KFIN.KW,Financeiro,KWT
+Marrocos,Morocco,MASI,,BB+,Ba1,BB+,bb,Attijariwafa Bank,ATW.MS,Financeiro,MAR
+Eslováquia,Slovakia,SAX,,A+,A2,A+,a,Slovnaft,SLON.BRAT,Energia,SVK
+Equador,Ecuador,ECU Index,,B-,B3,B-,ccc,Petroamazonas,PETRAM.EC,Energia,ECU
+Sri Lanka,Sri Lanka,CSE All Share,,CCC,Ca,CCC,ccc,John Keells Holdings,JKH.CM,Conglomerado,LKA
+Etiópia,Ethiopia,,,B-,B3,B-,ccc,Ethiopian Airlines,ETHA.AX,Aviação,ETH
+Omã,Oman,MSM 30,,BB,Ba2,BB,bb,Bank Muscat,BKMB.OM,Financeiro,OMN
+Venezuela,Venezuela,IBC,,SD,Ca,RD,d,Mercantil Servicios Financieros,MVZ.A,Financeiro,VEN
+República Dominicana,Dominican Republic,BVRD,,BB-,Ba3,BB-,b,Grupo Popular,GRUPOPOP.DOM,Financeiro,DOM
+Guatemala,Guatemala,BVN,,BB-,Ba2,BB-,b,Cervecería Centro Americana,CCA.GT,Bebidas,GTM
+Quênia,Kenya,NSE 20,,B,B3,B,b,Safaricom,SCOM.NR,Telecomunicações,KEN
+Mianmar,Myanmar,YSX,,,,,ccc,First Myanmar Investment,FMI.MM,Conglomerado,MMR
+Panamá,Panama,BVP,,BBB,Baa2,BBB,bbb,Banco General,BG.PA,Financeiro,PAN
+Costa Rica,Costa Rica,BNV Index,,BB,Ba2,BB,bb,ICE Group,ICE.CR,Energia,CRI
+Uruguai,Uruguay,BVM Index,,BBB-,Baa2,BBB-,bbb,ANCAP,ANCAP.UY,Energia,URY
+Croácia,Croatia,CROBEX,,BBB+,Baa2,BBB+,bbb,INA,INA.ZA,Energia,HRV
+Bulgária,Bulgaria,SOFIX,,BBB,Baa1,BBB,bbb,Sopharma,SFA.BB,Farmacêutico,BGR
+Angola,Angola,BODIVA Index,,CCC,,CCC,ccc,Sonangol,SONANG.AO,Petróleo,AGO
+Eslovênia,Slovenia,SBITOP,,A,A3,A,a,Krka,KRKG.LJ,Farmacêutico,SVN
+China,China,CSI 300,"ASHR, FXI",A+,A1,A+,a,Tencent,0700.HK,Tecnologia,CHN
+China,China,CSI 300,"ASHR, FXI",A+,A1,A+,a,Alibaba,9988.HK,Tecnologia,CHN
+China,China,CSI 300,"ASHR, FXI",A+,A1,A+,a,China Mobile,0941.HK,Telecomunicações,CHN
+China,China,CSI 300,"ASHR, FXI",A+,A1,A+,a,Ping An Insurance,2318.HK,Seguros,CHN
+China,China,CSI 300,"ASHR, FXI",A+,A1,A+,a,Bank of China,3988.HK,Financeiro,CHN
+China,China,CSI 300,"ASHR, FXI",A+,A1,A+,a,ICBC,1398.HK,Financeiro,CHN
+Alemanha,Germany,DAX,EWG,AAA,Aaa,AAA,aaa,SAP,SAP.DE,Tecnologia,DEU
+Alemanha,Germany,DAX,EWG,AAA,Aaa,AAA,aaa,Volkswagen,VOW3.DE,Automotivo,DEU
+Alemanha,Germany,DAX,EWG,AAA,Aaa,AAA,aaa,Allianz,ALV.DE,Seguros,DEU
+Alemanha,Germany,DAX,EWG,AAA,Aaa,AAA,aaa,Deutsche Bank,DBK.DE,Financeiro,DEU
+Alemanha,Germany,DAX,EWG,AAA,Aaa,AAA,aaa,BASF,BAS.DE,Química,DEU
+Alemanha,Germany,DAX,EWG,AAA,Aaa,AAA,aaa,Siemens,SIE.DE,Industrial,DEU
+Japão,Japan,Nikkei 225,EWJ,A,A1,A,a,Toyota,7203.T,Automotivo,JPN
+Japão,Japan,Nikkei 225,EWJ,A,A1,A,a,Sony,6758.T,Tecnologia,JPN
+Japão,Japan,Nikkei 225,EWJ,A,A1,A,a,Mitsubishi UFJ,8306.T,Financeiro,JPN
+Japão,Japan,Nikkei 225,EWJ,A,A1,A,a,Keyence,6861.T,Tecnologia,JPN
+Japão,Japan,Nikkei 225,EWJ,A,A1,A,a,Nintendo,7974.T,Entretenimento,JPN
+Reino Unido,United Kingdom,FTSE 100,EWU,AA,Aa3,AA,aa,HSBC,HSBA.L,Financeiro,GBR
+Reino Unido,United Kingdom,FTSE 100,EWU,AA,Aa3,AA,aa,BP,BP.L,Energia,GBR
+Reino Unido,United Kingdom,FTSE 100,EWU,AA,Aa3,AA,aa,GlaxoSmithKline,GSK.L,Farmacêutico,GBR
+Reino Unido,United Kingdom,FTSE 100,EWU,AA,Aa3,AA,aa,Barclays,BARC.L,Financeiro,GBR
+Reino Unido,United Kingdom,FTSE 100,EWU,AA,Aa3,AA,aa,AstraZeneca,AZN.L,Farmacêutico,GBR
+França,France,CAC 40,EWQ,AA,Aa2,AA,aa,LVMH,MC.PA,Consumo de Luxo,FRA
+França,France,CAC 40,EWQ,AA,Aa2,AA,aa,TotalEnergies,TTE.PA,Energia,FRA
+França,France,CAC 40,EWQ,AA,Aa2,AA,aa,BNP Paribas,BNP.PA,Financeiro,FRA
+França,France,CAC 40,EWQ,AA,Aa2,AA,aa,Airbus,AIR.PA,Aeronáutica,FRA
+França,France,CAC 40,EWQ,AA,Aa2,AA,aa,Danone,BN.PA,Alimentos,FRA
+Itália,Italy,FTSE MIB,EWI,BBB,Baa3,BBB,bbb,Eni,ENI.MI,Energia,ITA
+Itália,Italy,FTSE MIB,EWI,BBB,Baa3,BBB,bbb,UniCredit,UCG.MI,Financeiro,ITA
+Itália,Italy,FTSE MIB,EWI,BBB,Baa3,BBB,bbb,Intesa Sanpaolo,ISP.MI,Financeiro,ITA
+Itália,Italy,FTSE MIB,EWI,BBB,Baa3,BBB,bbb,Ferrari,RACE,Automotivo,ITA
+Itália,Italy,FTSE MIB,EWI,BBB,Baa3,BBB,bbb,Leonardo,LDO.MI,Defesa,ITA
+México,Mexico,IPC,EWW,BBB,Baa2,BBB,bbb,América Móvil,AMXL.MX,Telecom,MEX
+México,Mexico,IPC,EWW,BBB,Baa2,BBB,bbb,Cemex,CEMEXCPO.MX,Construção,MEX
+México,Mexico,IPC,EWW,BBB,Baa2,BBB,bbb,Grupo Bimbo,BIMBOA.MX,Alimentos,MEX
+México,Mexico,IPC,EWW,BBB,Baa2,BBB,bbb,Grupo México,GMEXICOB.MX,Mineração,MEX
+México,Mexico,IPC,EWW,BBB,Baa2,BBB,bbb,Femsa,FEMSAUBD.MX,Bebidas,MEX
+Espanha,Spain,IBEX 35,EWP,A,A1,A,a,Banco Santander,SAN.MC,Financeiro,ESP
+Espanha,Spain,IBEX 35,EWP,A,A1,A,a,BBVA,BBVA.MC,Financeiro,ESP
+Espanha,Spain,IBEX 35,EWP,A,A1,A,a,Telefónica,TEF.MC,Telecom,ESP
+Espanha,Spain,IBEX 35,EWP,A,A1,A,a,Iberdrola,IBE.MC,Energia,ESP
+Espanha,Spain,IBEX 35,EWP,A,A1,A,a,Ferrovial,FER.MC,Infraestrutura,ESP
+Rússia,Russia,MOEX,,,,,ccc,Gazprom,GAZP.ME,Energia,RUS
+Rússia,Russia,MOEX,,,,,ccc,Sberbank,SBER.ME,Financeiro,RUS
+Rússia,Russia,MOEX,,,,,ccc,Rosneft,ROSN.ME,Energia,RUS
+Rússia,Russia,MOEX,,,,,ccc,Norilsk Nickel,GMKN.ME,Mineração,RUS
+Rússia,Russia,MOEX,,,,,ccc,Lukoil,LKOH.ME,Energia,RUS
+Austrália,Australia,ASX 200,EWA,AAA,Aaa,AAA,aaa,BHP,BHP.AX,Mineração,AUS
+Austrália,Australia,ASX 200,EWA,AAA,Aaa,AAA,aaa,Commonwealth Bank,CBA.AX,Financeiro,AUS
+Austrália,Australia,ASX 200,EWA,AAA,Aaa,AAA,aaa,CSL,CSL.AX,Farmacêutico,AUS
+Austrália,Australia,ASX 200,EWA,AAA,Aaa,AAA,aaa,Wesfarmers,WES.AX,Varejo,AUS
+Austrália,Australia,ASX 200,EWA,AAA,Aaa,AAA,aaa,Westpac,WBC.AX,Financeiro,AUS
+Indonésia,Indonesia,IDX Composite,EIDO,BBB,Baa2,BBB,bbb,Bank Rakyat Indonesia,BBRI.JK,Financeiro,IDN
+Indonésia,Indonesia,IDX Composite,EIDO,BBB,Baa2,BBB,bbb,Telkom Indonesia,TLKM.JK,Telecom,IDN
+Indonésia,Indonesia,IDX Composite,EIDO,BBB,Baa2,BBB,bbb,Unilever Indonesia,UNVR.JK,Consumo,IDN
+Indonésia,Indonesia,IDX Composite,EIDO,BBB,Baa2,BBB,bbb,Astra International,ASII.JK,Automotivo,IDN
+Indonésia,Indonesia,IDX Composite,EIDO,BBB,Baa2,BBB,bbb,Gudang Garam,GGRM.JK,Tabaco,IDN
+Arábia Saudita,Saudi Arabia,Tadawul All Share,KSA,A+,A1,A+,a,STC,7010.SR,Telecom,SAU
+Arábia Saudita,Saudi Arabia,Tadawul All Share,KSA,A+,A1,A+,a,Al Rajhi Bank,1120.SR,Financeiro,SAU
+Arábia Saudita,Saudi Arabia,Tadawul All Share,KSA,A+,A1,A+,a,Samba Financial Group,1090.SR,Financeiro,SAU
+Arábia Saudita,Saudi Arabia,Tadawul All Share,KSA,A+,A1,A+,a,Savola Group,2050.SR,Alimentos,SAU
+Arábia Saudita,Saudi Arabia,Tadawul All Share,KSA,A+,A1,A+,a,Ma'aden,1211.SR,Mineração,SAU
+Turquia,Turkey,BIST 100,TUR,B,B3,B,b,Turkcell,TCELL.IS,Telecom,TUR
+Turquia,Turkey,BIST 100,TUR,B,B3,B,b,Erdemir,EREGL.IS,Siderurgia,TUR
+Turquia,Turkey,BIST 100,TUR,B,B3,B,b,Koc Holding,KCHOL.IS,Conglomerado,TUR
+Turquia,Turkey,BIST 100,TUR,B,B3,B,b,Akbank,AKBNK.IS,Financeiro,TUR
+Turquia,Turkey,BIST 100,TUR,B,B3,B,b,Tofas,TOASO.IS,Automotivo,TUR
+Suíça,Switzerland,SMI,EWL,AAA,Aaa,AAA,aaa,Nestlé,NESN.SW,Alimentos,CHE
+Suíça,Switzerland,SMI,EWL,AAA,Aaa,AAA,aaa,Roche,ROG.SW,Farmacêutico,CHE
+Suíça,Switzerland,SMI,EWL,AAA,Aaa,AAA,aaa,Novartis,NOVN.SW,Farmacêutico,CHE
+Suíça,Switzerland,SMI,EWL,AAA,Aaa,AAA,aaa,Zurich Insurance,ZURN.SW,Seguros,CHE
+Suíça,Switzerland,SMI,EWL,AAA,Aaa,AAA,aaa,UBS,UBSG.SW,Financeiro,CHE
+Países Baixos,Netherlands,AEX,EWN,AAA,Aaa,AAA,aaa,Philips,PHIA.AS,Tecnologia,NLD
+Países Baixos,Netherlands,AEX,EWN,AAA,Aaa,AAA,aaa,ING,INGA.AS,Financeiro,NLD
+Países Baixos,Netherlands,AEX,EWN,AAA,Aaa,AAA,aaa,Ahold Delhaize,AD.AS,Varejo,NLD
+Países Baixos,Netherlands,AEX,EWN,AAA,Aaa,AAA,aaa,Randstad,RAND.AS,Serviços,NLD
+Países Baixos,Netherlands,AEX,EWN,AAA,Aaa,AAA,aaa,AkzoNobel,AKZA.AS,Química,NLD
+Brasil,Brasil,Índice Local,,,,,,JBS,JBS3,Diversos,BRA
+Brasil,Brasil,Índice Local,,,,,,Eletrobras,ELET3,Diversos,BRA
+Brasil,Brasil,Índice Local,,,,,,Suzano,SUZA3,Diversos,BRA
+Brasil,Brasil,Índice Local,,,,,,BTG Pactual,BTG 3,Diversos,BRA
+Brasil,Brasil,Índice Local,,,,,,Telefonica Brasil,TELE3,Diversos,BRA
+Brasil,Brasil,Índice Local,,,,,,Ambev,AMBE3,Diversos,BRA
+Brasil,Brasil,Índice Local,,,,,,Localiza,LOCA3,Diversos,BRA
+Brasil,Brasil,Índice Local,,,,,,WEG,WEG3,Diversos,BRA
+Brasil,Brasil,Índice Local,,,,,,Raia Drogasil,RAIA3,Diversos,BRA
+Espanha,Espanha,Índice Local,,,,,,Endesa,ENDE3,Diversos,ESP
+Espanha,Espanha,Índice Local,,,,,,CaixaBank,CAIX3,Diversos,ESP
+Espanha,Espanha,Índice Local,,,,,,Naturgy,NATU3,Diversos,ESP
+Espanha,Espanha,Índice Local,,,,,,Bankinter,BANK3,Diversos,ESP
+Espanha,Espanha,Índice Local,,,,,,Mapfre,MAPF3,Diversos,ESP
+Espanha,Espanha,Índice Local,,,,,,Grifols,GRIF3,Diversos,ESP
+Espanha,Espanha,Índice Local,,,,,,Acerinox,ACER3,Diversos,ESP
+Espanha,Espanha,Índice Local,,,,,,Colonial,COLO3,Diversos,ESP
+Espanha,Espanha,Índice Local,,,,,,Cellnex,CELL3,Diversos,ESP
+Espanha,Espanha,Índice Local,,,,,,AENA,AENA3,Diversos,ESP

@@ -1,0 +1,440 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum InvestmentClass {
+  INTERNATIONAL_STOCKS
+  BRAZILIAN_STOCKS
+  REAL_ESTATE_FUNDS
+  REITS
+  CRYPTO
+  FIXED_INCOME
+  INTERNATIONAL_FIXED_INCOME
+}
+
+enum InstrumentType {
+  STOCK
+  ETF
+  REAL_ESTATE_FUND
+  REIT
+  CRYPTO
+  FIXED_INCOME
+}
+
+enum PricingSource {
+  MANUAL
+  BRAPI
+}
+
+enum FixedIncomeIndexation {
+  PRE_FIXED
+  POST_FIXED
+  INFLATION
+  OTHER
+}
+
+enum RateConvention {
+  FIXED_ANNUAL
+  PERCENT_OF_INDEXER
+  INDEXER_PLUS
+  OTHER
+}
+
+enum DiagramType {
+  CERRADO
+  REAL_ESTATE
+}
+
+enum BudgetCategory {
+  FIXED_COSTS
+  COMFORT
+  GOALS
+  PLEASURES
+  FINANCIAL_FREEDOM
+  KNOWLEDGE
+}
+
+enum BalanceSheetCategory {
+  RECEIVABLES
+  INVESTMENTS
+  CASH
+  VALUE_LIABILITY
+  CURRENT_LIABILITY
+  NON_CURRENT_LIABILITY
+}
+
+enum SimulationStatus {
+  DRAFT
+  EXECUTED
+  STALE
+  CANCELLED
+}
+
+model User {
+  id                      String                   @id @default(cuid())
+  name                    String?
+  email                   String?                  @unique
+  emailVerified           DateTime?
+  image                    String?
+  passwordHash             String?
+  sessionVersion           Int                      @default(0)
+  createdAt                DateTime                 @default(now())
+  updatedAt                DateTime                 @updatedAt
+  accounts                 Account[]
+  sessions                 Session[]
+  preference               UserPreference?
+  portfolio                Portfolio?
+  investmentTargets        InvestmentTarget[]
+  diagramQuestions         DiagramQuestion[]
+  budgetMonths             BudgetMonth[]
+  recurringExpenses        RecurringExpense[]
+  balanceSheetEntries      BalanceSheetEntry[]
+  contributionSimulations  ContributionSimulation[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model UserPreference {
+  id                       String    @id @default(cuid())
+  userId                   String    @unique
+  theme                    String    @default("system")
+  locale                   String    @default("pt-BR")
+  currency                 String    @default("BRL")
+  brapiApiKeyCiphertext    String?   @db.Text
+  brapiApiKeyLastFour      String?
+  brapiApiKeyUpdatedAt     DateTime?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+  user                     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Portfolio {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  version   Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assets    Asset[]
+}
+
+model Asset {
+  id                     String                  @id @default(cuid())
+  portfolioId            String
+  investmentClass        InvestmentClass
+  instrumentType         InstrumentType
+  ticker                 String
+  name                   String
+  fixedIncomeFamilyCode  String?
+  indexation             FixedIncomeIndexation?
+  score                  Int                     @default(0)
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  portfolio              Portfolio               @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+  fixedIncomeFamily      FixedIncomeFamily?      @relation(fields: [fixedIncomeFamilyCode], references: [code], onDelete: Restrict)
+  holdings               AssetHolding[]
+  answers                AssetQuestionAnswer[]
+  suggestions            ContributionSuggestion[]
+
+  @@unique([portfolioId, investmentClass, ticker])
+  @@index([portfolioId, investmentClass])
+  @@index([portfolioId, instrumentType])
+  @@index([portfolioId, fixedIncomeFamilyCode, indexation])
+}
+
+model FixedIncomeFamily {
+  code         String             @id
+  name         String
+  shortCode    String
+  sortOrder    Int                @default(0)
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  catalogItems AssetCatalogItem[]
+  assets       Asset[]
+}
+
+model AssetCatalogItem {
+  id         Int                @id
+  category   String
+  name       String
+  summary    String             @db.Text
+  taxPF      String             @db.Text
+  taxPJ      String             @db.Text
+  howToBuy   String             @db.Text
+  costs      String             @db.Text
+  risks      String             @db.Text
+  guarantees String             @db.Text
+  familyCode String?
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
+  family     FixedIncomeFamily? @relation(fields: [familyCode], references: [code], onDelete: SetNull)
+  holdings   AssetHolding[]
+
+  @@index([category])
+  @@index([familyCode])
+}
+
+model AssetHolding {
+  id              String          @id @default(cuid())
+  assetId         String
+  catalogItemId   Int?
+  customTypeName  String?
+  issuer          String
+  productName     String
+  pricingSource   PricingSource
+  ticker          String?
+  brapiAssetType  String?
+  brapiSubType    String?
+  currency        String          @default("BRL")
+  quantity        Decimal         @default(0) @db.Decimal(30, 10)
+  unitPrice       Decimal         @default(0) @db.Decimal(30, 10)
+  investedValue   Decimal?        @db.Decimal(30, 2)
+  currentValue    Decimal?        @db.Decimal(30, 2)
+  fractional      Boolean         @default(false)
+  rateConvention  RateConvention?
+  benchmark       String?
+  rateValue       Decimal?        @db.Decimal(12, 6)
+  purchaseDate    DateTime?
+  maturityDate    DateTime?
+  logoUrl         String?
+  priceUpdatedAt  DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  asset           Asset           @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  catalogItem     AssetCatalogItem? @relation(fields: [catalogItemId], references: [id], onDelete: SetNull)
+
+  @@index([assetId])
+  @@index([pricingSource, ticker])
+  @@index([catalogItemId])
+}
+
+model InvestmentTarget {
+  id               String          @id @default(cuid())
+  userId           String
+  investmentClass  InvestmentClass
+  percentage       Decimal         @db.Decimal(5, 2)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, investmentClass])
+  @@index([userId])
+}
+
+model InvestorProfilePreset {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  name        String
+  description String
+  targets     Json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model DiagramQuestion {
+  id          String       @id @default(cuid())
+  userId      String?
+  type        DiagramType
+  criterion   String       @default("CRITÉRIO")
+  text        String
+  sortOrder   Int          @default(0)
+  active      Boolean      @default(true)
+  isDefault   Boolean      @default(false)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  user        User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  answers     AssetQuestionAnswer[]
+
+  @@index([userId, type, sortOrder])
+}
+
+model AssetQuestionAnswer {
+  id          String          @id @default(cuid())
+  assetId     String
+  questionId  String
+  answer      Boolean
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  asset       Asset           @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  question    DiagramQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([assetId, questionId])
+  @@index([questionId])
+}
+
+model BudgetMonth {
+  id        String         @id @default(cuid())
+  userId    String
+  year      Int
+  month     Int
+  income    Decimal        @default(0) @db.Decimal(20, 2)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  targets   BudgetTarget[]
+  expenses  Expense[]
+
+  @@unique([userId, year, month])
+  @@index([userId, year, month])
+}
+
+model BudgetTarget {
+  id             String         @id @default(cuid())
+  budgetMonthId  String
+  category       BudgetCategory
+  percentage     Decimal        @db.Decimal(5, 2)
+  budgetMonth    BudgetMonth    @relation(fields: [budgetMonthId], references: [id], onDelete: Cascade)
+
+  @@unique([budgetMonthId, category])
+}
+
+model Expense {
+  id                   String             @id @default(cuid())
+  budgetMonthId        String
+  recurringExpenseId   String?
+  name                 String
+  amount               Decimal            @db.Decimal(20, 2)
+  category             BudgetCategory
+  spentAt              DateTime
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  budgetMonth          BudgetMonth        @relation(fields: [budgetMonthId], references: [id], onDelete: Cascade)
+  recurringExpense     RecurringExpense?  @relation(fields: [recurringExpenseId], references: [id], onDelete: SetNull)
+
+  @@index([budgetMonthId, category])
+  @@unique([budgetMonthId, recurringExpenseId])
+}
+
+model RecurringExpense {
+  id        String         @id @default(cuid())
+  userId    String
+  name      String
+  amount    Decimal        @db.Decimal(20, 2)
+  category  BudgetCategory
+  active    Boolean        @default(true)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expenses  Expense[]
+
+  @@index([userId, active])
+}
+
+model BalanceSheetEntry {
+  id        String               @id @default(cuid())
+  userId    String
+  category  BalanceSheetCategory
+  name      String
+  value     Decimal              @db.Decimal(20, 2)
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
+  user      User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, category])
+}
+
+model ContributionSimulation {
+  id                String                   @id @default(cuid())
+  userId            String
+  portfolioVersion  Int
+  requestedAmount   Decimal                  @db.Decimal(20, 2)
+  unallocatedAmount Decimal                  @db.Decimal(20, 2)
+  status            SimulationStatus         @default(DRAFT)
+  createdAt         DateTime                 @default(now())
+  executedAt        DateTime?
+  user              User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  suggestions       ContributionSuggestion[]
+
+  @@index([userId, createdAt])
+}
+
+model ContributionSuggestion {
+  id                            String                  @id @default(cuid())
+  simulationId                  String
+  assetId                       String
+  quantity                      Decimal                 @db.Decimal(30, 10)
+  value                         Decimal                 @db.Decimal(30, 10)
+  suggestionPercentage          Decimal                 @db.Decimal(12, 8)
+  totalAfterSuggestionPercentage Decimal                @db.Decimal(12, 8)
+  executed                      Boolean                 @default(false)
+  simulation                    ContributionSimulation  @relation(fields: [simulationId], references: [id], onDelete: Cascade)
+  asset                         Asset                   @relation(fields: [assetId], references: [id], onDelete: Restrict)
+
+  @@unique([simulationId, assetId])
+  @@index([assetId])
+}
+
+model FaqCategory {
+  id        String    @id @default(cuid())
+  slug      String    @unique
+  title     String
+  sortOrder Int       @default(0)
+  items     FaqItem[]
+}
+
+model FaqItem {
+  id          String      @id @default(cuid())
+  categoryId  String
+  question    String
+  answer      String
+  sortOrder   Int         @default(0)
+  category    FaqCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@index([categoryId, sortOrder])
+}
+
+model AuthRateLimit {
+  id              String    @id @default(cuid())
+  scope           String
+  key             String
+  attempts        Int       @default(0)
+  windowStartedAt DateTime
+  lastAttemptAt   DateTime
+  blockedUntil    DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([scope, key])
+  @@index([blockedUntil])
+  @@index([updatedAt])
+}

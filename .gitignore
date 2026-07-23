@@ -1,0 +1,12 @@
+node_modules
+.pnpm-store
+.next
+.env
+.env.local
+coverage
+cypress/screenshots
+cypress/videos
+*.tsbuildinfo
+work/
+*.log
+.DS_Store

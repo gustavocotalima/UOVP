@@ -1,0 +1,24 @@
+import Decimal from "decimal.js";
+
+export const BRL = new Intl.NumberFormat("pt-BR", {
+  style: "currency",
+  currency: "BRL",
+  minimumFractionDigits: 2,
+});
+
+export function formatMoney(value: Decimal.Value) {
+  return BRL.format(new Decimal(value).toNumber());
+}
+
+export function formatPercent(value: Decimal.Value, digits = 2) {
+  return `${new Decimal(value).toDecimalPlaces(digits).toString().replace(".", ",")}%`;
+}
+
+export function parseMoney(value: string | number) {
+  if (typeof value === "number") return new Decimal(value);
+  const normalized = value
+    .replace(/R\$|\s/g, "")
+    .replace(/\.(?=\d{3}(?:\D|$))/g, "")
+    .replace(",", ".");
+  return new Decimal(normalized || 0);
+}

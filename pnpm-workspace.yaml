@@ -1,0 +1,7 @@
+packages:
+  - "."
+
+onlyBuiltDependencies:
+  - "@prisma/engines"
+  - "cypress"
+  - "prisma"

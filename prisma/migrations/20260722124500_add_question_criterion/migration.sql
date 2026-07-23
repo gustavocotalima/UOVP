@@ -1,0 +1,2 @@
+ALTER TABLE "DiagramQuestion"
+ADD COLUMN "criterion" TEXT NOT NULL DEFAULT 'CRITÉRIO';

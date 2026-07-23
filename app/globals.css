@@ -1,0 +1,123 @@
+@import "tailwindcss";
+@import "leaflet/dist/leaflet.css";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --background: #f4f4f0;
+  --foreground: #171714;
+  --card: #ffffff;
+  --card-foreground: #171714;
+  --muted: #e9e9e3;
+  --muted-foreground: #6f7069;
+  --border: #deded6;
+  --primary: #b99642;
+  --primary-foreground: #11110f;
+  --danger: #d94b45;
+  --success: #4f9b6b;
+  --radius: 0.85rem;
+}
+
+.dark {
+  --background: #171816;
+  --foreground: #f5f4ef;
+  --card: #20211f;
+  --card-foreground: #f5f4ef;
+  --muted: #2b2c29;
+  --muted-foreground: #a8a9a2;
+  --border: #363733;
+  --primary: #d2ad50;
+  --primary-foreground: #151511;
+  --danger: #f16b62;
+  --success: #76bc8e;
+}
+
+* {
+  border-color: var(--border);
+}
+
+html {
+  background: var(--background);
+}
+
+body {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 82% -10%, color-mix(in srgb, var(--primary) 10%, transparent), transparent 24rem),
+    var(--background);
+  color: var(--foreground);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  text-rendering: optimizeLegibility;
+}
+
+button,
+a,
+input,
+select,
+textarea {
+  outline-color: var(--primary);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--primary) 35%, transparent);
+}
+
+.surface-grid {
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--border) 45%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--border) 45%, transparent) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.leaflet-container {
+  min-height: 520px;
+  width: 100%;
+  border-radius: var(--radius);
+  background: #111412;
+}
+
+.auvp-country-map.leaflet-container {
+  height: 600px;
+  min-height: 600px;
+  border-radius: 0.5rem;
+  background: #1e293b;
+}
+
+.country-tooltip.leaflet-tooltip {
+  border: 0;
+  border-radius: 0.25rem;
+  background: rgba(30, 41, 59, 0.9);
+  color: white;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.country-tooltip.leaflet-tooltip::before {
+  border-top-color: rgba(30, 41, 59, 0.9);
+}
+
+@media (max-width: 767px) {
+  .auvp-country-map.leaflet-container {
+    height: 400px;
+    min-height: 400px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
