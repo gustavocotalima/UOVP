@@ -2,8 +2,27 @@ import type { BudgetCategoryKey } from "@/features/budget/constants";
 
 export type FinanceTagDto = {
   id: string;
+  systemKey: string | null;
   name: string;
   color: string;
+};
+
+export type FinanceAssignmentSourceDto = "UNASSIGNED" | "PROVIDER_DEFAULT" | "USER_RULE" | "MANUAL";
+
+export type FinanceClassificationRuleDto = {
+  id: string;
+  matchType: "MERCHANT_CNPJ" | "MERCHANT_NAME" | "COUNTERPARTY_NAME" | "DESCRIPTION" | "PROVIDER_CATEGORY";
+  matchValue: string;
+  matchLabel: string;
+  kind: "INCOME" | "EXPENSE";
+  assignsBudgetCategory: boolean;
+  budgetCategory: BudgetCategoryKey | null;
+  assignsTags: boolean;
+  assignsInternalTransfer: boolean;
+  internalTransfer: boolean;
+  enabled: boolean;
+  tags: FinanceTagDto[];
+  appliedCount: number;
 };
 
 export type FinancialAccountDto = {
@@ -39,20 +58,32 @@ export type FinanceTransactionDto = {
   source: "PLUGGY" | "MANUAL";
   kind: "INCOME" | "EXPENSE";
   description: string;
+  descriptionRaw: string | null;
   merchantName: string | null;
+  merchantBusinessName: string | null;
+  merchantCnpj: string | null;
+  merchantCategory: string | null;
+  counterpartyName: string | null;
+  paymentMethod: string | null;
   amount: string;
   currencyCode: string;
   date: string;
   referenceYear: number;
   referenceMonth: number;
   budgetCategory: BudgetCategoryKey | null;
+  budgetCategorySource: FinanceAssignmentSourceDto;
+  tagAssignmentSource: FinanceAssignmentSourceDto;
   providerCategory: string | null;
+  providerCategoryId: string | null;
   status: string | null;
   note: string | null;
   ignored: boolean;
   internalTransfer: boolean;
+  internalTransferSource: FinanceAssignmentSourceDto;
   installmentNumber: number | null;
   installmentTotal: number | null;
+  classificationRule: { id: string; matchLabel: string } | null;
+  classifiedAt: string | null;
   tags: FinanceTagDto[];
 };
 
@@ -77,6 +108,8 @@ export type FinanceData = {
   recentTransactions: FinanceTransactionDto[];
   historyTransactions: FinanceTransactionDto[];
   tags: FinanceTagDto[];
+  classificationRules: FinanceClassificationRuleDto[];
+  unclassifiedTransactionCount: number;
   pluggy: {
     configured: boolean;
     itemCount: number;

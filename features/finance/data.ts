@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { BUDGET_CATEGORIES, type BudgetCategoryKey } from "@/features/budget/constants";
 import { getPluggyCredentialStatus } from "@/features/open-finance/pluggy-credentials";
+import { DEFAULT_FINANCE_TAGS } from "./classification";
 import type { FinanceData, FinanceGoalRecord, FinanceTransactionDto } from "./types";
 
 export const AUVP_FINANCE_GOALS: FinanceGoalRecord = {
@@ -12,14 +13,9 @@ export const AUVP_FINANCE_GOALS: FinanceGoalRecord = {
   KNOWLEDGE: 5,
 };
 
-export const AUVP_FINANCE_TAGS = [
-  { name: "Alimentação", color: "#ef4444" },
-  { name: "Contas de Casa", color: "#f59e0b" },
-  { name: "Educação", color: "#3b82f6" },
-  { name: "Lazer", color: "#a855f7" },
-  { name: "Transporte", color: "#14b8a6" },
-  { name: "Vestuário", color: "#ec4899" },
-] as const;
+export const AUVP_FINANCE_TAGS = Object.entries(DEFAULT_FINANCE_TAGS).map(
+  ([systemKey, tag]) => ({ systemKey, ...tag }),
+);
 
 export async function ensureFinanceSetup(userId: string) {
   await prisma.$transaction([
@@ -37,7 +33,7 @@ export async function ensureFinanceSetup(userId: string) {
     ),
     ...AUVP_FINANCE_TAGS.map((tag) =>
       prisma.financeTag.upsert({
-        where: { userId_name: { userId, name: tag.name } },
+        where: { userId_systemKey: { userId, systemKey: tag.systemKey } },
         update: {},
         create: { userId, ...tag },
       }),
@@ -52,27 +48,39 @@ function mapTransaction(
     source: "PLUGGY" | "MANUAL";
     kind: "INCOME" | "EXPENSE";
     description: string;
+    descriptionRaw: string | null;
     merchantName: string | null;
+    merchantBusinessName: string | null;
+    merchantCnpj: string | null;
+    merchantCategory: string | null;
+    counterpartyName: string | null;
+    paymentMethod: string | null;
     amount: { toString(): string };
     currencyCode: string;
     date: Date;
     referenceYear: number;
     referenceMonth: number;
     budgetCategory: BudgetCategoryKey | null;
+    budgetCategorySource: "UNASSIGNED" | "PROVIDER_DEFAULT" | "USER_RULE" | "MANUAL";
+    tagAssignmentSource: "UNASSIGNED" | "PROVIDER_DEFAULT" | "USER_RULE" | "MANUAL";
     providerCategory: string | null;
+    providerCategoryId: string | null;
     status: string | null;
     note: string | null;
     ignored: boolean;
     internalTransfer: boolean;
+    internalTransferSource: "UNASSIGNED" | "PROVIDER_DEFAULT" | "USER_RULE" | "MANUAL";
     installmentNumber: number | null;
     installmentTotal: number | null;
+    classifiedAt: Date | null;
     account: {
       name: string;
       type: "BANK_ACCOUNT" | "CREDIT_CARD";
       institutionName: string | null;
       institutionImageUrl: string | null;
     };
-    tags: Array<{ tag: { id: string; name: string; color: string } }>;
+    tags: Array<{ tag: { id: string; systemKey: string | null; name: string; color: string } }>;
+    classificationRule: { id: string; matchLabel: string } | null;
   },
 ): FinanceTransactionDto {
   return {
@@ -85,27 +93,39 @@ function mapTransaction(
     source: transaction.source,
     kind: transaction.kind,
     description: transaction.description,
+    descriptionRaw: transaction.descriptionRaw,
     merchantName: transaction.merchantName,
+    merchantBusinessName: transaction.merchantBusinessName,
+    merchantCnpj: transaction.merchantCnpj,
+    merchantCategory: transaction.merchantCategory,
+    counterpartyName: transaction.counterpartyName,
+    paymentMethod: transaction.paymentMethod,
     amount: transaction.amount.toString(),
     currencyCode: transaction.currencyCode,
     date: transaction.date.toISOString(),
     referenceYear: transaction.referenceYear,
     referenceMonth: transaction.referenceMonth,
     budgetCategory: transaction.budgetCategory,
+    budgetCategorySource: transaction.budgetCategorySource,
+    tagAssignmentSource: transaction.tagAssignmentSource,
     providerCategory: transaction.providerCategory,
+    providerCategoryId: transaction.providerCategoryId,
     status: transaction.status,
     note: transaction.note,
     ignored: transaction.ignored,
     internalTransfer: transaction.internalTransfer,
+    internalTransferSource: transaction.internalTransferSource,
     installmentNumber: transaction.installmentNumber,
     installmentTotal: transaction.installmentTotal,
+    classificationRule: transaction.classificationRule,
+    classifiedAt: transaction.classifiedAt?.toISOString() ?? null,
     tags: transaction.tags.map((item) => item.tag),
   };
 }
 
 export async function getFinanceData(userId: string, year: number, month: number): Promise<FinanceData> {
   await ensureFinanceSetup(userId);
-  const [user, profile, goals, accounts, transactions, tags, pluggyItems, pluggyCredential] = await Promise.all([
+  const [user, profile, goals, accounts, transactions, tags, classificationRules, pluggyItems, pluggyCredential] = await Promise.all([
     prisma.user.findUniqueOrThrow({
       where: { id: userId },
       select: { name: true, email: true, image: true },
@@ -129,9 +149,18 @@ export async function getFinanceData(userId: string, year: number, month: number
           },
         },
         tags: { include: { tag: true } },
+        classificationRule: { select: { id: true, matchLabel: true } },
       },
     }),
     prisma.financeTag.findMany({ where: { userId }, orderBy: { name: "asc" } }),
+    prisma.financeClassificationRule.findMany({
+      where: { userId },
+      orderBy: [{ enabled: "desc" }, { updatedAt: "desc" }],
+      include: {
+        tags: { include: { tag: true } },
+        _count: { select: { appliedTransactions: true } },
+      },
+    }),
     prisma.pluggyItem.findMany({
       where: { userId },
       select: { syncPending: true, lastSyncAt: true },
@@ -183,6 +212,28 @@ export async function getFinanceData(userId: string, year: number, month: number
     recentTransactions: mappedTransactions.slice(0, 8),
     historyTransactions: mappedTransactions,
     tags,
+    classificationRules: classificationRules.map((rule) => ({
+      id: rule.id,
+      matchType: rule.matchType,
+      matchValue: rule.matchValue,
+      matchLabel: rule.matchLabel,
+      kind: rule.kind,
+      assignsBudgetCategory: rule.assignsBudgetCategory,
+      budgetCategory: rule.budgetCategory,
+      assignsTags: rule.assignsTags,
+      assignsInternalTransfer: rule.assignsInternalTransfer,
+      internalTransfer: rule.internalTransfer,
+      enabled: rule.enabled,
+      tags: rule.tags.map((item) => item.tag),
+      appliedCount: rule._count.appliedTransactions,
+    })),
+    unclassifiedTransactionCount: mappedTransactions.filter(
+      (transaction) =>
+        transaction.kind === "EXPENSE"
+        && transaction.budgetCategorySource === "UNASSIGNED"
+        && !transaction.internalTransfer
+        && !transaction.ignored,
+    ).length,
     pluggy: {
       configured: pluggyCredential.configured,
       itemCount: pluggyItems.length,

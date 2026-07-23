@@ -2,23 +2,47 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { Bot, Pencil, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { createFinanceTagAction, deleteFinanceTagAction, updateFinanceTagAction } from "./actions";
+import { Select } from "@/components/ui/select";
+import {
+  createFinanceTagAction,
+  deleteFinanceClassificationRuleAction,
+  deleteFinanceTagAction,
+  updateFinanceClassificationRuleAction,
+  updateFinanceTagAction,
+} from "./actions";
+import { BUDGET_CATEGORIES, BUDGET_CATEGORY_META, type BudgetCategoryKey } from "@/features/budget/constants";
 import { FinanceNotice, runFinanceAction } from "./shared";
-import type { FinanceTagDto } from "./types";
+import type { FinanceClassificationRuleDto, FinanceTagDto } from "./types";
 
-export function TagsClient({ tags }: { tags: FinanceTagDto[] }) {
+type RuleMetaMode = "KEEP" | "CLEAR" | BudgetCategoryKey;
+
+export function TagsClient({
+  tags,
+  rules,
+}: {
+  tags: FinanceTagDto[];
+  rules: FinanceClassificationRuleDto[];
+}) {
   const router = useRouter();
   const [editing, setEditing] = useState<FinanceTagDto | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [name, setName] = useState("");
   const [color, setColor] = useState("#3b82f6");
   const [deleting, setDeleting] = useState<FinanceTagDto | null>(null);
+  const [editingRule, setEditingRule] = useState<FinanceClassificationRuleDto | null>(null);
+  const [deletingRule, setDeletingRule] = useState<FinanceClassificationRuleDto | null>(null);
+  const [ruleEnabled, setRuleEnabled] = useState(true);
+  const [ruleMetaMode, setRuleMetaMode] = useState<RuleMetaMode>("KEEP");
+  const [ruleAssignsTags, setRuleAssignsTags] = useState(false);
+  const [ruleTagIds, setRuleTagIds] = useState<string[]>([]);
+  const [ruleAssignsInternal, setRuleAssignsInternal] = useState(false);
+  const [ruleInternal, setRuleInternal] = useState(false);
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
@@ -58,6 +82,60 @@ export function TagsClient({ tags }: { tags: FinanceTagDto[] }) {
     }
   }
 
+  function openRule(rule: FinanceClassificationRuleDto) {
+    setEditingRule(rule);
+    setRuleEnabled(rule.enabled);
+    setRuleMetaMode(
+      rule.assignsBudgetCategory
+        ? rule.budgetCategory ?? "CLEAR"
+        : "KEEP",
+    );
+    setRuleAssignsTags(rule.assignsTags);
+    setRuleTagIds(rule.tags.map((tag) => tag.id));
+    setRuleAssignsInternal(rule.assignsInternalTransfer);
+    setRuleInternal(rule.internalTransfer);
+  }
+
+  async function saveRule() {
+    if (!editingRule) return;
+    const ok = await runFinanceAction(
+      () => updateFinanceClassificationRuleAction({
+        id: editingRule.id,
+        enabled: ruleEnabled,
+        assignsBudgetCategory: ruleMetaMode !== "KEEP",
+        budgetCategory:
+          ruleMetaMode === "KEEP" || ruleMetaMode === "CLEAR"
+            ? null
+            : ruleMetaMode,
+        assignsTags: ruleAssignsTags,
+        tagIds: ruleAssignsTags ? ruleTagIds : [],
+        assignsInternalTransfer: ruleAssignsInternal,
+        internalTransfer: ruleInternal,
+      }),
+      setPending,
+      setNotice,
+      "Regra automática atualizada.",
+    );
+    if (ok) {
+      setEditingRule(null);
+      router.refresh();
+    }
+  }
+
+  async function removeRule() {
+    if (!deletingRule) return;
+    const ok = await runFinanceAction(
+      () => deleteFinanceClassificationRuleAction(deletingRule.id),
+      setPending,
+      setNotice,
+      "Regra automática excluída.",
+    );
+    if (ok) {
+      setDeletingRule(null);
+      router.refresh();
+    }
+  }
+
   return (
     <div className="space-y-5">
       {notice && <FinanceNotice type={notice.type}>{notice.text}</FinanceNotice>}
@@ -67,10 +145,43 @@ export function TagsClient({ tags }: { tags: FinanceTagDto[] }) {
           <table className="w-full text-left text-sm">
             <thead className="border-b bg-[var(--muted)]/40 text-[11px] uppercase tracking-wide text-[var(--muted-foreground)]"><tr><th className="w-14 p-4"></th><th className="p-4">Tag</th><th className="p-4 text-right">Ações</th></tr></thead>
             <tbody className="divide-y">
-              {tags.map((tag) => <tr key={tag.id}><td className="p-4"><span className="block size-5 rounded-md" style={{ background: tag.color }} /></td><td className="p-4 font-medium">{tag.name}</td><td className="p-4"><div className="flex justify-end gap-1"><Button variant="ghost" size="icon" aria-label="Editar tag" onClick={() => openEdit(tag)}><Pencil className="size-4" /></Button><Button variant="ghost" size="icon" aria-label="Excluir tag" onClick={() => setDeleting(tag)}><Trash2 className="size-4" /></Button></div></td></tr>)}
+              {tags.map((tag) => <tr key={tag.id}><td className="p-4"><span className="block size-5 rounded-md" style={{ background: tag.color }} /></td><td className="p-4 font-medium">{tag.name}{tag.systemKey && <small className="ml-2 text-[10px] font-normal text-[var(--muted-foreground)]">Padrão</small>}</td><td className="p-4"><div className="flex justify-end gap-1"><Button variant="ghost" size="icon" aria-label="Editar tag" onClick={() => openEdit(tag)}><Pencil className="size-4" /></Button><Button variant="ghost" size="icon" aria-label="Excluir tag" disabled={Boolean(tag.systemKey)} onClick={() => setDeleting(tag)}><Trash2 className="size-4" /></Button></div></td></tr>)}
             </tbody>
           </table>
           {!tags.length && <p className="py-12 text-center text-sm text-[var(--muted-foreground)]">Nenhuma tag criada.</p>}
+        </CardContent>
+      </Card>
+
+      <Card className="overflow-hidden">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><Bot className="size-5" /> Regras automáticas</CardTitle>
+          <p className="text-sm text-[var(--muted-foreground)]">
+            Regras pessoais aprendidas ao classificar transações semelhantes.
+          </p>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[760px] text-left text-sm">
+              <thead className="border-y bg-[var(--muted)]/40 text-[11px] uppercase tracking-wide text-[var(--muted-foreground)]">
+                <tr><th className="p-4">Correspondência</th><th className="p-4">Resultado</th><th className="p-4">Aplicações</th><th className="p-4">Status</th><th className="p-4 text-right">Ações</th></tr>
+              </thead>
+              <tbody className="divide-y">
+                {rules.map((rule) => (
+                  <tr key={rule.id} className={!rule.enabled ? "opacity-55" : undefined}>
+                    <td className="p-4">
+                      <strong>{rule.matchLabel}</strong>
+                      <small className="mt-1 block text-[10px] text-[var(--muted-foreground)]">{ruleMatchLabel(rule.matchType)} · {rule.kind === "EXPENSE" ? "Saída" : "Entrada"}</small>
+                    </td>
+                    <td className="p-4 text-xs">{ruleResult(rule)}</td>
+                    <td className="p-4">{rule.appliedCount}</td>
+                    <td className="p-4"><span className={rule.enabled ? "text-[var(--success)]" : "text-[var(--muted-foreground)]"}>{rule.enabled ? "Ativa" : "Desativada"}</span></td>
+                    <td className="p-4"><div className="flex justify-end gap-1"><Button variant="ghost" size="icon" aria-label="Editar regra" onClick={() => openRule(rule)}><Pencil className="size-4" /></Button><Button variant="ghost" size="icon" aria-label="Excluir regra" onClick={() => setDeletingRule(rule)}><Trash2 className="size-4" /></Button></div></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {!rules.length && <p className="py-12 text-center text-sm text-[var(--muted-foreground)]">Nenhuma regra pessoal foi criada.</p>}
         </CardContent>
       </Card>
 
@@ -81,7 +192,40 @@ export function TagsClient({ tags }: { tags: FinanceTagDto[] }) {
           <div className="rounded-xl border p-3"><span className="rounded-full px-3 py-1.5 text-sm font-medium text-white" style={{ background: color }}>{name || "Nome"}</span></div>
         </div>
       </Dialog>
+      <Dialog open={Boolean(editingRule)} onOpenChange={(open) => !open && setEditingRule(null)} title="Editar regra automática" description={editingRule?.matchLabel} footer={<Button onClick={saveRule} disabled={pending}>{pending ? "Salvando…" : "Salvar regra"}</Button>}>
+        <div className="space-y-5">
+          <label className="flex items-center gap-3 rounded-xl border p-3 text-sm"><input type="checkbox" checked={ruleEnabled} onChange={(event) => setRuleEnabled(event.target.checked)} /> Regra ativa</label>
+          <Label>Meta<Select className="mt-2 w-full" value={ruleMetaMode} onChange={(event) => setRuleMetaMode(event.target.value as RuleMetaMode)}><option value="KEEP">Não alterar</option><option value="CLEAR">Sem meta</option>{BUDGET_CATEGORIES.map((category) => <option key={category} value={category}>{BUDGET_CATEGORY_META[category].label}</option>)}</Select></Label>
+          <div className="space-y-3">
+            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={ruleAssignsTags} onChange={(event) => setRuleAssignsTags(event.target.checked)} /> Definir tags</label>
+            {ruleAssignsTags && <div className="flex flex-wrap gap-2">{tags.map((tag) => { const active = ruleTagIds.includes(tag.id); return <button key={tag.id} type="button" aria-pressed={active} onClick={() => setRuleTagIds(active ? ruleTagIds.filter((id) => id !== tag.id) : [...ruleTagIds, tag.id])} className="rounded-full border px-3 py-1.5 text-xs font-medium" style={active ? { background: tag.color, color: "white", borderColor: "transparent" } : undefined}>{tag.name}</button>; })}</div>}
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={ruleAssignsInternal} onChange={(event) => setRuleAssignsInternal(event.target.checked)} /> Definir transferência interna</label>
+            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={ruleInternal} disabled={!ruleAssignsInternal} onChange={(event) => setRuleInternal(event.target.checked)} /> Marcar como interna</label>
+          </div>
+        </div>
+      </Dialog>
       <ConfirmDialog open={Boolean(deleting)} onOpenChange={(open) => !open && setDeleting(null)} title="Excluir tag?" description="A tag será removida de todas as transações. As transações não serão excluídas." confirmLabel="Excluir" danger pending={pending} onConfirm={remove} />
+      <ConfirmDialog open={Boolean(deletingRule)} onOpenChange={(open) => !open && setDeletingRule(null)} title="Excluir regra automática?" description="Transações não editadas manualmente voltarão a usar a classificação padrão da Pluggy." confirmLabel="Excluir" danger pending={pending} onConfirm={removeRule} />
     </div>
   );
+}
+
+function ruleMatchLabel(matchType: FinanceClassificationRuleDto["matchType"]) {
+  return {
+    MERCHANT_CNPJ: "CNPJ do comerciante",
+    MERCHANT_NAME: "Comerciante",
+    COUNTERPARTY_NAME: "Contraparte",
+    DESCRIPTION: "Descrição exata",
+    PROVIDER_CATEGORY: "Categoria Pluggy",
+  }[matchType];
+}
+
+function ruleResult(rule: FinanceClassificationRuleDto) {
+  const parts: string[] = [];
+  if (rule.assignsBudgetCategory) parts.push(rule.budgetCategory ? BUDGET_CATEGORY_META[rule.budgetCategory].label : "Sem meta");
+  if (rule.assignsTags) parts.push(rule.tags.length ? rule.tags.map((tag) => tag.name).join(", ") : "Sem tags");
+  if (rule.assignsInternalTransfer) parts.push(rule.internalTransfer ? "Transferência interna" : "Não interna");
+  return parts.join(" · ") || "Sem ações";
 }

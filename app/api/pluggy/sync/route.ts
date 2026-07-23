@@ -18,7 +18,7 @@ export async function POST(request: Request) {
     const result = input.data.itemId
       ? await syncPluggyItemForUser(user.id, input.data.itemId)
       : await syncAllPluggyItemsForUser(user.id);
-    ["/open-finance", "/home", "/orcamento-domestico", "/contas", "/faturas", "/transacoes"].forEach((path) => revalidatePath(path));
+    ["/open-finance", "/home", "/orcamento-domestico", "/metas", "/contas", "/faturas", "/transacoes", "/tags"].forEach((path) => revalidatePath(path));
     return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json(
