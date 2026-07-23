@@ -6,6 +6,10 @@ import { z } from "zod";
 import { BUDGET_CATEGORIES, type BudgetCategoryKey } from "@/features/budget/constants";
 import { requireUserId } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
+import {
+  classifyFinanceTransactionsForUser,
+  learnFinanceClassificationRule,
+} from "./classification-service";
 import { ensureFinanceSetup } from "./data";
 
 const idSchema = z.string().min(1).max(200);
@@ -142,7 +146,10 @@ export async function updateFinanceTagAction(input: { id: string; name: string; 
 
 export async function deleteFinanceTagAction(id: string) {
   const userId = await requireUserId();
-  const result = await prisma.financeTag.deleteMany({ where: { id: idSchema.parse(id), userId } });
+  const parsedId = idSchema.parse(id);
+  const tag = await prisma.financeTag.findFirst({ where: { id: parsedId, userId } });
+  if (tag?.systemKey) throw new Error("Tags padrão podem ser editadas, mas não excluídas.");
+  const result = await prisma.financeTag.deleteMany({ where: { id: parsedId, userId } });
   if (!result.count) throw new Error("Tag não encontrada.");
   revalidateFinance();
 }
@@ -302,8 +309,10 @@ export async function createFinanceTransactionAction(input: {
         referenceMonth: parsed.referenceMonth,
         referenceOverridden: true,
         budgetCategory: parsed.budgetCategory ?? null,
+        budgetCategorySource: "MANUAL",
+        tagAssignmentSource: "MANUAL",
         note: parsed.note || null,
-        tags: { create: tagIds.map((tagId) => ({ tagId })) },
+        tags: { create: tagIds.map((tagId) => ({ tagId, source: "MANUAL" })) },
       },
     });
     if (account.source === "MANUAL") {
@@ -328,6 +337,7 @@ export async function updateFinanceTransactionAction(input: {
   budgetCategory?: BudgetCategoryKey | null;
   tagIds: string[];
   note?: string;
+  learnSimilar?: boolean;
 }) {
   const userId = await requireUserId();
   const parsed = z
@@ -343,6 +353,7 @@ export async function updateFinanceTransactionAction(input: {
       budgetCategory: categorySchema.nullable().optional(),
       tagIds: z.array(idSchema).max(20),
       note: z.string().trim().max(2_000).optional(),
+      learnSimilar: z.boolean().optional(),
     })
     .parse(input);
   const transaction = await ownedTransaction(userId, parsed.id);
@@ -392,32 +403,53 @@ export async function updateFinanceTransactionAction(input: {
         referenceMonth: parsed.referenceMonth,
         referenceOverridden: true,
         budgetCategory: parsed.budgetCategory ?? null,
+        budgetCategorySource: "MANUAL",
+        tagAssignmentSource: "MANUAL",
         note: parsed.note || null,
         tags: {
           deleteMany: {},
-          create: uniqueTags.map((tagId) => ({ tagId })),
+          create: uniqueTags.map((tagId) => ({ tagId, source: "MANUAL" })),
         },
       },
     });
   });
+  if (transaction.source === "PLUGGY" && parsed.learnSimilar) {
+    await learnFinanceClassificationRule(userId, transaction.id, {
+      budgetCategory: parsed.budgetCategory ?? null,
+      tagIds: uniqueTags,
+    });
+    await classifyFinanceTransactionsForUser(userId);
+  }
   revalidateFinance();
 }
 
 export async function updateFinanceTransactionCategoryAction(
   id: string,
   category: BudgetCategoryKey | null,
+  learnSimilar = false,
 ) {
   const userId = await requireUserId();
   const transaction = await ownedTransaction(userId, idSchema.parse(id));
   const parsedCategory = category === null ? null : categorySchema.parse(category);
   await prisma.financeTransaction.update({
     where: { id: transaction.id },
-    data: { budgetCategory: parsedCategory as BudgetCategory | null },
+    data: {
+      budgetCategory: parsedCategory as BudgetCategory | null,
+      budgetCategorySource: "MANUAL",
+    },
   });
+  if (transaction.source === "PLUGGY" && z.boolean().parse(learnSimilar)) {
+    await learnFinanceClassificationRule(userId, transaction.id, { budgetCategory: parsedCategory });
+    await classifyFinanceTransactionsForUser(userId);
+  }
   revalidateFinance();
 }
 
-export async function updateFinanceTransactionTagsAction(id: string, tagIds: string[]) {
+export async function updateFinanceTransactionTagsAction(
+  id: string,
+  tagIds: string[],
+  learnSimilar = false,
+) {
   const userId = await requireUserId();
   const transaction = await ownedTransaction(userId, idSchema.parse(id));
   const uniqueTags = [...new Set(z.array(idSchema).max(20).parse(tagIds))];
@@ -426,12 +458,17 @@ export async function updateFinanceTransactionTagsAction(id: string, tagIds: str
   await prisma.financeTransaction.update({
     where: { id: transaction.id },
     data: {
+      tagAssignmentSource: "MANUAL",
       tags: {
         deleteMany: {},
-        create: uniqueTags.map((tagId) => ({ tagId })),
+        create: uniqueTags.map((tagId) => ({ tagId, source: "MANUAL" })),
       },
     },
   });
+  if (transaction.source === "PLUGGY" && z.boolean().parse(learnSimilar)) {
+    await learnFinanceClassificationRule(userId, transaction.id, { tagIds: uniqueTags });
+    await classifyFinanceTransactionsForUser(userId);
+  }
   revalidateFinance();
 }
 
@@ -446,13 +483,88 @@ export async function setFinanceTransactionsIgnoredAction(ids: string[], ignored
   revalidateFinance();
 }
 
-export async function toggleFinanceInternalTransferAction(id: string) {
+export async function toggleFinanceInternalTransferAction(id: string, learnSimilar = false) {
   const userId = await requireUserId();
   const transaction = await ownedTransaction(userId, idSchema.parse(id));
   await prisma.financeTransaction.update({
     where: { id: transaction.id },
-    data: { internalTransfer: !transaction.internalTransfer },
+    data: {
+      internalTransfer: !transaction.internalTransfer,
+      internalTransferSource: "MANUAL",
+    },
   });
+  if (transaction.source === "PLUGGY" && z.boolean().parse(learnSimilar)) {
+    await learnFinanceClassificationRule(userId, transaction.id, {
+      internalTransfer: !transaction.internalTransfer,
+    });
+    await classifyFinanceTransactionsForUser(userId);
+  }
+  revalidateFinance();
+}
+
+export async function updateFinanceClassificationRuleAction(input: {
+  id: string;
+  enabled: boolean;
+  assignsBudgetCategory: boolean;
+  budgetCategory?: BudgetCategoryKey | null;
+  assignsTags: boolean;
+  tagIds: string[];
+  assignsInternalTransfer: boolean;
+  internalTransfer: boolean;
+}) {
+  const userId = await requireUserId();
+  const parsed = z.object({
+    id: idSchema,
+    enabled: z.boolean(),
+    assignsBudgetCategory: z.boolean(),
+    budgetCategory: categorySchema.nullable().optional(),
+    assignsTags: z.boolean(),
+    tagIds: z.array(idSchema).max(20),
+    assignsInternalTransfer: z.boolean(),
+    internalTransfer: z.boolean(),
+  }).parse(input);
+  const rule = await prisma.financeClassificationRule.findFirst({
+    where: { id: parsed.id, userId },
+    select: { id: true },
+  });
+  if (!rule) throw new Error("Regra automática não encontrada.");
+  const uniqueTagIds = [...new Set(parsed.tagIds)];
+  const tagCount = await prisma.financeTag.count({ where: { userId, id: { in: uniqueTagIds } } });
+  if (tagCount !== uniqueTagIds.length) throw new Error("Uma ou mais tags são inválidas.");
+
+  await prisma.$transaction(async (tx) => {
+    await tx.financeClassificationRule.update({
+      where: { id: rule.id },
+      data: {
+        enabled: parsed.enabled,
+        assignsBudgetCategory: parsed.assignsBudgetCategory,
+        budgetCategory: parsed.assignsBudgetCategory
+          ? (parsed.budgetCategory ?? null) as BudgetCategory | null
+          : null,
+        assignsTags: parsed.assignsTags,
+        assignsInternalTransfer: parsed.assignsInternalTransfer,
+        internalTransfer: parsed.internalTransfer,
+      },
+    });
+    await tx.financeClassificationRuleTag.deleteMany({ where: { ruleId: rule.id } });
+    if (parsed.assignsTags && uniqueTagIds.length) {
+      await tx.financeClassificationRuleTag.createMany({
+        data: uniqueTagIds.map((tagId) => ({ ruleId: rule.id, tagId })),
+        skipDuplicates: true,
+      });
+    }
+  });
+  await classifyFinanceTransactionsForUser(userId);
+  revalidateFinance();
+}
+
+export async function deleteFinanceClassificationRuleAction(id: string) {
+  const userId = await requireUserId();
+  const result = await prisma.financeClassificationRule.deleteMany({
+    where: { id: idSchema.parse(id), userId },
+  });
+  if (!result.count) throw new Error("Regra automática não encontrada.");
+  await classifyFinanceTransactionsForUser(userId);
   revalidateFinance();
 }
 

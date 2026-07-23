@@ -44,13 +44,14 @@ type Filters = {
   max: string;
   kind: "" | "INCOME" | "EXPENSE";
   category: "" | "NONE" | BudgetCategoryKey;
-  tagId: string;
+  tagId: "" | "NONE" | string;
+  assignmentSource: "" | FinanceTransactionDto["budgetCategorySource"];
   accountId: string;
   ignored: "" | "yes" | "no";
   internal: "" | "yes" | "no";
 };
 
-const EMPTY_FILTERS: Filters = { min: "", max: "", kind: "", category: "", tagId: "", accountId: "", ignored: "", internal: "" };
+const EMPTY_FILTERS: Filters = { min: "", max: "", kind: "", category: "", tagId: "", assignmentSource: "", accountId: "", ignored: "", internal: "" };
 
 export function TransactionsClient({ data }: { data: FinanceData }) {
   const router = useRouter();
@@ -85,7 +86,9 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
         if (filters.kind && transaction.kind !== filters.kind) return false;
         if (filters.category === "NONE" && transaction.budgetCategory) return false;
         if (filters.category && filters.category !== "NONE" && transaction.budgetCategory !== filters.category) return false;
-        if (filters.tagId && !transaction.tags.some((tag) => tag.id === filters.tagId)) return false;
+        if (filters.tagId === "NONE" && transaction.tags.length) return false;
+        if (filters.tagId && filters.tagId !== "NONE" && !transaction.tags.some((tag) => tag.id === filters.tagId)) return false;
+        if (filters.assignmentSource && transaction.budgetCategorySource !== filters.assignmentSource) return false;
         if (filters.accountId && transaction.accountId !== filters.accountId) return false;
         if (filters.ignored === "yes" && !transaction.ignored) return false;
         if (filters.ignored === "no" && transaction.ignored) return false;
@@ -110,13 +113,17 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
   }
 
   async function updateCategory(transaction: FinanceTransactionDto, category: string) {
-    const ok = await runFinanceAction(() => updateFinanceTransactionCategoryAction(transaction.id, (category || null) as BudgetCategoryKey | null), setPending, setNotice, "Meta atualizada.");
+    const learnSimilar = transaction.source === "PLUGGY"
+      && window.confirm("Aplicar esta meta também às transações semelhantes?");
+    const ok = await runFinanceAction(() => updateFinanceTransactionCategoryAction(transaction.id, (category || null) as BudgetCategoryKey | null, learnSimilar), setPending, setNotice, learnSimilar ? "Meta atualizada e regra pessoal criada." : "Meta atualizada.");
     if (ok) router.refresh();
   }
 
   async function saveTags() {
     if (!tagging) return;
-    const ok = await runFinanceAction(() => updateFinanceTransactionTagsAction(tagging.id, tagSelection), setPending, setNotice, "Tags atualizadas.");
+    const learnSimilar = tagging.source === "PLUGGY"
+      && window.confirm("Aplicar estas tags também às transações semelhantes?");
+    const ok = await runFinanceAction(() => updateFinanceTransactionTagsAction(tagging.id, tagSelection, learnSimilar), setPending, setNotice, learnSimilar ? "Tags atualizadas e regra pessoal criada." : "Tags atualizadas.");
     if (ok) {
       setTagging(null);
       router.refresh();
@@ -141,7 +148,9 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
   }
 
   async function toggleInternal(transaction: FinanceTransactionDto) {
-    const ok = await runFinanceAction(() => toggleFinanceInternalTransferAction(transaction.id), setPending, setNotice, transaction.internalTransfer ? "Marcação de transferência removida." : "Marcada como transferência interna.");
+    const learnSimilar = transaction.source === "PLUGGY"
+      && window.confirm("Aplicar esta decisão também às transações semelhantes?");
+    const ok = await runFinanceAction(() => toggleFinanceInternalTransferAction(transaction.id, learnSimilar), setPending, setNotice, transaction.internalTransfer ? "Marcação de transferência removida." : "Marcada como transferência interna.");
     if (ok) {
       setMenu(null);
       router.refresh();
@@ -162,9 +171,23 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
     setNotice(null);
     try {
       const response = await fetch("/api/pluggy/sync", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
-      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        classification?: {
+          metasAssigned: number;
+          tagsAssigned: number;
+          internalTransfersDetected: number;
+          unclassified: number;
+        };
+      };
       if (!response.ok) throw new Error(payload.error || "Não foi possível importar as transações.");
-      setNotice({ type: "success", text: "Transações importadas e atualizadas." });
+      const classification = payload.classification;
+      setNotice({
+        type: "success",
+        text: classification
+          ? `Transações atualizadas: ${classification.metasAssigned} com meta, ${classification.tagsAssigned} com tags, ${classification.internalTransfersDetected} transferências internas e ${classification.unclassified} pendentes.`
+          : "Transações importadas e atualizadas.",
+      });
       setImportOpen(false);
       router.refresh();
     } catch (error) {
@@ -177,6 +200,29 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
   return (
     <div className="space-y-5">
       {notice && <FinanceNotice type={notice.type}>{notice.text}</FinanceNotice>}
+      {data.unclassifiedTransactionCount > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--primary)]/35 bg-[var(--primary)]/8 p-4">
+          <div>
+            <strong className="text-sm">{data.unclassifiedTransactionCount} transações precisam de classificação</strong>
+            <p className="mt-1 text-xs text-[var(--muted-foreground)]">A Pluggy não forneceu dados suficientes para atribuir uma meta com segurança.</p>
+          </div>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setFilters({
+                ...EMPTY_FILTERS,
+                kind: "EXPENSE",
+                category: "NONE",
+                assignmentSource: "UNASSIGNED",
+                internal: "no",
+              });
+              setPage(1);
+            }}
+          >
+            Revisar agora
+          </Button>
+        </div>
+      )}
       <div className="flex flex-wrap justify-end gap-2">
         <Button variant="outline" onClick={() => setImportOpen(true)}><Download className="size-4" /> Importar transações</Button>
         <Button onClick={() => setNewOpen(true)} disabled={!data.accounts.length}><Plus className="size-4" /> Nova transação</Button>
@@ -227,8 +273,8 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
                     <td className="py-3 pr-4 text-xs">{new Intl.DateTimeFormat("pt-BR").format(new Date(transaction.date))}</td>
                     <td className="py-3 pr-4 text-xs">{new Intl.DateTimeFormat("pt-BR", { month: "long" }).format(new Date(transaction.referenceYear, transaction.referenceMonth - 1, 1))}</td>
                     <td className="max-w-[170px] py-3 pr-4"><p className="truncate text-xs font-medium">{transaction.accountName}</p><p className="truncate text-[10px] text-[var(--muted-foreground)]">{transaction.institutionName}</p></td>
-                    <td className="py-3 pr-4">{transaction.kind === "INCOME" ? <span className="rounded-full bg-[var(--success)]/12 px-2.5 py-1 text-xs text-[var(--success)]">Entrada</span> : <Select className="h-9 max-w-40" value={transaction.budgetCategory ?? ""} onChange={(event) => updateCategory(transaction, event.target.value)} disabled={pending}><option value="">Sem meta</option>{BUDGET_CATEGORIES.map((category) => <option key={category} value={category}>{BUDGET_CATEGORY_META[category].label}</option>)}</Select>}</td>
-                    <td className="py-3 pr-4"><button type="button" onClick={() => { setTagging(transaction); setTagSelection(transaction.tags.map((tag) => tag.id)); }} className="flex max-w-36 flex-wrap gap-1 text-left">{transaction.tags.length ? transaction.tags.map((tag) => <span key={tag.id} className="rounded-full px-2 py-1 text-[10px] text-white" style={{ background: tag.color }}>{tag.name}</span>) : <span className="text-xs text-[var(--muted-foreground)]">Selecione uma tag</span>}</button></td>
+                    <td className="py-3 pr-4">{transaction.kind === "INCOME" ? <span className="rounded-full bg-[var(--success)]/12 px-2.5 py-1 text-xs text-[var(--success)]">Entrada</span> : <><Select className="h-9 max-w-40" value={transaction.budgetCategory ?? ""} onChange={(event) => updateCategory(transaction, event.target.value)} disabled={pending}><option value="">Sem meta</option>{BUDGET_CATEGORIES.map((category) => <option key={category} value={category}>{BUDGET_CATEGORY_META[category].label}</option>)}</Select><AssignmentSource source={transaction.budgetCategorySource} /></>}</td>
+                    <td className="py-3 pr-4"><button type="button" onClick={() => { setTagging(transaction); setTagSelection(transaction.tags.map((tag) => tag.id)); }} className="flex max-w-36 flex-wrap gap-1 text-left">{transaction.tags.length ? transaction.tags.map((tag) => <span key={tag.id} className="rounded-full px-2 py-1 text-[10px] text-white" style={{ background: tag.color }}>{tag.name}</span>) : <span className="text-xs text-[var(--muted-foreground)]">Selecione uma tag</span>}</button><AssignmentSource source={transaction.tagAssignmentSource} /></td>
                     <td className="py-3 pr-4"><input type="checkbox" role="switch" checked={transaction.ignored} onChange={(event) => setIgnored([transaction.id], event.target.checked)} disabled={pending} className="size-4 accent-[var(--primary)]" /></td>
                     <td className="relative py-3 text-right"><Button variant="ghost" size="icon" aria-label="Ações da transação" onClick={() => setMenu(menu === transaction.id ? null : transaction.id)}><Ellipsis className="size-4" /></Button>{menu === transaction.id && <div className="absolute right-0 top-12 z-20 w-56 rounded-xl border bg-[var(--card)] p-1 text-left shadow-xl"><MenuButton icon={Pencil} label="Editar" onClick={() => { setEditing(transaction); setMenu(null); }} /><MenuButton icon={FileText} label="Ver detalhes" onClick={() => { setEditing(transaction); setMenu(null); }} /><div className="my-1 border-t" /><MenuButton icon={ArrowDown} label={transaction.internalTransfer ? "Remover transferência interna" : "Marcar como transferência interna"} onClick={() => toggleInternal(transaction)} /><div className="my-1 border-t" /><MenuButton icon={Trash2} label="Deletar" danger onClick={() => { setDeleting(transaction); setMenu(null); }} /></div>}</td>
                   </tr>
@@ -250,7 +296,8 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
           <div className="sm:col-span-2"><Label>Faixa de Valor</Label><div className="mt-2 grid grid-cols-2 gap-3"><Input type="number" min="0" placeholder="Valor mínimo" value={draftFilters.min} onChange={(event) => setDraftFilters({ ...draftFilters, min: event.target.value })} /><Input type="number" min="0" placeholder="Valor máximo" value={draftFilters.max} onChange={(event) => setDraftFilters({ ...draftFilters, max: event.target.value })} /></div></div>
           <FilterSelect label="Tipo de Transação" value={draftFilters.kind} onChange={(value) => setDraftFilters({ ...draftFilters, kind: value as Filters["kind"] })} options={[["", "Todos"], ["INCOME", "Receitas"], ["EXPENSE", "Despesas"]]} />
           <FilterSelect label="Metas" value={draftFilters.category} onChange={(value) => setDraftFilters({ ...draftFilters, category: value as Filters["category"] })} options={[["", "Todas"], ["NONE", "Sem meta"], ...BUDGET_CATEGORIES.map((category) => [category, BUDGET_CATEGORY_META[category].label] as [string, string])]} />
-          <FilterSelect label="Tags" value={draftFilters.tagId} onChange={(value) => setDraftFilters({ ...draftFilters, tagId: value })} options={[["", "Todas"], ...data.tags.map((tag) => [tag.id, tag.name] as [string, string])]} />
+          <FilterSelect label="Tags" value={draftFilters.tagId} onChange={(value) => setDraftFilters({ ...draftFilters, tagId: value })} options={[["", "Todas"], ["NONE", "Sem tag"], ...data.tags.map((tag) => [tag.id, tag.name] as [string, string])]} />
+          <FilterSelect label="Origem da classificação" value={draftFilters.assignmentSource} onChange={(value) => setDraftFilters({ ...draftFilters, assignmentSource: value as Filters["assignmentSource"] })} options={[["", "Todas"], ["UNASSIGNED", "Não classificada"], ["PROVIDER_DEFAULT", "Categoria Pluggy"], ["USER_RULE", "Regra pessoal"], ["MANUAL", "Manual"]]} />
           <FilterSelect label="Contas" value={draftFilters.accountId} onChange={(value) => setDraftFilters({ ...draftFilters, accountId: value })} options={[["", "Todas"], ...data.accounts.map((account) => [account.id, account.name] as [string, string])]} />
           <FilterSelect label="Ocultar dos Relatórios" value={draftFilters.ignored} onChange={(value) => setDraftFilters({ ...draftFilters, ignored: value as Filters["ignored"] })} options={[["", "Todos"], ["yes", "Ocultadas"], ["no", "Visíveis"]]} />
           <FilterSelect label="Transf. de Mesma Titularidade (Internas)" value={draftFilters.internal} onChange={(value) => setDraftFilters({ ...draftFilters, internal: value as Filters["internal"] })} options={[["", "Todas"], ["yes", "Somente internas"], ["no", "Excluir internas"]]} />
@@ -275,6 +322,16 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
       <ConfirmDialog open={Boolean(deleting)} onOpenChange={(open) => !open && setDeleting(null)} title="Deletar transação?" description={deleting?.source === "PLUGGY" ? "A transação sincronizada será ocultada e não voltará nas próximas sincronizações." : "A transação manual será removida e o saldo da conta será recalculado."} confirmLabel="Deletar" danger pending={pending} onConfirm={remove} />
     </div>
   );
+}
+
+function AssignmentSource({ source }: { source: FinanceTransactionDto["budgetCategorySource"] }) {
+  if (source === "UNASSIGNED") return null;
+  const label = {
+    PROVIDER_DEFAULT: "Pluggy",
+    USER_RULE: "Regra pessoal",
+    MANUAL: "Manual",
+  }[source];
+  return <small className="mt-1 block text-[9px] text-[var(--muted-foreground)]">{label}</small>;
 }
 
 function MiniTotal({ label, value, tone }: { label: string; value: number; tone: "success" | "danger" | "default" }) {

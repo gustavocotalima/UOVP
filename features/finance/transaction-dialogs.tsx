@@ -77,6 +77,7 @@ export function TransactionEditorDialog({
   const [category, setCategory] = useState<BudgetCategoryKey | "">("");
   const [tagIds, setTagIds] = useState<string[]>([]);
   const [note, setNote] = useState("");
+  const [learnSimilar, setLearnSimilar] = useState(true);
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
@@ -91,6 +92,7 @@ export function TransactionEditorDialog({
     setCategory(transaction.budgetCategory ?? "");
     setTagIds(transaction.tags.map((tag) => tag.id));
     setNote(transaction.note ?? "");
+    setLearnSimilar(true);
     setNotice(null);
   }, [transaction]);
 
@@ -117,6 +119,7 @@ export function TransactionEditorDialog({
           budgetCategory: category || null,
           tagIds,
           note,
+          learnSimilar: providerOwned && learnSimilar,
         }),
       setPending,
       setNotice,
@@ -138,6 +141,42 @@ export function TransactionEditorDialog({
     >
       <div className="space-y-5">
         {notice && <FinanceNotice type={notice.type}>{notice.text}</FinanceNotice>}
+        {providerOwned && (
+          <div className="rounded-xl border bg-[var(--muted)]/25 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
+              Classificação Pluggy
+            </p>
+            <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
+              <ProviderDetail label="Categoria" value={transaction.providerCategory} />
+              <ProviderDetail label="ID da categoria" value={transaction.providerCategoryId} />
+              <ProviderDetail label="Comerciante" value={transaction.merchantName} />
+              <ProviderDetail label="Razão social" value={transaction.merchantBusinessName} />
+              <ProviderDetail label="CNPJ" value={transaction.merchantCnpj} />
+              <ProviderDetail label="Contraparte" value={transaction.counterpartyName} />
+              <ProviderDetail label="Meio de pagamento" value={transaction.paymentMethod} />
+              <ProviderDetail
+                label="Origem da meta"
+                value={assignmentSourceLabel(transaction.budgetCategorySource)}
+              />
+              <ProviderDetail
+                label="Origem das tags"
+                value={assignmentSourceLabel(transaction.tagAssignmentSource)}
+              />
+              <ProviderDetail
+                label="Transferência interna"
+                value={transaction.internalTransfer ? "Sim" : "Não"}
+              />
+              <ProviderDetail
+                label="Origem da transferência"
+                value={assignmentSourceLabel(transaction.internalTransferSource)}
+              />
+              <ProviderDetail
+                label="Regra aplicada"
+                value={transaction.classificationRule?.matchLabel ?? null}
+              />
+            </dl>
+          </div>
+        )}
         <div className="grid gap-4 sm:grid-cols-2">
           <Label className="sm:col-span-2">Descrição<Input className="mt-2" value={description} disabled={providerOwned} onChange={(event) => setDescription(event.target.value)} /></Label>
           <Label>Conta<Select className="mt-2 w-full" value={accountId} disabled={providerOwned} onChange={(event) => setAccountId(event.target.value)}>{accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</Select></Label>
@@ -148,9 +187,43 @@ export function TransactionEditorDialog({
           <Label>Mês de referência<Input className="mt-2" type="month" value={reference} onChange={(event) => setReference(event.target.value)} /></Label>
         </div>
         <div><Label>Tags</Label><div className="mt-2"><TagPicker tags={tags} selected={tagIds} onChange={setTagIds} /></div></div>
+        {providerOwned && (
+          <label className="flex items-start gap-3 rounded-xl border p-3 text-sm">
+            <input
+              type="checkbox"
+              checked={learnSimilar}
+              onChange={(event) => setLearnSimilar(event.target.checked)}
+              className="mt-0.5 size-4 accent-[var(--primary)]"
+            />
+            <span>
+              <strong className="block">Aplicar também às transações semelhantes</strong>
+              <small className="text-[var(--muted-foreground)]">
+                Cria uma regra pessoal exata usando comerciante, contraparte ou descrição.
+              </small>
+            </span>
+          </label>
+        )}
         <Label>Observação<textarea className="mt-2 min-h-24 w-full rounded-xl border bg-transparent p-3 text-sm" maxLength={2000} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Digite uma observação" /></Label>
       </div>
     </Dialog>
+  );
+}
+
+function assignmentSourceLabel(source: FinanceTransactionDto["budgetCategorySource"]) {
+  return {
+    UNASSIGNED: "Não classificada",
+    PROVIDER_DEFAULT: "Categoria Pluggy",
+    USER_RULE: "Regra pessoal",
+    MANUAL: "Definida manualmente",
+  }[source];
+}
+
+function ProviderDetail({ label, value }: { label: string; value: string | null }) {
+  return (
+    <div>
+      <dt className="text-[10px] font-semibold uppercase text-[var(--muted-foreground)]">{label}</dt>
+      <dd className="mt-0.5 break-words font-medium">{value || "—"}</dd>
+    </div>
   );
 }
 

@@ -65,20 +65,32 @@ function transaction(overrides: Partial<FinanceTransactionDto> = {}): FinanceTra
     source: "PLUGGY",
     kind: "EXPENSE",
     description: "Transação",
+    descriptionRaw: null,
     merchantName: null,
+    merchantBusinessName: null,
+    merchantCnpj: null,
+    merchantCategory: null,
+    counterpartyName: null,
+    paymentMethod: null,
     amount: "-100",
     currencyCode: "BRL",
     date: "2026-07-10T12:00:00.000Z",
     referenceYear: 2026,
     referenceMonth: 7,
     budgetCategory: "FIXED_COSTS",
+    budgetCategorySource: "MANUAL",
+    tagAssignmentSource: "UNASSIGNED",
     providerCategory: null,
+    providerCategoryId: null,
     status: null,
     note: null,
     ignored: false,
     internalTransfer: false,
+    internalTransferSource: "UNASSIGNED",
     installmentNumber: null,
     installmentTotal: null,
+    classificationRule: null,
+    classifiedAt: null,
     tags: [],
     ...overrides,
   };
@@ -111,7 +123,7 @@ describe("finanças AUVP", () => {
   });
 
   it("agrupa despesas por tag e conserva o total sem tags", () => {
-    const tags = [{ id: "food", name: "Alimentação", color: "#ef4444" }];
+    const tags = [{ id: "food", systemKey: "FOOD", name: "Alimentação", color: "#ef4444" }];
     const result = calculateTagTotals(
       [
         transaction({ id: "food", amount: "-50", tags }),

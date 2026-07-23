@@ -2,6 +2,10 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { resolveFinancialReference } from "@/features/finance/calculations";
 import {
+  classifyFinanceTransactionsForUser,
+  type FinanceClassificationSummary,
+} from "@/features/finance/classification-service";
+import {
   getPluggyAccounts,
   getPluggyInvestmentTransactions,
   getPluggyInvestments,
@@ -83,6 +87,50 @@ function installment(description: string) {
     return { installmentNumber: null, installmentTotal: null };
   }
   return { installmentNumber, installmentTotal };
+}
+
+function transactionInstallment(transaction: PluggyTransactionResponse) {
+  const installmentNumber = transaction.creditCardMetadata?.installmentNumber ?? null;
+  const installmentTotal = transaction.creditCardMetadata?.totalInstallments ?? null;
+  if (
+    installmentNumber
+    && installmentTotal
+    && installmentNumber <= installmentTotal
+  ) {
+    return { installmentNumber, installmentTotal };
+  }
+  return installment(transaction.description);
+}
+
+function transactionCounterparty(transaction: PluggyTransactionResponse) {
+  if (transaction.type?.toUpperCase() === "DEBIT") {
+    return transaction.paymentData?.receiver?.name ?? null;
+  }
+  if (transaction.type?.toUpperCase() === "CREDIT") {
+    return transaction.paymentData?.payer?.name ?? null;
+  }
+  return transaction.paymentData?.receiver?.name ?? transaction.paymentData?.payer?.name ?? null;
+}
+
+function emptyClassificationSummary(): FinanceClassificationSummary {
+  return {
+    processed: 0,
+    metasAssigned: 0,
+    tagsAssigned: 0,
+    internalTransfersDetected: 0,
+    unclassified: 0,
+  };
+}
+
+function addClassificationSummary(
+  target: FinanceClassificationSummary,
+  source: FinanceClassificationSummary,
+) {
+  target.processed += source.processed;
+  target.metasAssigned += source.metasAssigned;
+  target.tagsAssigned += source.tagsAssigned;
+  target.internalTransfersDetected += source.internalTransfersDetected;
+  target.unclassified += source.unclassified;
 }
 
 function itemData(item: PluggyItemResponse, userId: string) {
@@ -178,9 +226,11 @@ async function upsertFinancialAccount(
 }
 
 function transactionOperation(pluggyAccountDbId: string, transaction: PluggyTransactionResponse) {
+  const installmentData = transactionInstallment(transaction);
   const data = {
     pluggyAccountDbId,
     description: transaction.description,
+    descriptionRaw: transaction.descriptionRaw ?? null,
     amount: asDecimal(transaction.amount),
     amountInAccountCurrency: nullableDecimal(transaction.amountInAccountCurrency),
     balance: nullableDecimal(transaction.balance),
@@ -192,6 +242,12 @@ function transactionOperation(pluggyAccountDbId: string, transaction: PluggyTran
     categoryId: transaction.categoryId ?? null,
     operationType: transaction.operationType ?? null,
     merchantName: transaction.merchant?.name ?? null,
+    merchantBusinessName: transaction.merchant?.businessName ?? null,
+    merchantCnpj: transaction.merchant?.cnpj ?? null,
+    merchantCategory: transaction.merchant?.category ?? null,
+    counterpartyName: transactionCounterparty(transaction),
+    paymentMethod: transaction.paymentData?.paymentMethod ?? null,
+    ...installmentData,
     providerCreatedAt: asDate(transaction.createdAt),
     providerUpdatedAt: asDate(transaction.updatedAt),
   };
@@ -212,7 +268,7 @@ function financeTransactionOperation(
   const providerAmount = asDecimal(transaction.amount);
   const kind = resolvePluggyTransactionDirection(transaction.type, providerAmount.toNumber());
   const amount = kind === "EXPENSE" ? providerAmount.abs().negated() : providerAmount.abs();
-  const installmentData = installment(transaction.description);
+  const installmentData = transactionInstallment(transaction);
   const reference = resolveFinancialReference(date, financialMonthStart);
   const providerData = {
     userId,
@@ -220,11 +276,18 @@ function financeTransactionOperation(
     source: "PLUGGY" as const,
     kind,
     description: transaction.description,
+    descriptionRaw: transaction.descriptionRaw ?? null,
     merchantName: transaction.merchant?.name ?? null,
+    merchantBusinessName: transaction.merchant?.businessName ?? null,
+    merchantCnpj: transaction.merchant?.cnpj ?? null,
+    merchantCategory: transaction.merchant?.category ?? null,
+    counterpartyName: transactionCounterparty(transaction),
+    paymentMethod: transaction.paymentData?.paymentMethod ?? null,
     amount,
     currencyCode: transaction.currencyCode ?? "BRL",
     date,
     providerCategory: transaction.category ?? null,
+    providerCategoryId: transaction.categoryId ?? null,
     status: transaction.status ?? null,
     operationType: transaction.operationType ?? null,
     providerUpdatedAt: asDate(transaction.updatedAt),
@@ -401,6 +464,7 @@ export async function syncPluggyItemForUser(userId: string, pluggyItemId: string
       }))?.financialMonthStart ?? 1;
 
     let transactionCount = 0;
+    const classification = emptyClassificationSummary();
     for (const [accountIndex, account] of accounts.entries()) {
       const storedAccount = await upsertAccount(stored.id, account);
       const financialAccount = await upsertFinancialAccount(userId, stored, account, accountIndex);
@@ -412,6 +476,24 @@ export async function syncPluggyItemForUser(userId: string, pluggyItemId: string
           financeTransactionOperation(userId, financialAccount.id, transaction, financialMonthStart),
         ),
       );
+      const externalIds = transactions.map((transaction) => transaction.id);
+      for (let index = 0; index < externalIds.length; index += 1_000) {
+        const storedTransactions = await prisma.financeTransaction.findMany({
+          where: {
+            userId,
+            accountId: financialAccount.id,
+            externalId: { in: externalIds.slice(index, index + 1_000) },
+          },
+          select: { id: true },
+        });
+        addClassificationSummary(
+          classification,
+          await classifyFinanceTransactionsForUser(
+            userId,
+            storedTransactions.map((transaction) => transaction.id),
+          ),
+        );
+      }
     }
 
     const investmentTransactionCount = await syncInvestments(credentials, stored.id, investments);
@@ -455,6 +537,7 @@ export async function syncPluggyItemForUser(userId: string, pluggyItemId: string
       investmentCount: investments.length,
       investmentTransactionCount,
       diagram,
+      classification,
     };
   } catch (error) {
     await prisma.pluggyItem.update({
@@ -478,6 +561,7 @@ export async function syncAllPluggyItemsForUser(userId: string) {
     investmentTransactionCount: 0,
     diagramMappedCount: 0,
     diagramReviewCount: 0,
+    classification: emptyClassificationSummary(),
   };
   for (const item of items) {
     const result = await syncPluggyItemForUser(userId, item.pluggyItemId);
@@ -488,6 +572,7 @@ export async function syncAllPluggyItemsForUser(userId: string) {
     totals.investmentTransactionCount += result.investmentTransactionCount;
     totals.diagramMappedCount += result.diagram.mapped;
     totals.diagramReviewCount = result.diagram.review;
+    addClassificationSummary(totals.classification, result.classification);
   }
   return totals;
 }

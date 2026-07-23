@@ -100,6 +100,21 @@ enum FinanceTransactionKind {
   EXPENSE
 }
 
+enum FinanceAssignmentSource {
+  UNASSIGNED
+  PROVIDER_DEFAULT
+  USER_RULE
+  MANUAL
+}
+
+enum FinanceClassificationMatchType {
+  MERCHANT_CNPJ
+  MERCHANT_NAME
+  COUNTERPARTY_NAME
+  DESCRIPTION
+  PROVIDER_CATEGORY
+}
+
 enum BalanceSheetCategory {
   RECEIVABLES
   INVESTMENTS
@@ -117,32 +132,33 @@ enum SimulationStatus {
 }
 
 model User {
-  id                      String                        @id @default(cuid())
-  name                    String?
-  email                   String?                       @unique
-  emailVerified           DateTime?
-  image                   String?
-  passwordHash            String?
-  sessionVersion          Int                           @default(0)
-  createdAt               DateTime                      @default(now())
-  updatedAt               DateTime                      @updatedAt
-  accounts                Account[]
-  sessions                Session[]
-  preference              UserPreference?
-  portfolio               Portfolio?
-  investmentTargets       InvestmentTarget[]
-  diagramQuestions        DiagramQuestion[]
-  budgetMonths            BudgetMonth[]
-  recurringExpenses       RecurringExpense[]
-  balanceSheetEntries     BalanceSheetEntry[]
-  contributionSimulations ContributionSimulation[]
-  pluggyItems             PluggyItem[]
-  financeProfile          FinanceProfile?
-  financeGoals            FinanceGoal[]
-  financialAccounts       FinancialAccount[]
-  financeTransactions     FinanceTransaction[]
-  financeTags             FinanceTag[]
-  pluggyDiagramLinks      PluggyInvestmentDiagramLink[]
+  id                         String                        @id @default(cuid())
+  name                       String?
+  email                      String?                       @unique
+  emailVerified              DateTime?
+  image                      String?
+  passwordHash               String?
+  sessionVersion             Int                           @default(0)
+  createdAt                  DateTime                      @default(now())
+  updatedAt                  DateTime                      @updatedAt
+  accounts                   Account[]
+  sessions                   Session[]
+  preference                 UserPreference?
+  portfolio                  Portfolio?
+  investmentTargets          InvestmentTarget[]
+  diagramQuestions           DiagramQuestion[]
+  budgetMonths               BudgetMonth[]
+  recurringExpenses          RecurringExpense[]
+  balanceSheetEntries        BalanceSheetEntry[]
+  contributionSimulations    ContributionSimulation[]
+  pluggyItems                PluggyItem[]
+  financeProfile             FinanceProfile?
+  financeGoals               FinanceGoal[]
+  financialAccounts          FinancialAccount[]
+  financeTransactions        FinanceTransaction[]
+  financeTags                FinanceTag[]
+  financeClassificationRules FinanceClassificationRule[]
+  pluggyDiagramLinks         PluggyInvestmentDiagramLink[]
 }
 
 model Account {
@@ -183,23 +199,23 @@ model VerificationToken {
 }
 
 model UserPreference {
-  id                          String    @id @default(cuid())
-  userId                      String    @unique
-  theme                       String    @default("system")
-  locale                      String    @default("pt-BR")
-  currency                    String    @default("BRL")
-  brapiApiKeyCiphertext       String?   @db.Text
-  brapiApiKeyLastFour         String?
-  brapiApiKeyUpdatedAt        DateTime?
+  id                           String    @id @default(cuid())
+  userId                       String    @unique
+  theme                        String    @default("system")
+  locale                       String    @default("pt-BR")
+  currency                     String    @default("BRL")
+  brapiApiKeyCiphertext        String?   @db.Text
+  brapiApiKeyLastFour          String?
+  brapiApiKeyUpdatedAt         DateTime?
   pluggyClientIdCiphertext     String?   @db.Text
   pluggyClientIdLastFour       String?
   pluggyClientSecretCiphertext String?   @db.Text
   pluggyClientSecretLastFour   String?
   pluggyCredentialUpdatedAt    DateTime?
-  showSoldInvestments         Boolean   @default(false)
-  createdAt                   DateTime  @default(now())
-  updatedAt                   DateTime  @updatedAt
-  user                        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  showSoldInvestments          Boolean   @default(false)
+  createdAt                    DateTime  @default(now())
+  updatedAt                    DateTime  @updatedAt
+  user                         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Portfolio {
@@ -456,64 +472,117 @@ model FinancialAccount {
 }
 
 model FinanceTransaction {
-  id                  String                  @id @default(cuid())
-  userId              String
-  accountId           String
-  source              FinancialDataSource
-  externalId          String?                 @unique
-  kind                FinanceTransactionKind
-  description         String
-  merchantName        String?
-  amount              Decimal                 @db.Decimal(30, 2)
-  currencyCode        String                  @default("BRL")
-  date                DateTime
-  referenceYear       Int
-  referenceMonth      Int
-  referenceOverridden Boolean                 @default(false)
-  budgetCategory      BudgetCategory?
-  providerCategory    String?
-  status              String?
-  operationType       String?
-  note                String?                 @db.Text
-  ignored             Boolean                 @default(false)
-  internalTransfer    Boolean                 @default(false)
-  deleted             Boolean                 @default(false)
-  installmentNumber   Int?
-  installmentTotal    Int?
-  providerUpdatedAt   DateTime?
-  createdAt           DateTime                @default(now())
-  updatedAt           DateTime                @updatedAt
-  user                User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  account             FinancialAccount        @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  tags                FinanceTransactionTag[]
+  id                     String                     @id @default(cuid())
+  userId                 String
+  accountId              String
+  source                 FinancialDataSource
+  externalId             String?                    @unique
+  kind                   FinanceTransactionKind
+  description            String
+  descriptionRaw         String?
+  merchantName           String?
+  merchantBusinessName   String?
+  merchantCnpj           String?
+  merchantCategory       String?
+  counterpartyName       String?
+  paymentMethod          String?
+  amount                 Decimal                    @db.Decimal(30, 2)
+  currencyCode           String                     @default("BRL")
+  date                   DateTime
+  referenceYear          Int
+  referenceMonth         Int
+  referenceOverridden    Boolean                    @default(false)
+  budgetCategory         BudgetCategory?
+  budgetCategorySource   FinanceAssignmentSource    @default(UNASSIGNED)
+  tagAssignmentSource    FinanceAssignmentSource    @default(UNASSIGNED)
+  providerCategory       String?
+  providerCategoryId     String?
+  status                 String?
+  operationType          String?
+  note                   String?                    @db.Text
+  ignored                Boolean                    @default(false)
+  internalTransfer       Boolean                    @default(false)
+  internalTransferSource FinanceAssignmentSource    @default(UNASSIGNED)
+  deleted                Boolean                    @default(false)
+  installmentNumber      Int?
+  installmentTotal       Int?
+  classificationRuleId   String?
+  classifiedAt           DateTime?
+  providerUpdatedAt      DateTime?
+  createdAt              DateTime                   @default(now())
+  updatedAt              DateTime                   @updatedAt
+  user                   User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account                FinancialAccount           @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  tags                   FinanceTransactionTag[]
+  classificationRule     FinanceClassificationRule? @relation(fields: [classificationRuleId], references: [id], onDelete: SetNull)
 
   @@index([userId, referenceYear, referenceMonth])
   @@index([userId, date])
   @@index([accountId, date])
   @@index([userId, budgetCategory])
+  @@index([userId, budgetCategorySource])
+  @@index([userId, tagAssignmentSource])
+  @@index([classificationRuleId])
 }
 
 model FinanceTag {
-  id           String                  @id @default(cuid())
-  userId       String
-  name         String
-  color        String                  @default("#3b82f6")
-  createdAt    DateTime                @default(now())
-  updatedAt    DateTime                @updatedAt
-  user         User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  transactions FinanceTransactionTag[]
+  id                  String                         @id @default(cuid())
+  userId              String
+  systemKey           String?
+  name                String
+  color               String                         @default("#3b82f6")
+  createdAt           DateTime                       @default(now())
+  updatedAt           DateTime                       @updatedAt
+  user                User                           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions        FinanceTransactionTag[]
+  classificationRules FinanceClassificationRuleTag[]
 
   @@unique([userId, name])
+  @@unique([userId, systemKey])
   @@index([userId, name])
 }
 
 model FinanceTransactionTag {
   transactionId String
   tagId         String
-  transaction   FinanceTransaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
-  tag           FinanceTag         @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  source        FinanceAssignmentSource @default(MANUAL)
+  transaction   FinanceTransaction      @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  tag           FinanceTag              @relation(fields: [tagId], references: [id], onDelete: Cascade)
 
   @@id([transactionId, tagId])
+  @@index([tagId])
+}
+
+model FinanceClassificationRule {
+  id                      String                         @id @default(cuid())
+  userId                  String
+  matchType               FinanceClassificationMatchType
+  matchValue              String
+  matchLabel              String
+  kind                    FinanceTransactionKind
+  assignsBudgetCategory   Boolean                        @default(false)
+  budgetCategory          BudgetCategory?
+  assignsTags             Boolean                        @default(false)
+  assignsInternalTransfer Boolean                        @default(false)
+  internalTransfer        Boolean                        @default(false)
+  enabled                 Boolean                        @default(true)
+  createdAt               DateTime                       @default(now())
+  updatedAt               DateTime                       @updatedAt
+  user                    User                           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tags                    FinanceClassificationRuleTag[]
+  appliedTransactions     FinanceTransaction[]
+
+  @@unique([userId, matchType, matchValue, kind])
+  @@index([userId, enabled])
+}
+
+model FinanceClassificationRuleTag {
+  ruleId String
+  tagId  String
+  rule   FinanceClassificationRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  tag    FinanceTag                @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([ruleId, tagId])
   @@index([tagId])
 }
 
@@ -587,6 +656,7 @@ model PluggyTransaction {
   pluggyAccountDbId       String
   pluggyTransactionId     String        @unique
   description             String
+  descriptionRaw          String?
   amount                  Decimal       @db.Decimal(30, 2)
   amountInAccountCurrency Decimal?      @db.Decimal(30, 2)
   balance                 Decimal?      @db.Decimal(30, 2)
@@ -598,6 +668,13 @@ model PluggyTransaction {
   categoryId              String?
   operationType           String?
   merchantName            String?
+  merchantBusinessName    String?
+  merchantCnpj            String?
+  merchantCategory        String?
+  counterpartyName        String?
+  paymentMethod           String?
+  installmentNumber       Int?
+  installmentTotal        Int?
   providerCreatedAt       DateTime?
   providerUpdatedAt       DateTime?
   createdAt               DateTime      @default(now())

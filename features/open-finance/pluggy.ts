@@ -79,6 +79,7 @@ const transactionSchema = z
     id: z.string().uuid(),
     accountId: z.string().uuid(),
     description: z.string(),
+    descriptionRaw: nullableString,
     amount: nullableNumber,
     amountInAccountCurrency: nullableNumber,
     balance: nullableNumber,
@@ -92,6 +93,35 @@ const transactionSchema = z
     merchant: z
       .object({
         name: nullableString,
+        businessName: nullableString,
+        cnpj: nullableString,
+        cnae: nullableString,
+        category: nullableString,
+      })
+      .passthrough()
+      .nullable()
+      .optional(),
+    paymentData: z
+      .object({
+        paymentMethod: nullableString,
+        payer: z
+          .object({ name: nullableString })
+          .passthrough()
+          .nullable()
+          .optional(),
+        receiver: z
+          .object({ name: nullableString })
+          .passthrough()
+          .nullable()
+          .optional(),
+      })
+      .passthrough()
+      .nullable()
+      .optional(),
+    creditCardMetadata: z
+      .object({
+        installmentNumber: z.number().int().positive().nullable().optional(),
+        totalInstallments: z.number().int().positive().nullable().optional(),
       })
       .passthrough()
       .nullable()

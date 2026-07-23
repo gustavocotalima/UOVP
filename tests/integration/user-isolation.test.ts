@@ -1,6 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { PrismaClient } from "@prisma/client";
 import { reconcilePluggyInvestmentsForUser } from "@/features/open-finance/diagram-sync";
+import {
+  classifyFinanceTransactionsForUser,
+  learnFinanceClassificationRule,
+} from "@/features/finance/classification-service";
 
 const enabled = Boolean(process.env.DATABASE_URL);
 const db = enabled ? new PrismaClient() : null;
@@ -16,6 +20,8 @@ suite("isolamento entre usuários", () => {
   let firstBudgetMonthId = "";
   let secondRecurringExpenseId = "";
   let firstFinanceTransactionId = "";
+  let firstFinancialAccountId = "";
+  let secondFinanceTagId = "";
   let firstPluggyItemId = "";
 
   beforeAll(async () => {
@@ -74,6 +80,7 @@ suite("isolamento entre usuários", () => {
         name: "Conta isolada",
       },
     });
+    firstFinancialAccountId = financialAccount.id;
     const financeTransaction = await db!.financeTransaction.create({
       data: {
         userId: first.id,
@@ -88,6 +95,14 @@ suite("isolamento entre usuários", () => {
       },
     });
     firstFinanceTransactionId = financeTransaction.id;
+    const secondTag = await db!.financeTag.create({
+      data: {
+        userId: second.id,
+        name: `Tag isolada ${suffix}`,
+        color: "#123456",
+      },
+    });
+    secondFinanceTagId = secondTag.id;
     const pluggyItem = await db!.pluggyItem.create({
       data: {
         userId: first.id,
@@ -200,6 +215,140 @@ suite("isolamento entre usuários", () => {
       data: { ignored: true },
     });
     expect(changed.count).toBe(0);
+  });
+
+  it("classifica transações Pluggy sem sobrescrever escolhas manuais", async () => {
+    const automatic = await db!.financeTransaction.create({
+      data: {
+        userId: firstUserId,
+        accountId: firstFinancialAccountId,
+        source: "PLUGGY",
+        externalId: `classification-auto-${suffix}`,
+        kind: "EXPENSE",
+        description: "Mercado de teste",
+        providerCategory: "Groceries",
+        amount: -50,
+        date: new Date("2099-01-11T12:00:00.000Z"),
+        referenceYear: 2099,
+        referenceMonth: 1,
+      },
+    });
+    const manual = await db!.financeTransaction.create({
+      data: {
+        userId: firstUserId,
+        accountId: firstFinancialAccountId,
+        source: "PLUGGY",
+        externalId: `classification-manual-${suffix}`,
+        kind: "EXPENSE",
+        description: "Curso definido manualmente",
+        providerCategory: "Online Courses",
+        amount: -100,
+        date: new Date("2099-01-12T12:00:00.000Z"),
+        referenceYear: 2099,
+        referenceMonth: 1,
+        budgetCategory: "GOALS",
+        budgetCategorySource: "MANUAL",
+      },
+    });
+
+    await classifyFinanceTransactionsForUser(firstUserId, [automatic.id, manual.id]);
+    const [classifiedAutomatic, classifiedManual] = await Promise.all([
+      db!.financeTransaction.findUniqueOrThrow({ where: { id: automatic.id }, include: { tags: { include: { tag: true } } } }),
+      db!.financeTransaction.findUniqueOrThrow({ where: { id: manual.id } }),
+    ]);
+
+    expect(classifiedAutomatic.budgetCategory).toBe("FIXED_COSTS");
+    expect(classifiedAutomatic.budgetCategorySource).toBe("PROVIDER_DEFAULT");
+    expect(classifiedAutomatic.tags.map((item) => item.tag.systemKey)).toContain("FOOD");
+    expect(classifiedManual.budgetCategory).toBe("GOALS");
+    expect(classifiedManual.budgetCategorySource).toBe("MANUAL");
+  });
+
+  it("rejeita tag de outro usuário em regra pessoal", async () => {
+    const rule = await db!.financeClassificationRule.create({
+      data: {
+        userId: firstUserId,
+        matchType: "DESCRIPTION",
+        matchValue: `REGRA ${suffix}`,
+        matchLabel: `Regra ${suffix}`,
+        kind: "EXPENSE",
+        assignsTags: true,
+      },
+    });
+    await expect(db!.financeClassificationRuleTag.create({
+      data: { ruleId: rule.id, tagId: secondFinanceTagId },
+    })).rejects.toThrow();
+  });
+
+  it("aplica, limpa e remove uma regra exata sem alterar a decisão manual", async () => {
+    const merchantCnpj = `12.345.678/0001-${suffix.slice(-2).padStart(2, "0")}`;
+    const [manual, similar] = await Promise.all([
+      db!.financeTransaction.create({
+        data: {
+          userId: firstUserId,
+          accountId: firstFinancialAccountId,
+          source: "PLUGGY",
+          externalId: `rule-manual-${suffix}`,
+          kind: "EXPENSE",
+          description: "Compra semelhante A",
+          merchantCnpj,
+          providerCategory: "Shopping",
+          amount: -70,
+          date: new Date("2099-01-13T12:00:00.000Z"),
+          referenceYear: 2099,
+          referenceMonth: 1,
+        },
+      }),
+      db!.financeTransaction.create({
+        data: {
+          userId: firstUserId,
+          accountId: firstFinancialAccountId,
+          source: "PLUGGY",
+          externalId: `rule-similar-${suffix}`,
+          kind: "EXPENSE",
+          description: "Compra semelhante B",
+          merchantCnpj,
+          providerCategory: "Shopping",
+          amount: -80,
+          date: new Date("2099-01-14T12:00:00.000Z"),
+          referenceYear: 2099,
+          referenceMonth: 1,
+        },
+      }),
+    ]);
+
+    await classifyFinanceTransactionsForUser(firstUserId, [manual.id, similar.id]);
+    await db!.financeTransaction.update({
+      where: { id: manual.id },
+      data: { budgetCategory: null, budgetCategorySource: "MANUAL" },
+    });
+    const rule = await learnFinanceClassificationRule(firstUserId, manual.id, {
+      budgetCategory: null,
+    });
+    await classifyFinanceTransactionsForUser(firstUserId, [manual.id, similar.id]);
+    await classifyFinanceTransactionsForUser(firstUserId, [manual.id, similar.id]);
+
+    const [manualAfterRule, similarAfterRule] = await Promise.all([
+      db!.financeTransaction.findUniqueOrThrow({ where: { id: manual.id } }),
+      db!.financeTransaction.findUniqueOrThrow({ where: { id: similar.id } }),
+    ]);
+    expect(manualAfterRule.budgetCategory).toBeNull();
+    expect(manualAfterRule.budgetCategorySource).toBe("MANUAL");
+    expect(similarAfterRule.budgetCategory).toBeNull();
+    expect(similarAfterRule.budgetCategorySource).toBe("USER_RULE");
+    expect(similarAfterRule.classificationRuleId).toBe(rule?.id);
+
+    await db!.financeClassificationRule.delete({ where: { id: rule!.id } });
+    await classifyFinanceTransactionsForUser(firstUserId, [manual.id, similar.id]);
+    const [manualAfterDelete, similarAfterDelete] = await Promise.all([
+      db!.financeTransaction.findUniqueOrThrow({ where: { id: manual.id } }),
+      db!.financeTransaction.findUniqueOrThrow({ where: { id: similar.id } }),
+    ]);
+    expect(manualAfterDelete.budgetCategory).toBeNull();
+    expect(manualAfterDelete.budgetCategorySource).toBe("MANUAL");
+    expect(similarAfterDelete.budgetCategory).toBe("COMFORT");
+    expect(similarAfterDelete.budgetCategorySource).toBe("PROVIDER_DEFAULT");
+    expect(similarAfterDelete.classificationRuleId).toBeNull();
   });
 
   it("reconcilia posições Pluggy de forma idempotente e isolada por usuário", async () => {
