@@ -3,6 +3,7 @@ import { BUDGET_CATEGORIES, type BudgetCategoryKey } from "@/features/budget/con
 import { getPluggyCredentialStatus } from "@/features/open-finance/pluggy-credentials";
 import { resolvePluggyInstitutionLogo } from "@/features/open-finance/institution-logo";
 import { DEFAULT_FINANCE_TAGS } from "./classification";
+import { needsFinanceClassification } from "./calculations";
 import type { FinanceData, FinanceGoalRecord, FinanceTransactionDto } from "./types";
 
 export const AUVP_FINANCE_GOALS: FinanceGoalRecord = {
@@ -266,13 +267,7 @@ export async function getFinanceData(userId: string, year: number, month: number
       tags: rule.tags.map((item) => item.tag),
       appliedCount: rule._count.appliedTransactions,
     })),
-    unclassifiedTransactionCount: mappedTransactions.filter(
-      (transaction) =>
-        transaction.kind === "EXPENSE"
-        && transaction.budgetCategorySource === "UNASSIGNED"
-        && !transaction.internalTransfer
-        && !transaction.ignored,
-    ).length,
+    unclassifiedTransactionCount: mappedTransactions.filter(needsFinanceClassification).length,
     pluggy: {
       configured: pluggyCredential.configured,
       itemCount: pluggyItems.length,

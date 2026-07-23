@@ -1,8 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
-import { CircleHelp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -21,7 +19,7 @@ export function FirstMillionPanel() {
   return (
     <div className="space-y-6">
       <Card>
-        <CardHeader className="gap-3 sm:flex-row sm:items-start sm:justify-between"><div><CardTitle className="text-2xl">Primeiro Milhão</CardTitle><p className="mt-1 text-sm text-[var(--muted-foreground)]">Compare quanto diferentes aportes mensais podem acumular ao longo do tempo.</p></div><Button variant="ghost" asChild><Link href="/faq?categoria=ferramentas"><CircleHelp className="size-4" /> Dúvidas?</Link></Button></CardHeader>
+        <CardHeader className="gap-3"><div><CardTitle className="text-2xl">Primeiro Milhão</CardTitle><p className="mt-1 text-sm text-[var(--muted-foreground)]">Compare quanto diferentes aportes mensais podem acumular ao longo do tempo.</p></div></CardHeader>
         <CardContent><form onSubmit={(event) => { event.preventDefault(); setCalculated(true); }} className="grid gap-4 md:grid-cols-2 xl:grid-cols-5 xl:items-end"><div className="space-y-2"><Label htmlFor="annual-rate">Rendimento anual (%)</Label><Input id="annual-rate" type="number" min="0" max="100" step="0.01" value={annualRate} onChange={(event) => { setAnnualRate(Number(event.target.value)); setCalculated(false); }} /></div><div className="space-y-2"><Label htmlFor="monthly-rate">Rendimento mensal (%)</Label><Input id="monthly-rate" disabled value={monthlyRate.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} /></div><div className="space-y-2"><Label htmlFor="initial-value">Valor inicial</Label><Input id="initial-value" type="number" min="0" step="0.01" value={initialValue} onChange={(event) => { setInitialValue(Number(event.target.value)); setCalculated(false); }} /></div><div className="space-y-2"><Label htmlFor="desired-value">Valor desejado</Label><Input id="desired-value" type="number" min="0" step="0.01" value={desiredValue} onChange={(event) => { setDesiredValue(Number(event.target.value)); setCalculated(false); }} /></div><Button size="lg">Calcular</Button></form></CardContent>
       </Card>
       {calculated && <><Card><CardHeader><CardTitle>Projeção patrimonial</CardTitle></CardHeader><CardContent><ProjectionChart rows={matrix} /></CardContent></Card><Card><CardHeader><CardTitle>Resultados por aporte</CardTitle></CardHeader><CardContent className="overflow-x-auto scrollbar-thin"><table className="w-full min-w-[920px] text-right text-sm"><thead className="border-b text-xs uppercase text-[var(--muted-foreground)]"><tr><th className="py-3 text-left">Aportes</th>{matrix[0].values.map((value) => <th key={value.years}>{value.years} anos</th>)}</tr></thead><tbody>{matrix.map((row) => <tr key={row.contribution} className="border-b last:border-0"><td className="py-3 text-left font-semibold">{formatMoney(row.contribution)}</td>{row.values.map((value) => <td key={value.years} className={value.value >= desiredValue ? "font-semibold text-[var(--success)]" : ""}>{formatMoney(value.value)}</td>)}</tr>)}</tbody></table><p className="mt-4 text-xs text-[var(--muted-foreground)]">Valores em verde atingem o objetivo de {formatMoney(desiredValue)}. Aportes considerados no fim de cada mês.</p></CardContent></Card></>}

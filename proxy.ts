@@ -13,6 +13,5 @@ export const config = {
     "/carteira/:path*",
     "/open-finance/:path*",
     "/ferramentas/:path*",
-    "/faq/:path*",
   ],
 };

@@ -11,11 +11,4 @@ describe("ferramentas", () => {
       expect($row.text().replace(/\u00a0/g, " ")).to.contain("R$ 30.595,46");
     });
   });
-
-  it("mantém a FAQ acessível por categoria", () => {
-    cy.visit("/faq?categoria=ferramentas");
-    cy.contains("button", "Ferramentas").should("have.attr", "aria-expanded", "true");
-    cy.contains("button", "Para que serve a ferramenta de primeiro milhão?").click();
-    cy.contains("Ela projeta o valor futuro").should("be.visible");
-  });
 });

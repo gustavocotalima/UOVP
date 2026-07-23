@@ -93,7 +93,6 @@ export function TransactionEditorDialog({
   const [category, setCategory] = useState<BudgetCategoryKey | "">("");
   const [tagIds, setTagIds] = useState<string[]>([]);
   const [note, setNote] = useState("");
-  const [learnSimilar, setLearnSimilar] = useState(true);
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
@@ -108,7 +107,6 @@ export function TransactionEditorDialog({
     setCategory(transaction.budgetCategory ?? "");
     setTagIds(transaction.tags.map((tag) => tag.id));
     setNote(transaction.note ?? "");
-    setLearnSimilar(true);
     setNotice(null);
   }, [transaction]);
 
@@ -140,7 +138,6 @@ export function TransactionEditorDialog({
           budgetCategory: category || null,
           tagIds,
           note,
-          learnSimilar: providerOwned && learnSimilar,
         }),
       setPending,
       setNotice,
@@ -221,22 +218,6 @@ export function TransactionEditorDialog({
           <Label>Mês de referência<Input className="mt-2" type="month" value={reference} onChange={(event) => setReference(event.target.value)} /></Label>
         </div>
         <div><Label>Tags</Label><div className="mt-2"><TagPicker tags={tags} selected={tagIds} onChange={setTagIds} /></div></div>
-        {providerOwned && (
-          <label className="flex items-start gap-3 rounded-xl border p-3 text-sm">
-            <input
-              type="checkbox"
-              checked={learnSimilar}
-              onChange={(event) => setLearnSimilar(event.target.checked)}
-              className="mt-0.5 size-4 accent-[var(--primary)]"
-            />
-            <span>
-              <strong className="block">Aplicar também às transações semelhantes</strong>
-              <small className="text-[var(--muted-foreground)]">
-                Cria uma regra pessoal exata usando comerciante, contraparte ou descrição.
-              </small>
-            </span>
-          </label>
-        )}
         <Label>Observação<textarea className="mt-2 min-h-24 w-full rounded-xl border bg-transparent p-3 text-sm" maxLength={2000} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Digite uma observação" /></Label>
       </div>
     </Dialog>

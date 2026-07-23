@@ -1,6 +1,5 @@
 import { PrismaClient, DiagramType } from "@prisma/client";
 import { INVESTMENT_PRESETS } from "../features/portfolio/constants";
-import { FAQ_SEED } from "../features/faq/data";
 import { DEFAULT_QUESTIONS } from "../features/portfolio/questions";
 import { ASSET_CATALOG, CATALOG_FAMILY_BY_ID, FIXED_INCOME_FAMILIES } from "../features/portfolio/catalog";
 
@@ -43,18 +42,6 @@ async function main() {
       isDefault: true,
     })),
   });
-
-  for (const [categoryIndex, category] of FAQ_SEED.entries()) {
-    const stored = await prisma.faqCategory.upsert({
-      where: { slug: category.slug },
-      update: { title: category.title, sortOrder: categoryIndex },
-      create: { slug: category.slug, title: category.title, sortOrder: categoryIndex },
-    });
-    await prisma.faqItem.deleteMany({ where: { categoryId: stored.id } });
-    await prisma.faqItem.createMany({
-      data: category.items.map((item, sortOrder) => ({ ...item, sortOrder, categoryId: stored.id })),
-    });
-  }
 }
 
 main()

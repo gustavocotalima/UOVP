@@ -69,6 +69,28 @@ export default defineConfig({
                 classifiedAt: now,
               },
             });
+            const previousPeriod = new Date(
+              now.getFullYear(),
+              now.getMonth() - 1,
+              15,
+              12,
+            );
+            await prisma.financeTransaction.create({
+              data: {
+                ...common,
+                externalId: `cypress-pix-previous-${suffix}`,
+                description: "PIX sem classificação do mês anterior",
+                counterpartyName: "Pessoa terceira anterior",
+                providerCategory: "Transfer - PIX",
+                providerCategoryId: "transfer-pix",
+                paymentMethod: "PIX",
+                amount: -75,
+                date: previousPeriod,
+                referenceYear: previousPeriod.getFullYear(),
+                referenceMonth: previousPeriod.getMonth() + 1,
+                classifiedAt: now,
+              },
+            });
             await prisma.financeTransaction.create({
               data: {
                 ...common,

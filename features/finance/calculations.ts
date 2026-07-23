@@ -12,6 +12,18 @@ export function isReportable(transaction: FinanceTransactionDto) {
   return !transaction.ignored && !transaction.internalTransfer;
 }
 
+export function needsFinanceClassification(
+  transaction: Pick<
+    FinanceTransactionDto,
+    "budgetCategorySource" | "ignored" | "internalTransfer" | "kind"
+  >,
+) {
+  return transaction.kind === "EXPENSE"
+    && transaction.budgetCategorySource === "UNASSIGNED"
+    && !transaction.internalTransfer
+    && !transaction.ignored;
+}
+
 export function resolveFinancialReference(date: Date, startDay: number) {
   const normalizedStart = Math.max(1, Math.min(28, Math.trunc(startDay)));
   const reference = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
