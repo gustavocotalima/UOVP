@@ -6,6 +6,7 @@ import {
   calculateInvoices,
   calculatePeriod,
   calculateTagTotals,
+  needsFinanceClassification,
   resolveFinancialReference,
 } from "@/features/finance/calculations";
 import type { FinanceGoalRecord, FinanceTransactionDto, FinancialAccountDto } from "@/features/finance/types";
@@ -99,6 +100,28 @@ function transaction(overrides: Partial<FinanceTransactionDto> = {}): FinanceTra
 }
 
 describe("finanças AUVP", () => {
+  it("identifica apenas despesas visíveis e não internas sem classificação", () => {
+    expect(needsFinanceClassification(transaction({
+      budgetCategory: null,
+      budgetCategorySource: "UNASSIGNED",
+    }))).toBe(true);
+    expect(needsFinanceClassification(transaction({
+      budgetCategory: null,
+      budgetCategorySource: "UNASSIGNED",
+      ignored: true,
+    }))).toBe(false);
+    expect(needsFinanceClassification(transaction({
+      budgetCategory: null,
+      budgetCategorySource: "UNASSIGNED",
+      internalTransfer: true,
+    }))).toBe(false);
+    expect(needsFinanceClassification(transaction({
+      kind: "INCOME",
+      budgetCategory: null,
+      budgetCategorySource: "UNASSIGNED",
+    }))).toBe(false);
+  });
+
   it("calcula renda, gastos e saldo ignorando ocultas e transferências internas", () => {
     const result = calculatePeriod([
       transaction({ id: "income", kind: "INCOME", amount: "1000" }),

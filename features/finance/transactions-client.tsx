@@ -8,6 +8,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  CopyCheck,
   Download,
   FileText,
   Filter,
@@ -20,7 +21,7 @@ import {
 import { ActionMenu } from "@/components/ui/action-menu";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ConfirmDialog, Dialog, useConfirmDialog } from "@/components/ui/dialog";
+import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -29,6 +30,7 @@ import { BUDGET_CATEGORIES, BUDGET_CATEGORY_META, type BudgetCategoryKey } from 
 import { formatCurrency, formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import {
+  applyFinanceTransactionClassificationToSimilarAction,
   deleteFinanceTransactionAction,
   saveFinanceTransactionNoteAction,
   setFinanceTransactionsIgnoredAction,
@@ -36,7 +38,7 @@ import {
   updateFinanceTransactionCategoryAction,
   updateFinanceTransactionTagsAction,
 } from "./actions";
-import { calculatePeriod } from "./calculations";
+import { calculatePeriod, isReportable, needsFinanceClassification } from "./calculations";
 import { FinanceNotice, runFinanceAction } from "./shared";
 import { NewTransactionDialog, TransactionEditorDialog } from "./transaction-dialogs";
 import type { FinanceData, FinanceTransactionDto } from "./types";
@@ -53,7 +55,7 @@ type Filters = {
   internal: "" | "yes" | "no";
 };
 
-const EMPTY_FILTERS: Filters = { min: "", max: "", kind: "", category: "", tagId: "", assignmentSource: "", accountId: "", ignored: "", internal: "" };
+const EMPTY_FILTERS: Filters = { min: "", max: "", kind: "", category: "", tagId: "", assignmentSource: "", accountId: "", ignored: "", internal: "no" };
 
 export function TransactionsClient({ data }: { data: FinanceData }) {
   const router = useRouter();
@@ -69,18 +71,22 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
   const [noting, setNoting] = useState<FinanceTransactionDto | null>(null);
   const [note, setNote] = useState("");
   const [deleting, setDeleting] = useState<FinanceTransactionDto | null>(null);
+  const [applyingSimilar, setApplyingSimilar] = useState<FinanceTransactionDto | null>(null);
   const [menu, setMenu] = useState<string | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [sort, setSort] = useState<{ key: "description" | "amount" | "date" | "account"; direction: "asc" | "desc" }>({ key: "date", direction: "desc" });
+  const [reviewingAllPeriods, setReviewingAllPeriods] = useState(false);
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
-  const { requestConfirmation, confirmationDialog } = useConfirmDialog();
 
   const filtered = useMemo(() => {
     const query = search.trim().toLocaleLowerCase("pt-BR");
-    return data.transactions
+    const scopedTransactions = reviewingAllPeriods
+      ? data.historyTransactions.filter(needsFinanceClassification)
+      : data.transactions;
+    return scopedTransactions
       .filter((transaction) => {
         const value = Number(transaction.amount);
         if (query && !`${transaction.description} ${transaction.merchantName ?? ""} ${transaction.accountName} ${transaction.note ?? ""}`.toLocaleLowerCase("pt-BR").includes(query)) return false;
@@ -93,8 +99,8 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
         if (filters.tagId && filters.tagId !== "NONE" && !transaction.tags.some((tag) => tag.id === filters.tagId)) return false;
         if (filters.assignmentSource && transaction.budgetCategorySource !== filters.assignmentSource) return false;
         if (filters.accountId && transaction.accountId !== filters.accountId) return false;
-        if (filters.ignored === "yes" && !transaction.ignored) return false;
-        if (filters.ignored === "no" && transaction.ignored) return false;
+        if (filters.ignored === "yes" && isReportable(transaction)) return false;
+        if (filters.ignored === "no" && !isReportable(transaction)) return false;
         if (filters.internal === "yes" && !transaction.internalTransfer) return false;
         if (filters.internal === "no" && transaction.internalTransfer) return false;
         return true;
@@ -105,40 +111,27 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
         if (sort.key === "date") return left.date.localeCompare(right.date) * direction;
         return (sort.key === "description" ? left.description.localeCompare(right.description) : left.accountName.localeCompare(right.accountName)) * direction;
       });
-  }, [data.transactions, search, filters, sort]);
+  }, [data.historyTransactions, data.transactions, filters, reviewingAllPeriods, search, sort]);
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(page, totalPages);
   const visible = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
   const totals = useMemo(() => calculatePeriod(filtered), [filtered]);
+  const activeFilterCount = (Object.keys(filters) as Array<keyof Filters>)
+    .filter((key) => filters[key] !== EMPTY_FILTERS[key])
+    .length;
 
   function changeSort(key: typeof sort.key) {
     setSort((current) => ({ key, direction: current.key === key && current.direction === "asc" ? "desc" : "asc" }));
   }
 
   async function updateCategory(transaction: FinanceTransactionDto, category: string) {
-    const learnSimilar = transaction.source === "PLUGGY"
-      ? await requestConfirmation({
-          title: "Aplicar meta às semelhantes?",
-          description: "Podemos criar uma regra pessoal exata usando o comerciante, a contraparte ou a descrição desta transação.",
-          cancelLabel: "Somente esta",
-          confirmLabel: "Aplicar às semelhantes",
-        })
-      : false;
-    const ok = await runFinanceAction(() => updateFinanceTransactionCategoryAction(transaction.id, (category || null) as BudgetCategoryKey | null, learnSimilar), setPending, setNotice, learnSimilar ? "Meta atualizada e regra pessoal criada." : "Meta atualizada.");
+    const ok = await runFinanceAction(() => updateFinanceTransactionCategoryAction(transaction.id, (category || null) as BudgetCategoryKey | null), setPending, setNotice, "Meta atualizada.");
     if (ok) router.refresh();
   }
 
   async function saveTags() {
     if (!tagging) return;
-    const learnSimilar = tagging.source === "PLUGGY"
-      ? await requestConfirmation({
-          title: "Aplicar tags às semelhantes?",
-          description: "Podemos reutilizar esta seleção em transações futuras que tenham o mesmo comerciante, contraparte ou descrição exata.",
-          cancelLabel: "Somente esta",
-          confirmLabel: "Aplicar às semelhantes",
-        })
-      : false;
-    const ok = await runFinanceAction(() => updateFinanceTransactionTagsAction(tagging.id, tagSelection, learnSimilar), setPending, setNotice, learnSimilar ? "Tags atualizadas e regra pessoal criada." : "Tags atualizadas.");
+    const ok = await runFinanceAction(() => updateFinanceTransactionTagsAction(tagging.id, tagSelection), setPending, setNotice, "Tags atualizadas.");
     if (ok) {
       setTagging(null);
       router.refresh();
@@ -163,17 +156,23 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
   }
 
   async function toggleInternal(transaction: FinanceTransactionDto) {
-    const learnSimilar = transaction.source === "PLUGGY"
-      ? await requestConfirmation({
-          title: "Aplicar decisão às semelhantes?",
-          description: `Podemos ${transaction.internalTransfer ? "remover a marcação de transferência interna" : "marcar como transferência interna"} transações com o mesmo comerciante, contraparte ou descrição exata.`,
-          cancelLabel: "Somente esta",
-          confirmLabel: "Aplicar às semelhantes",
-        })
-      : false;
-    const ok = await runFinanceAction(() => toggleFinanceInternalTransferAction(transaction.id, learnSimilar), setPending, setNotice, transaction.internalTransfer ? "Marcação de transferência removida." : "Marcada como transferência interna.");
+    const ok = await runFinanceAction(() => toggleFinanceInternalTransferAction(transaction.id), setPending, setNotice, transaction.internalTransfer ? "Marcação de transferência removida." : "Marcada como transferência interna.");
     if (ok) {
       setMenu(null);
+      router.refresh();
+    }
+  }
+
+  async function applyToSimilar() {
+    if (!applyingSimilar) return;
+    const ok = await runFinanceAction(
+      () => applyFinanceTransactionClassificationToSimilarAction(applyingSimilar.id),
+      setPending,
+      setNotice,
+      "Regra pessoal criada e aplicada às transações semelhantes.",
+    );
+    if (ok) {
+      setApplyingSimilar(null);
       router.refresh();
     }
   }
@@ -221,7 +220,7 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
   return (
     <div className="space-y-5">
       {notice && <FinanceNotice type={notice.type}>{notice.text}</FinanceNotice>}
-      {data.unclassifiedTransactionCount > 0 && (
+      {data.unclassifiedTransactionCount > 0 && !reviewingAllPeriods && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--primary)]/35 bg-[var(--primary)]/8 p-4">
           <div>
             <strong className="text-sm">{data.unclassifiedTransactionCount} transações precisam de classificação</strong>
@@ -230,17 +229,38 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
           <Button
             variant="outline"
             onClick={() => {
-              setFilters({
-                ...EMPTY_FILTERS,
-                kind: "EXPENSE",
-                category: "NONE",
-                assignmentSource: "UNASSIGNED",
-                internal: "no",
-              });
+              setReviewingAllPeriods(true);
+              setSearch("");
+              setFilters(EMPTY_FILTERS);
+              setDraftFilters(EMPTY_FILTERS);
+              setSelected([]);
               setPage(1);
             }}
           >
             Revisar agora
+          </Button>
+        </div>
+      )}
+      {reviewingAllPeriods && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-[var(--card)] p-4">
+          <div>
+            <strong className="text-sm">Pendências de todos os períodos</strong>
+            <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+              Exibindo as {data.unclassifiedTransactionCount} transações que ainda precisam de classificação.
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setReviewingAllPeriods(false);
+              setSearch("");
+              setFilters(EMPTY_FILTERS);
+              setDraftFilters(EMPTY_FILTERS);
+              setSelected([]);
+              setPage(1);
+            }}
+          >
+            Voltar para o período selecionado
           </Button>
         </div>
       )}
@@ -253,7 +273,7 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
         <CardHeader><CardTitle>Filtros e Busca</CardTitle></CardHeader>
         <CardContent className="flex flex-col gap-3 sm:flex-row">
           <div className="relative flex-1"><Search className="absolute left-3 top-3.5 size-4 text-[var(--muted-foreground)]" /><Input className="pl-9" placeholder="Pesquisar transação" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} /></div>
-          <Button variant="outline" onClick={() => { setDraftFilters(filters); setFiltersOpen(true); }}><Filter className="size-4" /> Mais filtros {Object.values(filters).filter(Boolean).length > 0 && <span className="rounded-full bg-[var(--primary)] px-1.5 text-[10px] text-[var(--primary-foreground)]">{Object.values(filters).filter(Boolean).length}</span>}</Button>
+          <Button variant="outline" onClick={() => { setDraftFilters(filters); setFiltersOpen(true); }}><Filter className="size-4" /> Mais filtros {activeFilterCount > 0 && <span className="rounded-full bg-[var(--primary)] px-1.5 text-[10px] text-[var(--primary-foreground)]">{activeFilterCount}</span>}</Button>
         </CardContent>
       </Card>
 
@@ -271,7 +291,10 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
             <Switch
               aria-label="Ocultar transações selecionadas dos relatórios"
               disabled={!selected.length || pending}
-              checked={selected.length > 0 && selected.every((id) => data.transactions.find((item) => item.id === id)?.ignored)}
+              checked={selected.length > 0 && selected.every((id) => {
+                const transaction = data.historyTransactions.find((item) => item.id === id);
+                return transaction ? !isReportable(transaction) : false;
+              })}
               onCheckedChange={(checked) => setIgnored(selected, checked)}
             />
             <div><strong className="text-sm">Ocultar dos Relatórios:</strong><p className="text-xs text-[var(--muted-foreground)]">Selecione transações e use este toggle para excluí-las das análises financeiras.</p></div>
@@ -292,7 +315,7 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
               </thead>
               <tbody className="divide-y">
                 {visible.map((transaction) => (
-                  <tr key={transaction.id} className={cn(transaction.ignored && "opacity-55")}>
+                  <tr key={transaction.id} className={cn(!isReportable(transaction) && "opacity-55")}>
                     <td className="py-3 pr-3"><input type="checkbox" aria-label={`Selecionar ${transaction.description}`} checked={selected.includes(transaction.id)} onChange={(event) => setSelected(event.target.checked ? [...selected, transaction.id] : selected.filter((id) => id !== transaction.id))} /></td>
                     <td className="max-w-[280px] py-3 pr-4"><p className="truncate font-medium">{transaction.description}</p><button type="button" className="mt-1 text-[11px] text-[var(--primary)] hover:underline" onClick={() => { setNoting(transaction); setNote(transaction.note ?? ""); }}>{transaction.note ? transaction.note : "+ Adicionar observação"}</button></td>
                     <td className={cn("py-3 pr-4 font-semibold", transaction.kind === "INCOME" && "text-[var(--success)]")}>
@@ -333,12 +356,22 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
                       <AssignmentSource source={transaction.tagAssignmentSource} />
                     </td>
                     <td className="py-3 pr-4">
-                      <Switch
-                        aria-label={`${transaction.ignored ? "Incluir" : "Ocultar"} ${transaction.description} nos relatórios`}
-                        checked={transaction.ignored}
-                        onCheckedChange={(checked) => setIgnored([transaction.id], checked)}
-                        disabled={pending}
-                      />
+                      <div className="flex flex-col items-start gap-1">
+                        <Switch
+                          aria-label={transaction.internalTransfer
+                            ? `${transaction.description} está ocultada por ser uma transferência interna`
+                            : `${transaction.ignored ? "Incluir" : "Ocultar"} ${transaction.description} nos relatórios`}
+                          checked={!isReportable(transaction)}
+                          onCheckedChange={(checked) => setIgnored([transaction.id], checked)}
+                          disabled={pending || transaction.internalTransfer}
+                          title={transaction.internalTransfer
+                            ? "Transferências internas são ocultadas automaticamente. Remova a marcação no menu de ações para incluí-la."
+                            : undefined}
+                        />
+                        {transaction.internalTransfer && (
+                          <span className="text-[9px] text-[var(--muted-foreground)]">Interna</span>
+                        )}
+                      </div>
                     </td>
                     <td className="py-3 text-right">
                       <ActionMenu
@@ -348,6 +381,9 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
                       >
                         <MenuButton icon={Pencil} label="Editar" onClick={() => { setEditing(transaction); setMenu(null); }} />
                         <MenuButton icon={FileText} label="Ver detalhes" onClick={() => { setEditing(transaction); setMenu(null); }} />
+                        {transaction.source === "PLUGGY" && (
+                          <MenuButton icon={CopyCheck} label="Aplicar às semelhantes" onClick={() => { setApplyingSimilar(transaction); setMenu(null); }} />
+                        )}
                         <div className="my-1 border-t" />
                         <MenuButton icon={ArrowDown} label={transaction.internalTransfer ? "Remover transferência interna" : "Marcar como transferência interna"} onClick={() => toggleInternal(transaction)} />
                         <div className="my-1 border-t" />
@@ -397,7 +433,15 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
       </Dialog>
 
       <ConfirmDialog open={Boolean(deleting)} onOpenChange={(open) => !open && setDeleting(null)} title="Deletar transação?" description={deleting?.source === "PLUGGY" ? "A transação sincronizada será ocultada e não voltará nas próximas sincronizações." : "A transação manual será removida e o saldo da conta será recalculado."} confirmLabel="Deletar" danger pending={pending} onConfirm={remove} />
-      {confirmationDialog}
+      <ConfirmDialog
+        open={Boolean(applyingSimilar)}
+        onOpenChange={(open) => !open && setApplyingSimilar(null)}
+        title="Aplicar às transações semelhantes?"
+        description="Será criada uma regra exata usando o comerciante, a contraparte ou a descrição. A meta, as tags e a marcação de transferência interna atuais serão aplicadas às transações correspondentes."
+        confirmLabel="Aplicar às semelhantes"
+        pending={pending}
+        onConfirm={applyToSimilar}
+      />
     </div>
   );
 }

@@ -338,7 +338,6 @@ export async function updateFinanceTransactionAction(input: {
   budgetCategory?: BudgetCategoryKey | null;
   tagIds: string[];
   note?: string;
-  learnSimilar?: boolean;
 }) {
   const userId = await requireUserId();
   const parsed = z
@@ -354,7 +353,6 @@ export async function updateFinanceTransactionAction(input: {
       budgetCategory: categorySchema.nullable().optional(),
       tagIds: z.array(idSchema).max(20),
       note: z.string().trim().max(2_000).optional(),
-      learnSimilar: z.boolean().optional(),
     })
     .parse(input);
   const transaction = await ownedTransaction(userId, parsed.id);
@@ -414,20 +412,12 @@ export async function updateFinanceTransactionAction(input: {
       },
     });
   });
-  if (transaction.source === "PLUGGY" && parsed.learnSimilar) {
-    await learnFinanceClassificationRule(userId, transaction.id, {
-      budgetCategory: parsed.budgetCategory ?? null,
-      tagIds: uniqueTags,
-    });
-    await classifyFinanceTransactionsForUser(userId);
-  }
   revalidateFinance();
 }
 
 export async function updateFinanceTransactionCategoryAction(
   id: string,
   category: BudgetCategoryKey | null,
-  learnSimilar = false,
 ) {
   const userId = await requireUserId();
   const transaction = await ownedTransaction(userId, idSchema.parse(id));
@@ -439,17 +429,12 @@ export async function updateFinanceTransactionCategoryAction(
       budgetCategorySource: "MANUAL",
     },
   });
-  if (transaction.source === "PLUGGY" && z.boolean().parse(learnSimilar)) {
-    await learnFinanceClassificationRule(userId, transaction.id, { budgetCategory: parsedCategory });
-    await classifyFinanceTransactionsForUser(userId);
-  }
   revalidateFinance();
 }
 
 export async function updateFinanceTransactionTagsAction(
   id: string,
   tagIds: string[],
-  learnSimilar = false,
 ) {
   const userId = await requireUserId();
   const transaction = await ownedTransaction(userId, idSchema.parse(id));
@@ -466,10 +451,6 @@ export async function updateFinanceTransactionTagsAction(
       },
     },
   });
-  if (transaction.source === "PLUGGY" && z.boolean().parse(learnSimilar)) {
-    await learnFinanceClassificationRule(userId, transaction.id, { tagIds: uniqueTags });
-    await classifyFinanceTransactionsForUser(userId);
-  }
   revalidateFinance();
 }
 
@@ -484,7 +465,7 @@ export async function setFinanceTransactionsIgnoredAction(ids: string[], ignored
   revalidateFinance();
 }
 
-export async function toggleFinanceInternalTransferAction(id: string, learnSimilar = false) {
+export async function toggleFinanceInternalTransferAction(id: string) {
   const userId = await requireUserId();
   const transaction = await ownedTransaction(userId, idSchema.parse(id));
   await prisma.financeTransaction.update({
@@ -494,12 +475,28 @@ export async function toggleFinanceInternalTransferAction(id: string, learnSimil
       internalTransferSource: "MANUAL",
     },
   });
-  if (transaction.source === "PLUGGY" && z.boolean().parse(learnSimilar)) {
-    await learnFinanceClassificationRule(userId, transaction.id, {
-      internalTransfer: !transaction.internalTransfer,
-    });
-    await classifyFinanceTransactionsForUser(userId);
+  revalidateFinance();
+}
+
+export async function applyFinanceTransactionClassificationToSimilarAction(id: string) {
+  const userId = await requireUserId();
+  const transaction = await ownedTransaction(userId, idSchema.parse(id));
+  if (transaction.source !== "PLUGGY") {
+    throw new Error("Apenas transações sincronizadas podem gerar regras automáticas.");
   }
+  const tags = await prisma.financeTransactionTag.findMany({
+    where: { transactionId: transaction.id },
+    select: { tagId: true },
+  });
+  const rule = await learnFinanceClassificationRule(userId, transaction.id, {
+    budgetCategory: transaction.budgetCategory,
+    tagIds: tags.map((tag) => tag.tagId),
+    internalTransfer: transaction.internalTransfer,
+  });
+  if (!rule) {
+    throw new Error("Esta transação não possui comerciante, contraparte ou descrição adequada para criar uma regra.");
+  }
+  await classifyFinanceTransactionsForUser(userId);
   revalidateFinance();
 }
 

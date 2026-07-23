@@ -13,7 +13,7 @@ describe("autenticação e navegação", () => {
       ["Open Finance", "/open-finance"],
       ["Ferramentas", "/ferramentas"],
       ["Perfil", "/perfil"],
-      ["FAQ", "/faq"],
+      ["Configurações", "/configuracoes"],
     ];
     routes.forEach(([label, path]) => {
       cy.contains("a", label).click();

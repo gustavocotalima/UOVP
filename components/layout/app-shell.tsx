@@ -7,7 +7,6 @@ import { useEffect, useState } from "react";
 import {
   BadgeDollarSign,
   ChartNoAxesCombined,
-  CircleHelp,
   CreditCard,
   Goal,
   Landmark,
@@ -30,7 +29,7 @@ import { Button } from "@/components/ui/button";
 
 const navigation = [
   {
-    label: "Menu",
+    label: "Orçamento Doméstico",
     items: [
       { href: "/home", label: "Painel", icon: ChartNoAxesCombined },
       { href: "/orcamento-domestico", label: "Orçamento", icon: PieChart },
@@ -47,14 +46,6 @@ const navigation = [
       { href: "/carteira", label: "Carteira", icon: WalletCards },
       { href: "/ferramentas", label: "Ferramentas", icon: Wrench },
       { href: "/open-finance", label: "Open Finance", icon: BadgeDollarSign },
-    ],
-  },
-  {
-    label: "Outros",
-    items: [
-      { href: "/perfil", label: "Perfil", icon: UserRound },
-      { href: "/configuracoes", label: "Configurações", icon: Settings },
-      { href: "/faq", label: "FAQ", icon: CircleHelp },
     ],
   },
 ];
@@ -106,11 +97,30 @@ function Sidebar({ user, onNavigate }: { user: { name?: string | null; email?: s
       </nav>
 
       <div className="mt-auto space-y-3 border-t border-white/10 pt-4">
-        <div className="px-3">
-          <p className="truncate text-sm font-semibold">{user.name || "Investidor"}</p>
-          <p className="truncate text-xs text-white/45">{user.email}</p>
-        </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          <form action={logoutAction} className="mr-auto">
+            <Button type="submit" variant="ghost" className="justify-start text-white hover:bg-white/10">
+              <LogOut className="size-4" /> Sair
+            </Button>
+          </form>
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn(
+              "text-white hover:bg-white/10",
+              pathname === "/configuracoes" && "bg-white/10",
+            )}
+            asChild
+          >
+            <Link
+              href="/configuracoes"
+              onClick={onNavigate}
+              aria-label="Configurações"
+              aria-current={pathname === "/configuracoes" ? "page" : undefined}
+            >
+              <Settings className="size-4" />
+            </Link>
+          </Button>
           <Button
             type="button"
             variant="ghost"
@@ -121,12 +131,24 @@ function Sidebar({ user, onNavigate }: { user: { name?: string | null; email?: s
           >
             {themeMounted && resolvedTheme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
           </Button>
-          <form action={logoutAction} className="flex-1">
-            <Button type="submit" variant="ghost" className="w-full justify-start text-white hover:bg-white/10">
-              <LogOut className="size-4" /> Sair
-            </Button>
-          </form>
         </div>
+        <Link
+          href="/perfil"
+          onClick={onNavigate}
+          aria-current={pathname === "/perfil" ? "page" : undefined}
+          className={cn(
+            "flex items-center gap-3 rounded-xl px-3 py-2 transition",
+            pathname === "/perfil"
+              ? "bg-white/10 text-white"
+              : "hover:bg-white/7",
+          )}
+        >
+          <UserRound className="size-5 shrink-0 text-white/65" aria-hidden="true" />
+          <span className="min-w-0">
+            <strong className="block truncate text-sm">{user.name || "Investidor"}</strong>
+            <small className="block truncate text-xs text-white/45">{user.email}</small>
+          </span>
+        </Link>
       </div>
     </aside>
   );
