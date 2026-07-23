@@ -11,7 +11,7 @@ export type FinanceAssignmentSourceDto = "UNASSIGNED" | "PROVIDER_DEFAULT" | "US
 
 export type FinanceClassificationRuleDto = {
   id: string;
-  matchType: "MERCHANT_CNPJ" | "MERCHANT_NAME" | "COUNTERPARTY_NAME" | "DESCRIPTION" | "PROVIDER_CATEGORY";
+  matchType: "MERCHANT_CNPJ" | "MERCHANT_NAME" | "COUNTERPARTY_NAME" | "DESCRIPTION" | "DESCRIPTION_PREFIX" | "PROVIDER_CATEGORY";
   matchValue: string;
   matchLabel: string;
   kind: "INCOME" | "EXPENSE";
@@ -67,6 +67,8 @@ export type FinanceTransactionDto = {
   paymentMethod: string | null;
   amount: string;
   currencyCode: string;
+  originalAmount: string | null;
+  originalCurrencyCode: string | null;
   date: string;
   referenceYear: number;
   referenceMonth: number;

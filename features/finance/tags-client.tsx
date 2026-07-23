@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import {
+  createFinanceDescriptionPrefixRuleAction,
   createFinanceTagAction,
   deleteFinanceClassificationRuleAction,
   deleteFinanceTagAction,
@@ -37,6 +38,11 @@ export function TagsClient({
   const [deleting, setDeleting] = useState<FinanceTagDto | null>(null);
   const [editingRule, setEditingRule] = useState<FinanceClassificationRuleDto | null>(null);
   const [deletingRule, setDeletingRule] = useState<FinanceClassificationRuleDto | null>(null);
+  const [prefixRuleOpen, setPrefixRuleOpen] = useState(false);
+  const [prefixValue, setPrefixValue] = useState("");
+  const [prefixKind, setPrefixKind] = useState<"INCOME" | "EXPENSE">("EXPENSE");
+  const [prefixMetaMode, setPrefixMetaMode] = useState<RuleMetaMode>("KEEP");
+  const [prefixTagIds, setPrefixTagIds] = useState<string[]>([]);
   const [ruleEnabled, setRuleEnabled] = useState(true);
   const [ruleMetaMode, setRuleMetaMode] = useState<RuleMetaMode>("KEEP");
   const [ruleAssignsTags, setRuleAssignsTags] = useState(false);
@@ -122,6 +128,36 @@ export function TagsClient({
     }
   }
 
+  function openPrefixRule() {
+    setPrefixValue("");
+    setPrefixKind("EXPENSE");
+    setPrefixMetaMode("KEEP");
+    setPrefixTagIds([]);
+    setPrefixRuleOpen(true);
+  }
+
+  async function savePrefixRule() {
+    const ok = await runFinanceAction(
+      () => createFinanceDescriptionPrefixRuleAction({
+        prefix: prefixValue,
+        kind: prefixKind,
+        assignsBudgetCategory: prefixMetaMode !== "KEEP",
+        budgetCategory:
+          prefixMetaMode === "KEEP" || prefixMetaMode === "CLEAR"
+            ? null
+            : prefixMetaMode,
+        tagIds: prefixTagIds,
+      }),
+      setPending,
+      setNotice,
+      "Regra por prefixo criada e aplicada.",
+    );
+    if (ok) {
+      setPrefixRuleOpen(false);
+      router.refresh();
+    }
+  }
+
   async function removeRule() {
     if (!deletingRule) return;
     const ok = await runFinanceAction(
@@ -154,10 +190,15 @@ export function TagsClient({
 
       <Card className="overflow-hidden">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Bot className="size-5" /> Regras automáticas</CardTitle>
-          <p className="text-sm text-[var(--muted-foreground)]">
-            Regras pessoais aprendidas ao classificar transações semelhantes.
-          </p>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2"><Bot className="size-5" /> Regras automáticas</CardTitle>
+              <p className="mt-1 text-sm text-[var(--muted-foreground)]">
+                Regras pessoais aprendidas ou criadas para classificar transações semelhantes.
+              </p>
+            </div>
+            <Button variant="outline" onClick={openPrefixRule}><Plus className="size-4" /> Nova regra</Button>
+          </div>
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
@@ -192,6 +233,66 @@ export function TagsClient({
           <div className="rounded-xl border p-3"><span className="rounded-full px-3 py-1.5 text-sm font-medium text-white" style={{ background: color }}>{name || "Nome"}</span></div>
         </div>
       </Dialog>
+      <Dialog
+        open={prefixRuleOpen}
+        onOpenChange={setPrefixRuleOpen}
+        title="Nova regra automática"
+        description="Classifique transações cuja descrição começa sempre com o mesmo texto."
+        footer={
+          <Button
+            onClick={savePrefixRule}
+            disabled={
+              pending
+              || prefixValue.trim().length < 2
+              || (prefixMetaMode === "KEEP" && prefixTagIds.length === 0)
+            }
+          >
+            {pending ? "Aplicando…" : "Criar e aplicar"}
+          </Button>
+        }
+      >
+        <div className="space-y-5">
+          <div>
+            <Label htmlFor="rule-prefix">Descrição começa com</Label>
+            <Input
+              id="rule-prefix"
+              className="mt-2"
+              value={prefixValue}
+              onChange={(event) => setPrefixValue(event.target.value)}
+              placeholder="Ex: CREDITO RESGATE FUNDO"
+              maxLength={120}
+              autoFocus
+            />
+            <p className="mt-2 text-xs text-[var(--muted-foreground)]">
+              A regra aceita qualquer continuação. O asterisco final é opcional: IF e IF* produzem a mesma regra.
+            </p>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Label>Tipo de transação<Select className="mt-2 w-full" value={prefixKind} onChange={(event) => setPrefixKind(event.target.value as "INCOME" | "EXPENSE")}><option value="EXPENSE">Saída</option><option value="INCOME">Entrada</option></Select></Label>
+            <Label>Meta<Select className="mt-2 w-full" value={prefixMetaMode} onChange={(event) => setPrefixMetaMode(event.target.value as RuleMetaMode)}><option value="KEEP">Não alterar</option><option value="CLEAR">Sem meta</option>{BUDGET_CATEGORIES.map((category) => <option key={category} value={category}>{BUDGET_CATEGORY_META[category].label}</option>)}</Select></Label>
+          </div>
+          <div className="space-y-3">
+            <Label>Tags</Label>
+            <div className="flex flex-wrap gap-2">
+              {tags.map((tag) => {
+                const active = prefixTagIds.includes(tag.id);
+                return (
+                  <button
+                    key={tag.id}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => setPrefixTagIds(active ? prefixTagIds.filter((id) => id !== tag.id) : [...prefixTagIds, tag.id])}
+                    className="rounded-full border px-3 py-1.5 text-xs font-medium"
+                    style={active ? { background: tag.color, color: "white", borderColor: "transparent" } : undefined}
+                  >
+                    {tag.name}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </Dialog>
       <Dialog open={Boolean(editingRule)} onOpenChange={(open) => !open && setEditingRule(null)} title="Editar regra automática" description={editingRule?.matchLabel} footer={<Button onClick={saveRule} disabled={pending}>{pending ? "Salvando…" : "Salvar regra"}</Button>}>
         <div className="space-y-5">
           <label className="flex items-center gap-3 rounded-xl border p-3 text-sm"><input type="checkbox" checked={ruleEnabled} onChange={(event) => setRuleEnabled(event.target.checked)} /> Regra ativa</label>
@@ -218,6 +319,7 @@ function ruleMatchLabel(matchType: FinanceClassificationRuleDto["matchType"]) {
     MERCHANT_NAME: "Comerciante",
     COUNTERPARTY_NAME: "Contraparte",
     DESCRIPTION: "Descrição exata",
+    DESCRIPTION_PREFIX: "Descrição começa com",
     PROVIDER_CATEGORY: "Categoria Pluggy",
   }[matchType];
 }

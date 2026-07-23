@@ -5,7 +5,7 @@ import { Pencil, ReceiptText, TrendingDown, TrendingUp, WalletCards } from "luci
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import { formatMoney, formatPercent } from "@/lib/money";
+import { formatCurrency, formatMoney, formatPercent } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import { calculateBudgetCategories, calculatePeriod } from "./calculations";
 import { TransactionEditorDialog } from "./transaction-dialogs";
@@ -17,7 +17,11 @@ export function BudgetOverviewClient({ data }: { data: FinanceData }) {
     () => calculateBudgetCategories(data.transactions, data.goals, period.income),
     [data.transactions, data.goals, period.income],
   );
-  const [selectedCategory, setSelectedCategory] = useState<(typeof categories)[number] | null>(null);
+  const [selectedCategoryKey, setSelectedCategoryKey] = useState<
+    (typeof categories)[number]["category"] | null
+  >(null);
+  const selectedCategory =
+    categories.find((category) => category.category === selectedCategoryKey) ?? null;
   const [editing, setEditing] = useState<FinanceTransactionDto | null>(null);
 
   return (
@@ -35,7 +39,7 @@ export function BudgetOverviewClient({ data }: { data: FinanceData }) {
         </div>
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {categories.map((item) => (
-            <Card key={item.category} className="overflow-hidden">
+            <Card key={item.category} className="overflow-hidden" data-budget-category={item.category}>
               <CardContent className="p-5">
                 <div className="flex items-start justify-between gap-4">
                   <div>
@@ -47,13 +51,21 @@ export function BudgetOverviewClient({ data }: { data: FinanceData }) {
                   <span className="grid size-10 place-items-center rounded-xl" style={{ background: `${item.color}22`, color: item.color }}><ReceiptText className="size-5" /></span>
                 </div>
                 <div className="mt-5 grid grid-cols-2 gap-4 text-sm">
-                  <div><p className="text-xs text-[var(--muted-foreground)]">Gasto</p><p className="mt-1 font-semibold">{formatMoney(item.spent)}</p></div>
+                  <div>
+                    <p className="text-xs text-[var(--muted-foreground)]">Realizado líquido</p>
+                    <p className="mt-1 font-semibold">{formatMoney(item.spent)}</p>
+                    {item.incomeOffsets > 0 && (
+                      <p className="mt-1 text-[10px] text-[var(--muted-foreground)]">
+                        {formatMoney(item.expenses)} em saídas − {formatMoney(item.incomeOffsets)} em entradas
+                      </p>
+                    )}
+                  </div>
                   <div><p className="text-xs text-[var(--muted-foreground)]">Previsto</p><p className="mt-1 font-semibold">{formatMoney(item.target)}</p></div>
                 </div>
                 <div className="mt-4 h-2 overflow-hidden rounded-full bg-[var(--muted)]"><div className="h-full rounded-full" style={{ width: `${Math.min(100, item.usage)}%`, background: item.exceeded ? "var(--danger)" : item.color }} /></div>
                 <div className="mt-3 flex items-center justify-between gap-3">
                   <span className={cn("text-xs font-semibold", item.exceeded ? "text-[var(--danger)]" : "text-[var(--success)]")}>{item.exceeded ? "R$ 0,00 restante" : `${formatMoney(item.remaining)} restante`}</span>
-                  <button type="button" className="text-xs font-semibold text-[var(--primary)] hover:underline" onClick={() => setSelectedCategory(item)}>{item.transactions.length} transações</button>
+                  <button type="button" className="text-xs font-semibold text-[var(--primary)] hover:underline" onClick={() => setSelectedCategoryKey(item.category)}>{item.transactions.length} transações</button>
                 </div>
               </CardContent>
             </Card>
@@ -63,7 +75,7 @@ export function BudgetOverviewClient({ data }: { data: FinanceData }) {
 
       <Dialog
         open={Boolean(selectedCategory)}
-        onOpenChange={(open) => !open && setSelectedCategory(null)}
+        onOpenChange={(open) => !open && setSelectedCategoryKey(null)}
         title={selectedCategory?.label ?? ""}
         description="Transações associadas a esta meta"
       >
@@ -71,7 +83,7 @@ export function BudgetOverviewClient({ data }: { data: FinanceData }) {
           <div className="space-y-5">
             <div className="grid grid-cols-3 gap-3">
               <MiniSummary label="Previsto" value={selectedCategory.target} />
-              <MiniSummary label="Gasto" value={selectedCategory.spent} />
+              <MiniSummary label="Realizado líquido" value={selectedCategory.spent} />
               <MiniSummary label="Restante" value={selectedCategory.remaining} />
             </div>
             <div className="divide-y">
@@ -81,7 +93,7 @@ export function BudgetOverviewClient({ data }: { data: FinanceData }) {
                     <p className="truncate text-sm font-medium">{transaction.description}</p>
                     <p className="mt-1 text-xs text-[var(--muted-foreground)]">{new Intl.DateTimeFormat("pt-BR").format(new Date(transaction.date))}</p>
                   </div>
-                  <p className={cn("text-sm font-semibold", Number(transaction.amount) > 0 && "text-[var(--success)]")}>{formatMoney(Number(transaction.amount))}</p>
+                  <p className={cn("text-sm font-semibold", Number(transaction.amount) > 0 && "text-[var(--success)]")}>{formatCurrency(transaction.amount, transaction.currencyCode)}</p>
                   <Button variant="ghost" size="icon" aria-label="Editar transação" onClick={() => setEditing(transaction)}><Pencil className="size-4" /></Button>
                 </div>
               ))}

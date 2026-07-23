@@ -1,13 +1,22 @@
-import { FlatCompat } from "@eslint/eslintrc";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { defineConfig, globalIgnores } from "eslint/config";
+import nextVitals from "eslint-config-next/core-web-vitals";
+import nextTypeScript from "eslint-config-next/typescript";
 
-const dirname = path.dirname(fileURLToPath(import.meta.url));
-const compat = new FlatCompat({ baseDirectory: dirname });
-
-const config = [
-  ...compat.extends("next/core-web-vitals", "next/typescript"),
-  { ignores: [".next/**", "coverage/**", "cypress/screenshots/**", "cypress/videos/**", "next-env.d.ts", "work/static-parse.cjs"] },
-];
-
-export default config;
+export default defineConfig([
+  ...nextVitals,
+  ...nextTypeScript,
+  {
+    rules: {
+      "react-hooks/preserve-manual-memoization": "warn",
+      "react-hooks/set-state-in-effect": "warn",
+    },
+  },
+  globalIgnores([
+    ".next/**",
+    "coverage/**",
+    "cypress/screenshots/**",
+    "cypress/videos/**",
+    "next-env.d.ts",
+    "work/static-parse.cjs",
+  ]),
+]);

@@ -8,6 +8,7 @@ import { prisma } from "@/lib/prisma";
 import {
   classifyProviderTransaction,
   DEFAULT_FINANCE_TAGS,
+  financeDescriptionMatchesPrefix,
   financeRuleCandidates,
   preferredFinanceRuleCandidate,
   type DefaultFinanceTagKey,
@@ -82,6 +83,9 @@ export async function classifyFinanceTransactionsForUser(
   const rulesByKey = new Map(
     rules.map((rule) => [ruleKey(rule.kind, rule.matchType, rule.matchValue), rule]),
   );
+  const prefixRules = rules
+    .filter((rule) => rule.matchType === "DESCRIPTION_PREFIX")
+    .sort((left, right) => right.matchValue.length - left.matchValue.length);
   const tagIdsByKey = new Map(
     systemTags
       .filter((tag): tag is { id: string; systemKey: string } => Boolean(tag.systemKey))
@@ -98,9 +102,14 @@ export async function classifyFinanceTransactionsForUser(
 
   for (const transaction of transactions) {
     const provider = classifyProviderTransaction(transaction);
-    const matchedRule = financeRuleCandidates(transaction)
+    const exactRule = financeRuleCandidates(transaction)
       .map((candidate) => rulesByKey.get(ruleKey(transaction.kind, candidate.matchType, candidate.matchValue)))
       .find(Boolean);
+    const matchedRule = exactRule ?? prefixRules.find(
+      (rule) =>
+        rule.kind === transaction.kind
+        && financeDescriptionMatchesPrefix(transaction, rule.matchValue),
+    );
 
     const budgetManual = transaction.budgetCategorySource === "MANUAL";
     const tagsManual = transaction.tagAssignmentSource === "MANUAL";

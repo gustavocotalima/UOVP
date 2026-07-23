@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { resolveFinancialReference } from "@/features/finance/calculations";
+import { resolvePluggyTransactionAmounts } from "@/features/open-finance/transaction-amount";
 import {
   classifyFinanceTransactionsForUser,
   type FinanceClassificationSummary,
@@ -23,6 +24,7 @@ import {
   requirePluggyCredentials,
   type PluggyCredentials,
 } from "./pluggy-credentials";
+import { resolvePluggyInstitutionLogo } from "./institution-logo";
 
 const WRITE_BATCH_SIZE = 100;
 const INVESTMENT_SYNC_CONCURRENCY = 6;
@@ -261,13 +263,18 @@ function transactionOperation(pluggyAccountDbId: string, transaction: PluggyTran
 function financeTransactionOperation(
   userId: string,
   financialAccountId: string,
+  accountCurrencyCode: string,
   transaction: PluggyTransactionResponse,
   financialMonthStart: number,
 ) {
   const date = asDate(transaction.date) ?? new Date(0);
   const providerAmount = asDecimal(transaction.amount);
   const kind = resolvePluggyTransactionDirection(transaction.type, providerAmount.toNumber());
-  const amount = kind === "EXPENSE" ? providerAmount.abs().negated() : providerAmount.abs();
+  const resolvedAmounts = resolvePluggyTransactionAmounts({
+    amount: providerAmount.toString(),
+    amountInAccountCurrency: transaction.amountInAccountCurrency,
+    kind,
+  });
   const installmentData = transactionInstallment(transaction);
   const reference = resolveFinancialReference(date, financialMonthStart);
   const providerData = {
@@ -283,8 +290,10 @@ function financeTransactionOperation(
     merchantCategory: transaction.merchant?.category ?? null,
     counterpartyName: transactionCounterparty(transaction),
     paymentMethod: transaction.paymentData?.paymentMethod ?? null,
-    amount,
-    currencyCode: transaction.currencyCode ?? "BRL",
+    amount: new Prisma.Decimal(resolvedAmounts.amount),
+    currencyCode: accountCurrencyCode,
+    originalAmount: new Prisma.Decimal(resolvedAmounts.originalAmount),
+    originalCurrencyCode: transaction.currencyCode ?? accountCurrencyCode,
     date,
     providerCategory: transaction.category ?? null,
     providerCategoryId: transaction.categoryId ?? null,
@@ -457,6 +466,18 @@ export async function syncPluggyItemForUser(userId: string, pluggyItemId: string
       getPluggyAccounts(credentials, pluggyItemId),
       getPluggyInvestments(credentials, pluggyItemId),
     ]);
+    const remoteItemData = itemData(remote, userId);
+    const connectorImageUrl = resolvePluggyInstitutionLogo(
+      remoteItemData.connectorImageUrl,
+      accounts.map((account) =>
+        parseBankNumber(account.bankData?.transferNumber ?? account.number).bankCode,
+      ),
+    );
+    const syncedItem = {
+      ...stored,
+      ...remoteItemData,
+      connectorImageUrl,
+    };
     const financialMonthStart =
       (await prisma.financeProfile.findUnique({
         where: { userId },
@@ -467,13 +488,19 @@ export async function syncPluggyItemForUser(userId: string, pluggyItemId: string
     const classification = emptyClassificationSummary();
     for (const [accountIndex, account] of accounts.entries()) {
       const storedAccount = await upsertAccount(stored.id, account);
-      const financialAccount = await upsertFinancialAccount(userId, stored, account, accountIndex);
+      const financialAccount = await upsertFinancialAccount(userId, syncedItem, account, accountIndex);
       const transactions = await getPluggyTransactions(credentials, account.id);
       transactionCount += transactions.length;
       await writeInBatches(transactions.map((transaction) => transactionOperation(storedAccount.id, transaction)));
       await writeInBatches(
         transactions.map((transaction) =>
-          financeTransactionOperation(userId, financialAccount.id, transaction, financialMonthStart),
+          financeTransactionOperation(
+            userId,
+            financialAccount.id,
+            financialAccount.currencyCode,
+            transaction,
+            financialMonthStart,
+          ),
         ),
       );
       const externalIds = transactions.map((transaction) => transaction.id);
@@ -517,7 +544,8 @@ export async function syncPluggyItemForUser(userId: string, pluggyItemId: string
       prisma.pluggyItem.update({
         where: { id: stored.id },
         data: {
-          ...itemData(remote, userId),
+          ...remoteItemData,
+          connectorImageUrl,
           syncPending: false,
           lastSyncAt: new Date(),
         },

@@ -1,0 +1,2 @@
+ALTER TYPE "FinanceClassificationMatchType"
+  ADD VALUE IF NOT EXISTS 'DESCRIPTION_PREFIX';

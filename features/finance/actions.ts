@@ -10,6 +10,7 @@ import {
   classifyFinanceTransactionsForUser,
   learnFinanceClassificationRule,
 } from "./classification-service";
+import { normalizeFinanceRuleValue } from "./classification";
 import { ensureFinanceSetup } from "./data";
 
 const idSchema = z.string().min(1).max(200);
@@ -548,6 +549,74 @@ export async function updateFinanceClassificationRuleAction(input: {
     });
     await tx.financeClassificationRuleTag.deleteMany({ where: { ruleId: rule.id } });
     if (parsed.assignsTags && uniqueTagIds.length) {
+      await tx.financeClassificationRuleTag.createMany({
+        data: uniqueTagIds.map((tagId) => ({ ruleId: rule.id, tagId })),
+        skipDuplicates: true,
+      });
+    }
+  });
+  await classifyFinanceTransactionsForUser(userId);
+  revalidateFinance();
+}
+
+export async function createFinanceDescriptionPrefixRuleAction(input: {
+  prefix: string;
+  kind: "INCOME" | "EXPENSE";
+  assignsBudgetCategory: boolean;
+  budgetCategory?: BudgetCategoryKey | null;
+  tagIds: string[];
+}) {
+  const userId = await requireUserId();
+  const parsed = z.object({
+    prefix: z.string().trim().min(2).max(120),
+    kind: z.enum(["INCOME", "EXPENSE"]),
+    assignsBudgetCategory: z.boolean(),
+    budgetCategory: categorySchema.nullable().optional(),
+    tagIds: z.array(idSchema).max(20),
+  }).parse(input);
+  const matchValue = normalizeFinanceRuleValue("DESCRIPTION_PREFIX", parsed.prefix);
+  if (matchValue.length < 2) throw new Error("Informe um prefixo válido.");
+  const uniqueTagIds = [...new Set(parsed.tagIds)];
+  if (!parsed.assignsBudgetCategory && !uniqueTagIds.length) {
+    throw new Error("A regra precisa definir uma meta ou pelo menos uma tag.");
+  }
+  const tagCount = await prisma.financeTag.count({ where: { userId, id: { in: uniqueTagIds } } });
+  if (tagCount !== uniqueTagIds.length) throw new Error("Uma ou mais tags são inválidas.");
+
+  await prisma.$transaction(async (tx) => {
+    const rule = await tx.financeClassificationRule.upsert({
+      where: {
+        userId_matchType_matchValue_kind: {
+          userId,
+          matchType: "DESCRIPTION_PREFIX",
+          matchValue,
+          kind: parsed.kind,
+        },
+      },
+      update: {
+        matchLabel: `${parsed.prefix.trim()}…`,
+        enabled: true,
+        assignsBudgetCategory: parsed.assignsBudgetCategory,
+        budgetCategory: parsed.assignsBudgetCategory
+          ? (parsed.budgetCategory ?? null) as BudgetCategory | null
+          : null,
+        assignsTags: uniqueTagIds.length > 0,
+      },
+      create: {
+        userId,
+        matchType: "DESCRIPTION_PREFIX",
+        matchValue,
+        matchLabel: `${parsed.prefix.trim()}…`,
+        kind: parsed.kind,
+        assignsBudgetCategory: parsed.assignsBudgetCategory,
+        budgetCategory: parsed.assignsBudgetCategory
+          ? (parsed.budgetCategory ?? null) as BudgetCategory | null
+          : null,
+        assignsTags: uniqueTagIds.length > 0,
+      },
+    });
+    await tx.financeClassificationRuleTag.deleteMany({ where: { ruleId: rule.id } });
+    if (uniqueTagIds.length) {
       await tx.financeClassificationRuleTag.createMany({
         data: uniqueTagIds.map((tagId) => ({ ruleId: rule.id, tagId })),
         skipDuplicates: true,

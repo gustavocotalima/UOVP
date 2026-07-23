@@ -7,7 +7,7 @@ import { ArrowDownLeft, ArrowUpRight, EyeOff, Tags } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DonutChart } from "@/components/charts/donut-chart";
-import { formatMoney, formatPercent } from "@/lib/money";
+import { formatCurrency, formatMoney, formatPercent } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import {
   calculateBudgetCategories,
@@ -138,7 +138,10 @@ export function FinanceDashboardClient({ data }: { data: FinanceData }) {
                 <div className="h-2 overflow-hidden rounded-full bg-[var(--muted)]">
                   <div className="h-full rounded-full" style={{ width: `${Math.min(100, item.usage)}%`, background: item.color }} />
                 </div>
-                <p className="mt-1.5 text-xs text-[var(--muted-foreground)]">{formatMoney(item.spent)} de {formatMoney(item.target)}</p>
+                <p className="mt-1.5 text-xs text-[var(--muted-foreground)]">
+                  Líquido: {formatMoney(item.spent)} de {formatMoney(item.target)}
+                  {item.incomeOffsets > 0 && ` · ${formatMoney(item.incomeOffsets)} em entradas compensadas`}
+                </p>
               </div>
             ))}
           </CardContent>
@@ -164,7 +167,7 @@ export function FinanceDashboardClient({ data }: { data: FinanceData }) {
                     <p className="truncate text-sm font-medium">{transaction.merchantName || transaction.description}</p>
                     <p className="truncate text-xs text-[var(--muted-foreground)]">{transaction.accountName} · {categoryLabel(transaction.budgetCategory, transaction.kind)}</p>
                   </div>
-                  <p className={cn("text-sm font-semibold tabular-nums", incoming && "text-[var(--success)]")}>{formatMoney(Number(transaction.amount))}</p>
+                  <p className={cn("text-sm font-semibold tabular-nums", incoming && "text-[var(--success)]")}>{formatCurrency(transaction.amount, transaction.currencyCode)}</p>
                 </div>
               );
             })}

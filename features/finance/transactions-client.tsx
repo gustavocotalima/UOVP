@@ -5,10 +5,10 @@ import { useRouter } from "next/navigation";
 import {
   ArrowDown,
   ArrowUp,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Download,
-  Ellipsis,
   FileText,
   Filter,
   LoaderCircle,
@@ -17,14 +17,16 @@ import {
   Search,
   Trash2,
 } from "lucide-react";
+import { ActionMenu } from "@/components/ui/action-menu";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
+import { ConfirmDialog, Dialog, useConfirmDialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { BUDGET_CATEGORIES, BUDGET_CATEGORY_META, type BudgetCategoryKey } from "@/features/budget/constants";
-import { formatMoney } from "@/lib/money";
+import { formatCurrency, formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import {
   deleteFinanceTransactionAction,
@@ -74,6 +76,7 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
   const [sort, setSort] = useState<{ key: "description" | "amount" | "date" | "account"; direction: "asc" | "desc" }>({ key: "date", direction: "desc" });
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const { requestConfirmation, confirmationDialog } = useConfirmDialog();
 
   const filtered = useMemo(() => {
     const query = search.trim().toLocaleLowerCase("pt-BR");
@@ -114,7 +117,13 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
 
   async function updateCategory(transaction: FinanceTransactionDto, category: string) {
     const learnSimilar = transaction.source === "PLUGGY"
-      && window.confirm("Aplicar esta meta também às transações semelhantes?");
+      ? await requestConfirmation({
+          title: "Aplicar meta às semelhantes?",
+          description: "Podemos criar uma regra pessoal exata usando o comerciante, a contraparte ou a descrição desta transação.",
+          cancelLabel: "Somente esta",
+          confirmLabel: "Aplicar às semelhantes",
+        })
+      : false;
     const ok = await runFinanceAction(() => updateFinanceTransactionCategoryAction(transaction.id, (category || null) as BudgetCategoryKey | null, learnSimilar), setPending, setNotice, learnSimilar ? "Meta atualizada e regra pessoal criada." : "Meta atualizada.");
     if (ok) router.refresh();
   }
@@ -122,7 +131,13 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
   async function saveTags() {
     if (!tagging) return;
     const learnSimilar = tagging.source === "PLUGGY"
-      && window.confirm("Aplicar estas tags também às transações semelhantes?");
+      ? await requestConfirmation({
+          title: "Aplicar tags às semelhantes?",
+          description: "Podemos reutilizar esta seleção em transações futuras que tenham o mesmo comerciante, contraparte ou descrição exata.",
+          cancelLabel: "Somente esta",
+          confirmLabel: "Aplicar às semelhantes",
+        })
+      : false;
     const ok = await runFinanceAction(() => updateFinanceTransactionTagsAction(tagging.id, tagSelection, learnSimilar), setPending, setNotice, learnSimilar ? "Tags atualizadas e regra pessoal criada." : "Tags atualizadas.");
     if (ok) {
       setTagging(null);
@@ -149,7 +164,13 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
 
   async function toggleInternal(transaction: FinanceTransactionDto) {
     const learnSimilar = transaction.source === "PLUGGY"
-      && window.confirm("Aplicar esta decisão também às transações semelhantes?");
+      ? await requestConfirmation({
+          title: "Aplicar decisão às semelhantes?",
+          description: `Podemos ${transaction.internalTransfer ? "remover a marcação de transferência interna" : "marcar como transferência interna"} transações com o mesmo comerciante, contraparte ou descrição exata.`,
+          cancelLabel: "Somente esta",
+          confirmLabel: "Aplicar às semelhantes",
+        })
+      : false;
     const ok = await runFinanceAction(() => toggleFinanceInternalTransferAction(transaction.id, learnSimilar), setPending, setNotice, transaction.internalTransfer ? "Marcação de transferência removida." : "Marcada como transferência interna.");
     if (ok) {
       setMenu(null);
@@ -247,7 +268,12 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
         </CardHeader>
         <CardContent>
           <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl bg-[var(--muted)] p-3">
-            <input type="checkbox" role="switch" disabled={!selected.length || pending} checked={selected.length > 0 && selected.every((id) => data.transactions.find((item) => item.id === id)?.ignored)} onChange={(event) => setIgnored(selected, event.target.checked)} className="size-4 accent-[var(--primary)]" />
+            <Switch
+              aria-label="Ocultar transações selecionadas dos relatórios"
+              disabled={!selected.length || pending}
+              checked={selected.length > 0 && selected.every((id) => data.transactions.find((item) => item.id === id)?.ignored)}
+              onCheckedChange={(checked) => setIgnored(selected, checked)}
+            />
             <div><strong className="text-sm">Ocultar dos Relatórios:</strong><p className="text-xs text-[var(--muted-foreground)]">Selecione transações e use este toggle para excluí-las das análises financeiras.</p></div>
           </div>
 
@@ -261,7 +287,7 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
                   <SortHeader label="Data" active={sort.key === "date"} direction={sort.direction} onClick={() => changeSort("date")} />
                   <th className="pb-3">Mês de referência</th>
                   <SortHeader label="Conta" active={sort.key === "account"} direction={sort.direction} onClick={() => changeSort("account")} />
-                  <th className="pb-3">Meta</th><th className="pb-3">Tag</th><th className="pb-3">Ocultar</th><th className="pb-3 text-right">Ações</th>
+                  <th className="pb-3">Meta</th><th className="pb-3">Tags</th><th className="pb-3">Ocultar</th><th className="pb-3 text-right">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
@@ -269,14 +295,65 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
                   <tr key={transaction.id} className={cn(transaction.ignored && "opacity-55")}>
                     <td className="py-3 pr-3"><input type="checkbox" aria-label={`Selecionar ${transaction.description}`} checked={selected.includes(transaction.id)} onChange={(event) => setSelected(event.target.checked ? [...selected, transaction.id] : selected.filter((id) => id !== transaction.id))} /></td>
                     <td className="max-w-[280px] py-3 pr-4"><p className="truncate font-medium">{transaction.description}</p><button type="button" className="mt-1 text-[11px] text-[var(--primary)] hover:underline" onClick={() => { setNoting(transaction); setNote(transaction.note ?? ""); }}>{transaction.note ? transaction.note : "+ Adicionar observação"}</button></td>
-                    <td className={cn("py-3 pr-4 font-semibold", transaction.kind === "INCOME" && "text-[var(--success)]")}>{formatMoney(Number(transaction.amount))}</td>
+                    <td className={cn("py-3 pr-4 font-semibold", transaction.kind === "INCOME" && "text-[var(--success)]")}>
+                      <span>{formatCurrency(transaction.amount, transaction.currencyCode)}</span>
+                      {transaction.originalAmount
+                        && transaction.originalCurrencyCode
+                        && transaction.originalCurrencyCode !== transaction.currencyCode && (
+                          <small className="mt-1 block font-normal text-[var(--muted-foreground)]">
+                            Original: {formatCurrency(
+                              transaction.originalAmount,
+                              transaction.originalCurrencyCode,
+                            )}
+                          </small>
+                        )}
+                    </td>
                     <td className="py-3 pr-4 text-xs">{new Intl.DateTimeFormat("pt-BR").format(new Date(transaction.date))}</td>
                     <td className="py-3 pr-4 text-xs">{new Intl.DateTimeFormat("pt-BR", { month: "long" }).format(new Date(transaction.referenceYear, transaction.referenceMonth - 1, 1))}</td>
                     <td className="max-w-[170px] py-3 pr-4"><p className="truncate text-xs font-medium">{transaction.accountName}</p><p className="truncate text-[10px] text-[var(--muted-foreground)]">{transaction.institutionName}</p></td>
-                    <td className="py-3 pr-4">{transaction.kind === "INCOME" ? <span className="rounded-full bg-[var(--success)]/12 px-2.5 py-1 text-xs text-[var(--success)]">Entrada</span> : <><Select className="h-9 max-w-40" value={transaction.budgetCategory ?? ""} onChange={(event) => updateCategory(transaction, event.target.value)} disabled={pending}><option value="">Sem meta</option>{BUDGET_CATEGORIES.map((category) => <option key={category} value={category}>{BUDGET_CATEGORY_META[category].label}</option>)}</Select><AssignmentSource source={transaction.budgetCategorySource} /></>}</td>
-                    <td className="py-3 pr-4"><button type="button" onClick={() => { setTagging(transaction); setTagSelection(transaction.tags.map((tag) => tag.id)); }} className="flex max-w-36 flex-wrap gap-1 text-left">{transaction.tags.length ? transaction.tags.map((tag) => <span key={tag.id} className="rounded-full px-2 py-1 text-[10px] text-white" style={{ background: tag.color }}>{tag.name}</span>) : <span className="text-xs text-[var(--muted-foreground)]">Selecione uma tag</span>}</button><AssignmentSource source={transaction.tagAssignmentSource} /></td>
-                    <td className="py-3 pr-4"><input type="checkbox" role="switch" checked={transaction.ignored} onChange={(event) => setIgnored([transaction.id], event.target.checked)} disabled={pending} className="size-4 accent-[var(--primary)]" /></td>
-                    <td className="relative py-3 text-right"><Button variant="ghost" size="icon" aria-label="Ações da transação" onClick={() => setMenu(menu === transaction.id ? null : transaction.id)}><Ellipsis className="size-4" /></Button>{menu === transaction.id && <div className="absolute right-0 top-12 z-20 w-56 rounded-xl border bg-[var(--card)] p-1 text-left shadow-xl"><MenuButton icon={Pencil} label="Editar" onClick={() => { setEditing(transaction); setMenu(null); }} /><MenuButton icon={FileText} label="Ver detalhes" onClick={() => { setEditing(transaction); setMenu(null); }} /><div className="my-1 border-t" /><MenuButton icon={ArrowDown} label={transaction.internalTransfer ? "Remover transferência interna" : "Marcar como transferência interna"} onClick={() => toggleInternal(transaction)} /><div className="my-1 border-t" /><MenuButton icon={Trash2} label="Deletar" danger onClick={() => { setDeleting(transaction); setMenu(null); }} /></div>}</td>
+                    <td className="py-3 pr-4"><Select className="h-9 max-w-40" value={transaction.budgetCategory ?? ""} onChange={(event) => updateCategory(transaction, event.target.value)} disabled={pending}><option value="">Sem meta</option>{BUDGET_CATEGORIES.map((category) => <option key={category} value={category}>{BUDGET_CATEGORY_META[category].label}</option>)}</Select><AssignmentSource source={transaction.budgetCategorySource} /></td>
+                    <td className="py-3 pr-4">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTagging(transaction);
+                          setTagSelection(transaction.tags.map((tag) => tag.id));
+                        }}
+                        className="flex h-9 w-40 items-center justify-between gap-2 rounded-xl border bg-[var(--card)] px-3 text-left text-xs"
+                      >
+                        <span className="truncate">
+                          {transaction.tags.length === 0
+                            ? "Sem tags"
+                            : transaction.tags.length === 1
+                              ? transaction.tags[0].name
+                              : `${transaction.tags.length} tags`}
+                        </span>
+                        <ChevronDown className="size-4 shrink-0 text-[var(--muted-foreground)]" />
+                      </button>
+                      <AssignmentSource source={transaction.tagAssignmentSource} />
+                    </td>
+                    <td className="py-3 pr-4">
+                      <Switch
+                        aria-label={`${transaction.ignored ? "Incluir" : "Ocultar"} ${transaction.description} nos relatórios`}
+                        checked={transaction.ignored}
+                        onCheckedChange={(checked) => setIgnored([transaction.id], checked)}
+                        disabled={pending}
+                      />
+                    </td>
+                    <td className="py-3 text-right">
+                      <ActionMenu
+                        open={menu === transaction.id}
+                        onOpenChange={(open) => setMenu(open ? transaction.id : null)}
+                        label={`Ações de ${transaction.description}`}
+                      >
+                        <MenuButton icon={Pencil} label="Editar" onClick={() => { setEditing(transaction); setMenu(null); }} />
+                        <MenuButton icon={FileText} label="Ver detalhes" onClick={() => { setEditing(transaction); setMenu(null); }} />
+                        <div className="my-1 border-t" />
+                        <MenuButton icon={ArrowDown} label={transaction.internalTransfer ? "Remover transferência interna" : "Marcar como transferência interna"} onClick={() => toggleInternal(transaction)} />
+                        <div className="my-1 border-t" />
+                        <MenuButton icon={Trash2} label="Deletar" danger onClick={() => { setDeleting(transaction); setMenu(null); }} />
+                      </ActionMenu>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -320,6 +397,7 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
       </Dialog>
 
       <ConfirmDialog open={Boolean(deleting)} onOpenChange={(open) => !open && setDeleting(null)} title="Deletar transação?" description={deleting?.source === "PLUGGY" ? "A transação sincronizada será ocultada e não voltará nas próximas sincronizações." : "A transação manual será removida e o saldo da conta será recalculado."} confirmLabel="Deletar" danger pending={pending} onConfirm={remove} />
+      {confirmationDialog}
     </div>
   );
 }
@@ -343,7 +421,7 @@ function SortHeader({ label, active, direction, onClick }: { label: string; acti
 }
 
 function MenuButton({ icon: Icon, label, onClick, danger = false }: { icon: typeof Pencil; label: string; onClick: () => void; danger?: boolean }) {
-  return <button type="button" onClick={onClick} className={cn("flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-[var(--muted)]", danger && "text-[var(--danger)]")}><Icon className="size-4" />{label}</button>;
+  return <button type="button" role="menuitem" onClick={onClick} className={cn("flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-[var(--muted)]", danger && "text-[var(--danger)]")}><Icon className="size-4" />{label}</button>;
 }
 
 function FilterSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: [string, string][] }) {

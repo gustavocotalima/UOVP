@@ -112,6 +112,7 @@ enum FinanceClassificationMatchType {
   MERCHANT_NAME
   COUNTERPARTY_NAME
   DESCRIPTION
+  DESCRIPTION_PREFIX
   PROVIDER_CATEGORY
 }
 
@@ -488,6 +489,8 @@ model FinanceTransaction {
   paymentMethod          String?
   amount                 Decimal                    @db.Decimal(30, 2)
   currencyCode           String                     @default("BRL")
+  originalAmount         Decimal?                   @db.Decimal(30, 2)
+  originalCurrencyCode   String?
   date                   DateTime
   referenceYear          Int
   referenceMonth         Int

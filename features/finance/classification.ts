@@ -15,6 +15,7 @@ export type FinanceRuleMatchType =
   | "MERCHANT_NAME"
   | "COUNTERPARTY_NAME"
   | "DESCRIPTION"
+  | "DESCRIPTION_PREFIX"
   | "PROVIDER_CATEGORY";
 
 export type ClassifiableTransaction = {
@@ -52,9 +53,26 @@ function normalizedText(value?: string | null) {
     .toLocaleUpperCase("pt-BR");
 }
 
+function normalizedPrefixText(value?: string | null) {
+  return normalizedText((value ?? "").replace(/\*+\s*$/, ""));
+}
+
 export function normalizeFinanceRuleValue(type: FinanceRuleMatchType, value?: string | null) {
   if (type === "MERCHANT_CNPJ") return (value ?? "").replace(/\D/g, "");
+  if (type === "DESCRIPTION_PREFIX") return normalizedPrefixText(value);
   return normalizedText(value);
+}
+
+export function financeDescriptionMatchesPrefix(
+  transaction: ClassifiableTransaction,
+  prefix: string,
+) {
+  const normalizedDescription = normalizeFinanceRuleValue(
+    "DESCRIPTION_PREFIX",
+    transaction.descriptionRaw || transaction.description,
+  );
+  const normalizedPrefix = normalizeFinanceRuleValue("DESCRIPTION_PREFIX", prefix);
+  return normalizedPrefix.length >= 2 && normalizedDescription.startsWith(normalizedPrefix);
 }
 
 function includesAny(value: string, candidates: readonly string[]) {

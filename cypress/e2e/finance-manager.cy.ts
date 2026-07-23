@@ -37,7 +37,8 @@ describe("gestor financeiro inspirado no AUVP", () => {
     cy.get('[role="dialog"]').contains("label", "Conta").find("select").select("Conta de testes");
     cy.get('[role="dialog"]').contains("label", "Quantia").find("input").type("100");
     cy.get('[role="dialog"]').contains("label", "Meta").find("select").select("FIXED_COSTS");
-    cy.get('[role="dialog"]').contains("button", "Teste Cypress").click();
+    cy.get('[role="dialog"]').contains("summary", "Sem tags").click();
+    cy.get('[role="dialog"]').contains("label", "Teste Cypress").find("input").check();
     cy.get('[role="dialog"]').contains("button", "Adicionar transação").click();
     cy.contains("Despesa de teste").should("be.visible");
 
@@ -49,6 +50,22 @@ describe("gestor financeiro inspirado no AUVP", () => {
     cy.contains("Sua Renda").parent().should("contain.text", "9.000");
     cy.contains("Gastos do Mês").parent().should("contain.text", "100");
     cy.contains(/100,00/).should("be.visible");
+
+    cy.get('[data-budget-category="FIXED_COSTS"]').contains("button", "1 transações").click();
+    cy.get('[role="dialog"]').contains("Despesa de teste").should("be.visible");
+    cy.get('[role="dialog"]').find('button[aria-label="Editar transação"]').click();
+    cy.get('[role="dialog"]').last().contains("label", "Meta").find("select").select("COMFORT");
+    cy.get('[role="dialog"]').last().contains("button", "Salvar alterações").click();
+    cy.get('[role="dialog"]').should("contain", "Custos fixos").and("not.contain", "Despesa de teste");
+    cy.get('[role="dialog"]').find('button[aria-label="Fechar"]').click();
+    cy.get('[data-budget-category="FIXED_COSTS"]')
+      .contains("p", "Realizado líquido")
+      .parent()
+      .should("contain.text", "0,00");
+    cy.get('[data-budget-category="COMFORT"]')
+      .contains("p", "Realizado líquido")
+      .parent()
+      .should("contain.text", "100,00");
 
     cy.contains("a", "Painel").click();
     cy.contains("Receitas").parent().should("contain.text", "9.000");
