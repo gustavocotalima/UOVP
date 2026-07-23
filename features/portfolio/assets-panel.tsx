@@ -16,15 +16,17 @@ import {
   deleteAssetClassAction,
   deleteAssetHoldingAction,
   importPortfolioRowsAction,
-  refreshBrapiMarketPricesAction,
+  refreshMarketPricesAction,
   saveAssetAction,
   saveAssetAnswersAction,
   saveAssetHoldingAction,
   saveFixedIncomeGroupAction,
   searchBrapiTickersAction,
+  searchYahooTickersAction,
 } from "./actions";
 import { parseXlsxFile } from "./xlsx-parser";
 import type { BrapiTickerSearchResult } from "./brapi";
+import type { YahooSearchKind, YahooTickerSearchResult } from "./yahoo-finance";
 import { FIXED_INCOME_INDEXATIONS, FIXED_INCOME_INDEXATION_META, INSTRUMENT_TYPES, INSTRUMENT_TYPE_META, INVESTMENT_CLASSES, INVESTMENT_CLASS_META, MOCK_ASSET_CATALOG, RATE_CONVENTIONS, RATE_CONVENTION_META, type FixedIncomeIndexationKey, type InstrumentTypeKey, type InvestmentClassKey, type RateConventionKey } from "./constants";
 import type { AssetDto, AssetHoldingDto, DiagramQuestionDto, PortfolioDto } from "./types";
 import { excludePluggyDiagramLinkAction, reviewPluggyDiagramLinkAction } from "@/features/open-finance/diagram-actions";
@@ -43,7 +45,16 @@ type FormAsset = {
   score: number;
   fixedIncomeFamilyCode: string | null;
   indexation: FixedIncomeIndexationKey | null;
+  yahooReitConfirmed: boolean;
 };
+
+type MarketTickerOption =
+  | (BrapiTickerSearchResult & { provider: "BRAPI" })
+  | (YahooTickerSearchResult & { provider: "YAHOO" });
+
+type MarketTickerSearch =
+  | { provider: "BRAPI"; kind: InvestmentClassKey | "ETF" }
+  | { provider: "YAHOO"; kind: YahooSearchKind };
 
 type DeleteTarget =
   | { kind: "asset"; id: string; label: string }
@@ -103,12 +114,36 @@ const emptyAsset: FormAsset = {
   score: 0,
   fixedIncomeFamilyCode: null,
   indexation: null,
+  yahooReitConfirmed: false,
 };
 
 const emptyFixedGroup: FixedIncomeGroupForm = { familyCode: "", indexation: "PRE_FIXED", investmentClass: "FIXED_INCOME", score: 0 };
 
 function currentValue(asset: AssetDto) {
   return Number(asset.currentValue);
+}
+
+function marketTickerSearchFor(form: FormAsset | null): MarketTickerSearch | null {
+  if (!form || form.id) return null;
+  const internationalClass = ["INTERNATIONAL_STOCKS", "REITS", "INTERNATIONAL_FIXED_INCOME"].includes(form.investmentClass);
+  if (form.instrumentType === "ETF") {
+    return internationalClass
+      ? { provider: "YAHOO", kind: "ETF" }
+      : { provider: "BRAPI", kind: "ETF" };
+  }
+  if (form.instrumentType === "STOCK" && form.investmentClass === "BRAZILIAN_STOCKS") {
+    return { provider: "BRAPI", kind: "BRAZILIAN_STOCKS" };
+  }
+  if (form.instrumentType === "REAL_ESTATE_FUND" && form.investmentClass === "REAL_ESTATE_FUNDS") {
+    return { provider: "BRAPI", kind: "REAL_ESTATE_FUNDS" };
+  }
+  if (form.instrumentType === "STOCK" && form.investmentClass === "INTERNATIONAL_STOCKS") {
+    return { provider: "YAHOO", kind: "INTERNATIONAL_STOCKS" };
+  }
+  if (form.instrumentType === "REIT" && form.investmentClass === "REITS") {
+    return { provider: "YAHOO", kind: "REITS" };
+  }
+  return null;
 }
 
 function formatRateValue(value: string) {
@@ -378,12 +413,12 @@ export function AssetsPanel({
   const [expandedAssets, setExpandedAssets] = useState<Set<string>>(() => new Set());
   const [formAnswers, setFormAnswers] = useState<Record<string, boolean>>({});
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>();
-  const [tickerOptions, setTickerOptions] = useState<BrapiTickerSearchResult[]>([]);
+  const [tickerOptions, setTickerOptions] = useState<MarketTickerOption[]>([]);
   const [tickerSearchPending, setTickerSearchPending] = useState(false);
   const [tickerSearchError, setTickerSearchError] = useState<string>();
   const [tickerListOpen, setTickerListOpen] = useState(false);
   const [tickerListPosition, setTickerListPosition] = useState<TickerListPosition>();
-  const [selectedBrapiTicker, setSelectedBrapiTicker] = useState<string>();
+  const [selectedMarketTicker, setSelectedMarketTicker] = useState<string>();
   const [activeTickerIndex, setActiveTickerIndex] = useState(-1);
   const [message, setMessage] = useState<string>();
   const [pending, startTransition] = useTransition();
@@ -437,23 +472,36 @@ export function AssetsPanel({
     color: INVESTMENT_CLASS_META[investmentClass].color,
     value: assets.filter((asset) => asset.investmentClass === investmentClass).reduce((sum, asset) => sum + currentValue(asset), 0),
   })).filter((item) => item.value > 0);
+  const hasRefreshableQuotes = assets.some((asset) =>
+    asset.holdings.some((holding) => holding.pricingSource === "BRAPI")
+    || (
+      ["INTERNATIONAL_STOCKS", "REITS", "INTERNATIONAL_FIXED_INCOME"].includes(asset.investmentClass)
+      && ["STOCK", "REIT", "ETF"].includes(asset.instrumentType)
+      && asset.holdings.some((holding) => Boolean(holding.ticker))
+    ),
+  );
 
   const formQuestionType = form && !["ETF", "MUTUAL_FUND"].includes(form.instrumentType) ? questionTypeForClass(form.investmentClass) : null;
   const editingAsset = form?.id ? assets.find((asset) => asset.id === form.id) : undefined;
   const formQuestions = questions.filter((question) => question.active && question.type === formQuestionType);
   const positives = formQuestions.filter((question) => formAnswers[question.id] === true).length;
   const negatives = formQuestions.length - positives;
-  const tickerInvestmentClass = form && !form.id && ["STOCK", "ETF", "REAL_ESTATE_FUND"].includes(form.instrumentType)
-    && (form.instrumentType === "ETF" || ["BRAZILIAN_STOCKS", "REAL_ESTATE_FUNDS"].includes(form.investmentClass))
-    ? form.instrumentType === "ETF" ? "ETF" : form.investmentClass
-    : null;
-  const usesBrapiTickerSearch = tickerInvestmentClass !== null;
-  const tickerQuery = tickerInvestmentClass && form ? form.ticker.trim() : "";
-  const hasSelectedBrapiTicker = !usesBrapiTickerSearch || selectedBrapiTicker === form?.ticker;
+  const marketTickerSearch = marketTickerSearchFor(form);
+  const marketTickerProvider = marketTickerSearch?.provider;
+  const marketTickerKind = marketTickerSearch?.kind;
+  const usesMarketTickerSearch = marketTickerSearch !== null;
+  const tickerQuery = marketTickerSearch && form ? form.ticker.trim() : "";
+  const hasSelectedMarketTicker = !usesMarketTickerSearch || selectedMarketTicker === form?.ticker;
+  const selectedYahooTicker = tickerOptions.find((option) =>
+    option.provider === "YAHOO" && option.symbol === selectedMarketTicker,
+  );
+  const requiresYahooReitConfirmation = form?.investmentClass === "REITS"
+    && selectedYahooTicker?.provider === "YAHOO"
+    && selectedYahooTicker.requiresReitConfirmation;
 
   useEffect(() => {
     const requestId = ++tickerRequestId.current;
-    if (selectedBrapiTicker === tickerQuery) {
+    if (selectedMarketTicker === tickerQuery) {
       setTickerSearchPending(false);
       setTickerListOpen(false);
       return;
@@ -470,8 +518,12 @@ export function AssetsPanel({
       setTickerSearchPending(true);
       setTickerSearchError(undefined);
       try {
-        if (!tickerInvestmentClass) return;
-        const options = await searchBrapiTickersAction(tickerQuery, tickerInvestmentClass);
+        if (!marketTickerProvider || !marketTickerKind) return;
+        const options: MarketTickerOption[] = marketTickerProvider === "BRAPI"
+          ? (await searchBrapiTickersAction(tickerQuery, marketTickerKind as InvestmentClassKey | "ETF"))
+              .map((option) => ({ ...option, provider: "BRAPI" as const }))
+          : (await searchYahooTickersAction(tickerQuery, marketTickerKind as YahooSearchKind))
+              .map((option) => ({ ...option, provider: "YAHOO" as const }));
         if (tickerRequestId.current !== requestId) return;
         setTickerOptions(options);
         setActiveTickerIndex(options.length ? 0 : -1);
@@ -490,7 +542,7 @@ export function AssetsPanel({
     }, 250);
 
     return () => window.clearTimeout(timer);
-  }, [selectedBrapiTicker, tickerInvestmentClass, tickerQuery, updateTickerListPosition]);
+  }, [selectedMarketTicker, marketTickerKind, marketTickerProvider, tickerQuery, updateTickerListPosition]);
 
   useEffect(() => {
     if (!tickerListOpen) return;
@@ -505,7 +557,7 @@ export function AssetsPanel({
 
   function startAdding() {
     setForm({ ...emptyAsset });
-    setSelectedBrapiTicker(undefined);
+    setSelectedMarketTicker(undefined);
     setFormAnswers({});
     setTickerOptions([]);
     setTickerSearchError(undefined);
@@ -525,7 +577,7 @@ export function AssetsPanel({
       });
       return;
     }
-    setSelectedBrapiTicker(undefined);
+    setSelectedMarketTicker(undefined);
     const questionType = asset.instrumentType === "ETF" ? null : questionTypeForClass(asset.investmentClass);
     const applicable = questions.filter((question) => question.active && question.type === questionType);
     setForm({
@@ -542,6 +594,7 @@ export function AssetsPanel({
       score: asset.score,
       fixedIncomeFamilyCode: asset.fixedIncomeFamilyCode,
       indexation: asset.indexation,
+      yahooReitConfirmed: false,
     });
     setFormAnswers(Object.fromEntries(applicable.map((question) => [
       question.id,
@@ -580,9 +633,18 @@ export function AssetsPanel({
   function changeTicker(value: string) {
     if (!form) return;
     const ticker = value.toUpperCase();
-    if (form.instrumentType === "ETF" || ["BRAZILIAN_STOCKS", "REAL_ESTATE_FUNDS"].includes(form.investmentClass)) {
-      setSelectedBrapiTicker(undefined);
-      setForm({ ...form, ticker, name: ticker, unitPrice: 0, currency: "BRL", fractional: false });
+    const tickerSearch = marketTickerSearchFor(form);
+    if (tickerSearch) {
+      setSelectedMarketTicker(undefined);
+      setForm({
+        ...form,
+        ticker,
+        name: ticker,
+        unitPrice: 0,
+        currency: tickerSearch.provider === "YAHOO" ? "USD" : "BRL",
+        fractional: tickerSearch.provider === "YAHOO",
+        yahooReitConfirmed: false,
+      });
       updateTickerListPosition();
       setTickerListOpen(true);
       setActiveTickerIndex(-1);
@@ -599,16 +661,19 @@ export function AssetsPanel({
     });
   }
 
-  function selectTicker(option: BrapiTickerSearchResult) {
+  function selectTicker(option: MarketTickerOption) {
     if (!form) return;
-    setSelectedBrapiTicker(option.symbol);
+    setSelectedMarketTicker(option.symbol);
     setForm({
       ...form,
       ticker: option.symbol,
       name: option.name,
-      unitPrice: option.lastPrice ?? 0,
-      currency: option.currency,
-      fractional: false,
+      unitPrice: option.provider === "BRAPI" ? option.lastPrice ?? 0 : 0,
+      currency: option.currency ?? (option.provider === "YAHOO" ? "USD" : "BRL"),
+      fractional: option.provider === "YAHOO",
+      yahooReitConfirmed: option.provider === "YAHOO" && option.requiresReitConfirmation
+        ? false
+        : form.yahooReitConfirmed,
     });
     setTickerListOpen(false);
     setActiveTickerIndex(-1);
@@ -635,7 +700,7 @@ export function AssetsPanel({
   function submit(event: FormEvent) {
     event.preventDefault();
     if (!form) return;
-    if (usesBrapiTickerSearch && !hasSelectedBrapiTicker) return;
+    if (usesMarketTickerSearch && !hasSelectedMarketTicker) return;
     setMessage(undefined);
     startTransition(async () => {
       try {
@@ -702,15 +767,29 @@ export function AssetsPanel({
     });
   }
 
-  function refreshBrapiMarketPrices() {
+  function refreshMarketPrices() {
     setMessage(undefined);
     startTransition(async () => {
       try {
-        const result = await refreshBrapiMarketPricesAction();
-        const missing = result.missing.length ? ` Sem cotação: ${result.missing.join(", ")}.` : "";
-        setMessage(`${result.updated} cotação(ões) de ativos da B3 atualizada(s) pela brapi.${missing}`);
+        const result = await refreshMarketPricesAction();
+        const parts = [
+          result.brapi.requested
+            ? result.brapi.error
+              ? `B3 não atualizada: ${result.brapi.error}`
+              : `B3: ${result.brapi.updated} atualizada(s)`
+            : null,
+          result.yahoo.requested
+            ? result.yahoo.error
+              ? `Internacionais não atualizados: ${result.yahoo.error}`
+              : `Internacionais: ${result.yahoo.updated} atualizada(s)`
+            : null,
+        ].filter(Boolean);
+        const missing = [...result.brapi.missing, ...result.yahoo.missing];
+        if (missing.length) parts.push(`Sem cotação: ${[...new Set(missing)].join(", ")}`);
+        if (result.yahoo.missingFx.length) parts.push(`Sem câmbio: ${result.yahoo.missingFx.join(", ")}`);
+        setMessage(parts.length ? `${parts.join(" · ")}.` : "Não há cotações para atualizar.");
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : "Não foi possível atualizar as cotações na brapi.");
+        setMessage(error instanceof Error ? error.message : "Não foi possível atualizar as cotações.");
       }
     });
   }
@@ -870,6 +949,11 @@ export function AssetsPanel({
           currency: String(read(row, "moeda", "Moeda", "currency") ?? "BRL"),
           fractional: [true, 1, "1", "true", "sim"].includes(read(row, "fracionado", "Fracionado", "fractional") as never),
           score: Number(read(row, "nota", "Nota", "score") ?? 0),
+          yahooReitConfirmed: [true, 1, "1", "true", "sim", "yes"].includes(
+            String(read(row, "confirmarReitYahoo", "Confirmar REIT Yahoo", "yahooReitConfirmed") ?? "")
+              .trim()
+              .toLowerCase() as never,
+          ),
         };
       });
       await importPortfolioRowsAction({
@@ -912,7 +996,14 @@ export function AssetsPanel({
               <p className="mt-1 text-sm text-[var(--muted-foreground)]">{assets.length} ativos · {formatMoney(total)}</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button variant="outline" onClick={refreshBrapiMarketPrices} disabled={pending || !assets.some((asset) => asset.holdings.some((holding) => holding.pricingSource === "BRAPI"))}><RefreshCw className="size-4" /> Atualizar B3</Button>
+              <Button
+                variant="outline"
+                onClick={refreshMarketPrices}
+                disabled={pending || !hasRefreshableQuotes}
+                title="Atualiza ativos da B3 pela brapi e ativos internacionais pelo Yahoo Finance."
+              >
+                <RefreshCw className="size-4" /> Atualizar cotações
+              </Button>
               <input ref={fileInput} className="sr-only" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => event.target.files?.[0] && void importFile(event.target.files[0])} />
               <Button variant="outline" onClick={() => fileInput.current?.click()}><Upload className="size-4" /> Importar XLSX</Button>
               <Button variant="outline" onClick={() => setFixedGroupForm({ ...emptyFixedGroup })}><Plus className="size-4" /> Renda fixa</Button>
@@ -1027,7 +1118,7 @@ export function AssetsPanel({
                                   </>
                                 )}
                           </td>}
-                          <td className="whitespace-nowrap px-3 text-xs text-[var(--muted-foreground)]">{new Date(asset.updatedAt).toLocaleDateString("pt-BR")}</td>
+                          <td className="whitespace-nowrap px-3 text-xs text-[var(--muted-foreground)]">{new Date(asset.priceUpdatedAt ?? asset.updatedAt).toLocaleDateString("pt-BR")}</td>
                           <td className="px-3"><div className="flex justify-end"><Button variant="outline" size="sm" onClick={() => edit(asset)} aria-label={`Editar ${asset.ticker}`}><Pencil className="size-4" /> Editar</Button></div></td>
                         </tr>
                         {expandable && expanded && (
@@ -1047,7 +1138,14 @@ export function AssetsPanel({
                                           <td className="px-3 py-3"><strong className="block max-w-52 truncate" title={holding.typeName}>{holding.typeName}</strong><span className="block max-w-52 truncate text-[var(--muted-foreground)]" title={holding.productName}>{holding.productName}</span></td>
                                           <td className="px-3 py-3">{holding.issuer}</td>
                                           {holdingColumns.invested && <td className="whitespace-nowrap px-3 py-3">{holding.investedValue == null ? "—" : formatMoney(holding.investedValue)}</td>}
-                                          <td className="whitespace-nowrap px-3 py-3 font-semibold">{formatMoney(holding.currentValue)}</td>
+                                          <td className="whitespace-nowrap px-3 py-3">
+                                            <strong>{formatMoney(holding.currentValue)}</strong>
+                                            {holding.pricingSource === "YAHOO" && holding.fxRateToBrl && (
+                                              <span className="mt-1 block text-[10px] font-normal text-[var(--muted-foreground)]">
+                                                {reviewMoney(holding.unitPrice, holding.currency)} · câmbio {Number(holding.fxRateToBrl).toLocaleString("pt-BR", { maximumFractionDigits: 6 })}
+                                              </span>
+                                            )}
+                                          </td>
                                           {holdingColumns.quantity && <td className="whitespace-nowrap px-3 py-3">{Number(holding.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 8 })}</td>}
                                           {holdingColumns.averagePrice && <td className="whitespace-nowrap px-3 py-3">{holding.averagePricePaid == null ? "—" : formatMoney(holding.averagePricePaid)}</td>}
                                           {holdingColumns.profitability && <td className="whitespace-nowrap px-3 py-3">{holdingProfitability(holding) ?? "—"}</td>}
@@ -1183,7 +1281,13 @@ export function AssetsPanel({
         footer={form && (
           <>
             {form.id && <Button type="button" variant="danger" onClick={() => setDeleteTarget({ kind: "asset", id: form.id!, label: form.ticker })} disabled={pending}>Remover</Button>}
-            <Button type="submit" form="asset-modal-form" disabled={pending || !hasSelectedBrapiTicker}>{pending ? "Salvando…" : form.id ? "Atualizar e fechar" : "Adicionar"}</Button>
+            <Button
+              type="submit"
+              form="asset-modal-form"
+              disabled={pending || !hasSelectedMarketTicker || Boolean(requiresYahooReitConfirmation && !form.yahooReitConfirmed)}
+            >
+              {pending ? "Salvando…" : form.id ? "Atualizar e fechar" : "Adicionar"}
+            </Button>
           </>
         )}
       >
@@ -1214,7 +1318,7 @@ export function AssetsPanel({
                 const questionType = ["ETF", "MUTUAL_FUND"].includes(instrumentType)
                   ? null
                   : questionTypeForClass(investmentClass);
-                setSelectedBrapiTicker(undefined);
+                setSelectedMarketTicker(undefined);
                 setTickerOptions([]);
                 setTickerListOpen(false);
                 setForm({
@@ -1223,6 +1327,7 @@ export function AssetsPanel({
                   investmentClass,
                   fixedIncomeFamilyCode: keepsFixedGroup ? form.fixedIncomeFamilyCode : null,
                   indexation: keepsFixedGroup ? form.indexation ?? "OTHER" : null,
+                  yahooReitConfirmed: false,
                 });
                 setFormAnswers(questionType
                   ? Object.fromEntries(
@@ -1251,7 +1356,7 @@ export function AssetsPanel({
                   REITS: "REIT",
                   CRYPTO: "CRYPTO",
                 };
-                setSelectedBrapiTicker(undefined);
+                setSelectedMarketTicker(undefined);
                 setTickerOptions([]);
                 setTickerListOpen(false);
                 const keepsFixedGroup = form.instrumentType === "ETF" && ["FIXED_INCOME", "INTERNATIONAL_FIXED_INCOME"].includes(investmentClass);
@@ -1261,6 +1366,7 @@ export function AssetsPanel({
                   instrumentType: ["ETF", "MUTUAL_FUND"].includes(form.instrumentType) ? form.instrumentType : classInstrument[investmentClass] ?? "STOCK",
                   fixedIncomeFamilyCode: keepsFixedGroup ? form.fixedIncomeFamilyCode : null,
                   indexation: keepsFixedGroup ? form.indexation ?? "OTHER" : null,
+                  yahooReitConfirmed: false,
                 });
               }}>
                 {INVESTMENT_CLASSES.map((investmentClass) => <option key={investmentClass} value={investmentClass}>{INVESTMENT_CLASS_META[investmentClass].label}</option>)}
@@ -1289,7 +1395,7 @@ export function AssetsPanel({
             <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="asset-ticker">Ticker (Código)</Label>
-                  {usesBrapiTickerSearch ? (
+                  {usesMarketTickerSearch ? (
                     <div className="relative">
                       <Input
                         ref={tickerInput}
@@ -1301,7 +1407,7 @@ export function AssetsPanel({
                         onFocus={() => {
                           tickerInputFocused.current = true;
                           updateTickerListPosition();
-                          if (!hasSelectedBrapiTicker && (tickerOptions.length || tickerSearchError)) setTickerListOpen(true);
+                          if (!hasSelectedMarketTicker && (tickerOptions.length || tickerSearchError)) setTickerListOpen(true);
                         }}
                         onBlur={() => {
                           tickerInputFocused.current = false;
@@ -1311,8 +1417,8 @@ export function AssetsPanel({
                         role="combobox"
                         aria-autocomplete="list"
                         aria-expanded={tickerListOpen}
-                        aria-controls="brapi-ticker-options"
-                        aria-activedescendant={activeTickerIndex >= 0 ? `brapi-ticker-option-${activeTickerIndex}` : undefined}
+                        aria-controls="market-ticker-options"
+                        aria-activedescendant={activeTickerIndex >= 0 ? `market-ticker-option-${activeTickerIndex}` : undefined}
                         aria-describedby="asset-ticker-help"
                         required
                       />
@@ -1321,16 +1427,25 @@ export function AssetsPanel({
                       </span>
                       {tickerListOpen && tickerQuery.length >= 2 && tickerListPosition && typeof document !== "undefined" && createPortal(
                         <div
-                          id="brapi-ticker-options"
+                          id="market-ticker-options"
                           role="listbox"
                           aria-label="Tickers encontrados"
                           className="fixed z-[200] overflow-y-auto rounded-xl border bg-[var(--card)] p-1 shadow-2xl scrollbar-thin"
                           style={tickerListPosition}
                         >
-                          {tickerOptions.map((option, index) => (
+                          {tickerOptions.map((option, index) => {
+                            const logoUrl = option.logoUrl;
+                            const badge = option.provider === "BRAPI"
+                              ? option.subType || option.assetType || "B3"
+                              : option.quoteType === "ETF"
+                                ? "ETF · Yahoo"
+                                : option.reitStatus === "CONFIRMED"
+                                  ? "REIT · Yahoo"
+                                  : "Ação · Yahoo";
+                            return (
                             <button
-                              id={`brapi-ticker-option-${index}`}
-                              key={`${option.symbol}-${option.subType ?? option.assetType ?? "asset"}`}
+                              id={`market-ticker-option-${index}`}
+                              key={`${option.provider}-${option.symbol}`}
                               type="button"
                               role="option"
                               aria-selected={activeTickerIndex === index}
@@ -1341,10 +1456,10 @@ export function AssetsPanel({
                             >
                               <span className="relative grid size-8 shrink-0 place-items-center overflow-hidden rounded-lg border bg-white/95 text-neutral-500">
                                 <Building2 className="size-4" aria-hidden="true" />
-                                {option.logoUrl && (
+                                {logoUrl && (
                                   // eslint-disable-next-line @next/next/no-img-element
                                   <img
-                                    src={option.logoUrl}
+                                    src={logoUrl}
                                     alt={`Logo de ${option.name}`}
                                     className="absolute inset-[2px] h-[calc(100%-4px)] w-[calc(100%-4px)] rounded-md object-contain"
                                     loading="lazy"
@@ -1353,17 +1468,34 @@ export function AssetsPanel({
                                 )}
                               </span>
                               <span className="min-w-0"><strong className="block">{option.symbol}</strong><span className="block max-w-[190px] truncate text-xs text-[var(--muted-foreground)] sm:max-w-[220px]" title={option.name}>{option.name}</span></span>
-                              <span className="shrink-0 rounded-full bg-[var(--muted)] px-2 py-1 text-[10px] font-semibold uppercase text-[var(--muted-foreground)]">{option.subType || option.assetType || "B3"}</span>
+                              <span className="shrink-0 rounded-full bg-[var(--muted)] px-2 py-1 text-[10px] font-semibold uppercase text-[var(--muted-foreground)]">{badge}</span>
                             </button>
-                          ))}
+                            );
+                          })}
                           {!tickerSearchPending && !tickerOptions.length && !tickerSearchError && <p className="px-3 py-4 text-center text-sm text-[var(--muted-foreground)]">Nenhum ticker encontrado.</p>}
                           {tickerSearchError && <p role="alert" className="px-3 py-4 text-center text-sm text-[var(--danger)]">{tickerSearchError}</p>}
                         </div>,
                         document.body,
                       )}
                       <p id="asset-ticker-help" className="mt-2 text-xs text-[var(--muted-foreground)]">
-                        {hasSelectedBrapiTicker ? "Ativo selecionado." : "Digite para buscar e selecione uma opção da lista."}
+                        {hasSelectedMarketTicker
+                          ? `Ativo selecionado no ${marketTickerSearch?.provider === "YAHOO" ? "Yahoo Finance" : "catálogo da brapi"}.`
+                          : "Digite para buscar e selecione uma opção da lista."}
                       </p>
+                      {requiresYahooReitConfirmation && (
+                        <label className="mt-3 flex items-start gap-3 rounded-xl border border-[var(--primary)]/40 bg-[var(--primary)]/8 p-3 text-sm">
+                          <input
+                            type="checkbox"
+                            className="mt-0.5 size-4"
+                            checked={form.yahooReitConfirmed}
+                            onChange={(event) => setForm({ ...form, yahooReitConfirmed: event.target.checked })}
+                          />
+                          <span>
+                            O Yahoo Finance não identifica este ativo definitivamente como REIT.
+                            Confirmo que desejo classificá-lo como REIT.
+                          </span>
+                        </label>
+                      )}
                     </div>
                   ) : (
                     <>

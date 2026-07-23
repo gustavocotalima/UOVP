@@ -45,7 +45,10 @@ function normalized(value: string | null | undefined) {
 }
 
 function isMarketInstrument(instrumentType: InstrumentType | null) {
-  return instrumentType === "STOCK" || instrumentType === "ETF" || instrumentType === "REAL_ESTATE_FUND";
+  return instrumentType === "STOCK"
+    || instrumentType === "ETF"
+    || instrumentType === "REAL_ESTATE_FUND"
+    || instrumentType === "REIT";
 }
 
 function providerIssuer(investment: InvestmentWithItem) {
@@ -74,10 +77,20 @@ function linkedHoldingData(
     logoUrl: string | null;
     brapiAssetType: string | null;
     brapiSubType: string | null;
+    marketExchange: string | null;
+    marketQuoteType: string | null;
+    marketSector: string | null;
+    marketIndustry: string | null;
+    currency: string;
+    fxRateToBrl: Prisma.Decimal | null;
+    fxUpdatedAt: Date | null;
     priceUpdatedAt: Date | null;
   } | null,
 ) {
   const market = isMarketInstrument(classification.instrumentType);
+  const internationalMarket = market
+    && classification.investmentClass != null
+    && ["INTERNATIONAL_STOCKS", "REITS", "INTERNATIONAL_FIXED_INCOME"].includes(classification.investmentClass);
   const quantity = decimal(investment.quantity);
   const providerUnitPrice = investment.value
     ?? (quantity.gt(0) ? investment.balance.div(quantity) : new Prisma.Decimal(0));
@@ -86,14 +99,20 @@ function linkedHoldingData(
     customTypeName: classification.catalogItemId ? null : investment.subtype ?? investment.type,
     issuer: providerIssuer(investment),
     productName: investment.name,
-    pricingSource: market ? "BRAPI" as const : "PLUGGY" as const,
+    pricingSource: market ? internationalMarket ? "YAHOO" as const : "BRAPI" as const : "PLUGGY" as const,
     positionSource: "PLUGGY" as const,
     ticker: market ? normalizePluggyTicker(investment.code) || null : null,
     brapiAssetType: quoteHolding?.brapiAssetType ?? null,
     brapiSubType: quoteHolding?.brapiSubType ?? null,
-    currency: investment.currencyCode || "BRL",
+    marketExchange: quoteHolding?.marketExchange ?? null,
+    marketQuoteType: quoteHolding?.marketQuoteType ?? null,
+    marketSector: quoteHolding?.marketSector ?? null,
+    marketIndustry: quoteHolding?.marketIndustry ?? null,
+    currency: (quoteHolding?.currency ?? investment.currencyCode) || "BRL",
     quantity,
     unitPrice: market && quoteHolding?.unitPrice.gt(0) ? quoteHolding.unitPrice : providerUnitPrice,
+    fxRateToBrl: internationalMarket ? quoteHolding?.fxRateToBrl ?? null : null,
+    fxUpdatedAt: internationalMarket ? quoteHolding?.fxUpdatedAt ?? null : null,
     investedValue: market
       ? investment.amountOriginal
       : investment.amountOriginal ?? investment.amount,
@@ -101,7 +120,7 @@ function linkedHoldingData(
     providerCurrentValue: investment.balance,
     includedInTotals: investment.providerAvailable && investment.status === "ACTIVE",
     supersededAt: null,
-    fractional: classification.instrumentType === "ETF" ? false : !market,
+    fractional: classification.instrumentType === "ETF" ? false : internationalMarket || !market,
     rateConvention: classification.rateConvention,
     benchmark: classification.benchmark,
     rateValue: classification.rateValue === null ? null : new Prisma.Decimal(classification.rateValue),
@@ -443,7 +462,7 @@ export async function reconcilePluggyInvestmentsForUser(userId: string) {
           && sameDate(candidate.maturityDate, investment.dueDate),
         ) ?? null;
       }
-      const data = linkedHoldingData(investment, classification, localQuoteHolding);
+      const data = linkedHoldingData(investment, classification, localQuoteHolding ?? existingLink?.holding);
       if (holding) {
         changed ||= !sameDecimal(holding.quantity, data.quantity)
           || !sameDecimal(holding.providerCurrentValue, data.providerCurrentValue)

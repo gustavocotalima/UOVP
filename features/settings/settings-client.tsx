@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition, type FormEvent } from "react";
-import { CheckCircle2, ExternalLink, KeyRound, Link2, ShieldCheck } from "lucide-react";
+import { CheckCircle2, ExternalLink, Globe2, KeyRound, Link2, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/dialog";
@@ -140,8 +140,8 @@ export function SettingsClient({
                 <KeyRound className="size-5" />
               </span>
               <div>
-                <CardTitle>Provedor de cotações</CardTitle>
-                <CardDescription>Conecte sua chave individual para consultar preços e dados dos ativos da B3.</CardDescription>
+                <CardTitle>Provedores de cotações</CardTitle>
+                <CardDescription>A B3 usa sua chave individual da brapi; ativos internacionais usam o Yahoo Finance.</CardDescription>
               </div>
             </div>
           </CardHeader>
@@ -220,6 +220,21 @@ export function SettingsClient({
                 </div>
               </div>
             </form>
+            <div className="mt-6 flex items-start gap-3 rounded-xl border bg-[var(--muted)]/25 p-4">
+              <Globe2 className="mt-0.5 size-5 shrink-0 text-[var(--primary)]" />
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-sm font-semibold">Yahoo Finance</p>
+                  <span className="rounded-full bg-[var(--primary)]/12 px-2 py-1 text-[10px] font-semibold uppercase text-[var(--primary)]">
+                    Internacional
+                  </span>
+                </div>
+                <p className="mt-1 text-sm leading-6 text-[var(--muted-foreground)]">
+                  Ativado automaticamente e sem chave. Usado para ações, REITs, ETFs e câmbio para BRL.
+                  É uma integração não oficial destinada ao uso pessoal.
+                </p>
+              </div>
+            </div>
           </CardContent>
         </Card>
 

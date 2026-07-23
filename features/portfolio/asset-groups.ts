@@ -5,12 +5,25 @@ export type HoldingAmount = {
   providerCurrentValue?: Decimal.Value | null;
   quantity: Decimal.Value;
   unitPrice: Decimal.Value;
-  pricingSource?: "MANUAL" | "BRAPI" | "PLUGGY";
+  fxRateToBrl?: Decimal.Value | null;
+  pricingSource?: "MANUAL" | "BRAPI" | "YAHOO" | "PLUGGY";
 };
+
+export function holdingUnitPriceBrl(holding: HoldingAmount) {
+  const unitPrice = new Decimal(holding.unitPrice);
+  if (holding.pricingSource !== "YAHOO") return unitPrice;
+  const fxRate = new Decimal(holding.fxRateToBrl ?? 0);
+  return fxRate.gt(0) ? unitPrice.mul(fxRate) : new Decimal(0);
+}
 
 export function holdingCurrentValue(holding: HoldingAmount) {
   if (holding.pricingSource === "BRAPI") {
     const marketValue = new Decimal(holding.quantity).mul(holding.unitPrice);
+    if (marketValue.gt(0)) return marketValue;
+    if (holding.providerCurrentValue != null) return new Decimal(holding.providerCurrentValue);
+  }
+  if (holding.pricingSource === "YAHOO") {
+    const marketValue = new Decimal(holding.quantity).mul(holdingUnitPriceBrl(holding));
     if (marketValue.gt(0)) return marketValue;
     if (holding.providerCurrentValue != null) return new Decimal(holding.providerCurrentValue);
   }

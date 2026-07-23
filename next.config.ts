@@ -5,7 +5,7 @@ const contentSecurityPolicy = [
   "default-src 'self'",
   `script-src 'self' 'unsafe-inline' https://cdn.pluggy.ai${development ? " 'unsafe-eval'" : ""}`,
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob: https://icons.brapi.dev https://cdn.pluggy.ai https://api.qrserver.com https://*.basemaps.cartocdn.com",
+  "img-src 'self' data: blob: https://icons.brapi.dev https://s.yimg.com https://cdn.pluggy.ai https://api.qrserver.com https://*.basemaps.cartocdn.com",
   "font-src 'self' data:",
   "connect-src 'self' https://brapi.dev https://api.pluggy.ai",
   "frame-src https://open.spotify.com https://connect.pluggy.ai",
