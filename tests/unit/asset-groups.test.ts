@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aggregateHoldingValue, applyManualFixedIncomeContribution, parentPortfolioPercentage } from "@/features/portfolio/asset-groups";
+import { aggregateHoldingValue, applyManualFixedIncomeContribution, holdingCurrentValue, parentPortfolioPercentage } from "@/features/portfolio/asset-groups";
 import { allocateContribution } from "@/features/portfolio/allocation";
 
 const targets = {
@@ -87,5 +87,23 @@ describe("grupos de ativos", () => {
       quantity: 10,
       unitPrice: 0,
     }]).toNumber()).toBe(990);
+  });
+
+  it("converte a cotação nativa do Yahoo para BRL e usa o saldo Pluggy como fallback", () => {
+    expect(holdingCurrentValue({
+      pricingSource: "YAHOO",
+      quantity: 2,
+      unitPrice: 100,
+      fxRateToBrl: 5.25,
+      providerCurrentValue: 900,
+    }).toNumber()).toBe(1050);
+
+    expect(holdingCurrentValue({
+      pricingSource: "YAHOO",
+      quantity: 2,
+      unitPrice: 100,
+      fxRateToBrl: null,
+      providerCurrentValue: 900,
+    }).toNumber()).toBe(900);
   });
 });

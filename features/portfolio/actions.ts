@@ -12,6 +12,17 @@ import { clearBrapiApiKey, requireBrapiApiKey, storeBrapiApiKey } from "./brapi-
 import { ensurePortfolio, getPortfolioData } from "./data";
 import { FIXED_INCOME_INDEXATIONS, INSTRUMENT_TYPES, INVESTMENT_CLASSES, RATE_CONVENTIONS, FIXED_INCOME_INDEXATION_META, type InvestmentClassKey } from "./constants";
 import { DEFAULT_QUESTIONS } from "./questions";
+import {
+  classifyYahooReitMetadata,
+  fetchAvailableYahooQuotes,
+  fetchYahooAssetProfile,
+  fetchYahooFxRates,
+  fetchYahooQuotes,
+  normalizeYahooSymbol,
+  searchYahooTickers,
+  type YahooQuote,
+  type YahooSearchKind,
+} from "./yahoo-finance";
 
 const investmentClassSchema = z.enum(INVESTMENT_CLASSES);
 const instrumentTypeSchema = z.enum(INSTRUMENT_TYPES);
@@ -29,6 +40,7 @@ const assetSchema = z.object({
   score: z.coerce.number().int().min(-30).max(30).default(0),
   fixedIncomeFamilyCode: z.string().trim().min(2).max(80).nullable().optional(),
   indexation: z.enum(FIXED_INCOME_INDEXATIONS).nullable().optional(),
+  yahooReitConfirmed: z.boolean().default(false),
 });
 
 export type AssetInput = z.input<typeof assetSchema>;
@@ -72,6 +84,7 @@ const brapiApiKeySchema = z.string()
 
 const tickerSearchSchema = z.string().trim().min(1).max(60);
 const brapiSearchKindSchema = z.enum(["BRAZILIAN_STOCKS", "REAL_ESTATE_FUNDS", "ETF"]);
+const yahooSearchKindSchema = z.enum(["INTERNATIONAL_STOCKS", "REITS", "ETF"]);
 
 function inferInstrumentType(investmentClass: InvestmentClassKey): InstrumentType {
   if (investmentClass === "REAL_ESTATE_FUNDS") return "REAL_ESTATE_FUND";
@@ -82,7 +95,20 @@ function inferInstrumentType(investmentClass: InvestmentClassKey): InstrumentTyp
 }
 
 function usesBrapiQuotes(investmentClass: InvestmentClassKey, instrumentType?: InstrumentType) {
-  return instrumentType === "ETF" || investmentClass === "BRAZILIAN_STOCKS" || investmentClass === "REAL_ESTATE_FUNDS";
+  if (instrumentType === "ETF") {
+    return !["INTERNATIONAL_STOCKS", "REITS", "INTERNATIONAL_FIXED_INCOME"].includes(investmentClass);
+  }
+  return investmentClass === "BRAZILIAN_STOCKS" || investmentClass === "REAL_ESTATE_FUNDS";
+}
+
+function usesYahooQuotes(investmentClass: InvestmentClassKey, instrumentType?: InstrumentType) {
+  return ["INTERNATIONAL_STOCKS", "REITS", "INTERNATIONAL_FIXED_INCOME"].includes(investmentClass)
+    && ["STOCK", "REIT", "ETF"].includes(instrumentType ?? "");
+}
+
+function yahooSearchKind(investmentClass: InvestmentClassKey, instrumentType: InstrumentType): YahooSearchKind {
+  if (instrumentType === "ETF") return "ETF";
+  return investmentClass === "REITS" || instrumentType === "REIT" ? "REITS" : "INTERNATIONAL_STOCKS";
 }
 
 async function assertOwnedAsset(userId: string, assetId: string) {
@@ -116,6 +142,9 @@ export async function saveAssetAction(input: AssetInput) {
   if (parsed.id && !existingHolding) throw new Error("Posição do ativo não encontrada.");
   let brapiQuote: BrapiQuote | undefined;
   let brapiMatch: Awaited<ReturnType<typeof searchBrapiTickers>>[number] | undefined;
+  let yahooQuote: YahooQuote | undefined;
+  let yahooMatch: Awaited<ReturnType<typeof searchYahooTickers>>[number] | undefined;
+  let yahooFx: Awaited<ReturnType<typeof fetchYahooFxRates>>[number] | undefined;
   if (!parsed.id && usesBrapiQuotes(parsed.investmentClass, instrumentType)) {
     const apiKey = await requireBrapiApiKey(userId);
     const matches = instrumentType === "ETF"
@@ -128,12 +157,45 @@ export async function saveAssetAction(input: AssetInput) {
     [brapiQuote] = await fetchBrapiQuotes({ apiKey, tickers: [parsed.ticker] });
     if (!brapiQuote) throw new Error(`A brapi não retornou uma cotação para ${parsed.ticker}.`);
   }
-  const ticker = brapiQuote?.symbol ?? parsed.ticker;
+  if (!parsed.id && usesYahooQuotes(parsed.investmentClass, instrumentType)) {
+    const kind = yahooSearchKind(parsed.investmentClass, instrumentType);
+    const matches = await searchYahooTickers({ query: parsed.ticker, kind });
+    yahooMatch = matches.find((match) => match.symbol === normalizeYahooSymbol(parsed.ticker));
+    if (!yahooMatch) {
+      throw new Error(`${parsed.ticker} não foi identificado como um ativo internacional válido pelo Yahoo Finance.`);
+    }
+    [yahooQuote] = await fetchYahooQuotes({ symbols: [yahooMatch.symbol] });
+    if (!yahooQuote) throw new Error(`O Yahoo Finance não retornou uma cotação para ${parsed.ticker}.`);
+
+    if (kind !== "ETF") {
+      const profile = await fetchYahooAssetProfile({ symbol: yahooMatch.symbol });
+      const sector = profile.sector ?? yahooMatch.sector;
+      const industry = profile.industry ?? yahooMatch.industry;
+      const status = classifyYahooReitMetadata({ sector, industry });
+      if (kind === "REITS") {
+        if (status === "CONTRADICTED") {
+          throw new Error(`${parsed.ticker} não foi identificado como REIT pelo Yahoo Finance.`);
+        }
+        if (status !== "CONFIRMED" && !parsed.yahooReitConfirmed) {
+          throw new Error("Confirme a classificação manual deste ativo como REIT.");
+        }
+      } else if (status === "CONFIRMED") {
+        throw new Error(`${parsed.ticker} foi identificado como REIT. Cadastre-o na classe REITs.`);
+      }
+      yahooMatch = { ...yahooMatch, sector, industry, reitStatus: status, requiresReitConfirmation: status !== "CONFIRMED" };
+    }
+
+    [yahooFx] = await fetchYahooFxRates({ currencies: [yahooQuote.currency] });
+    if (!yahooFx) {
+      throw new Error(`O Yahoo Finance não retornou o câmbio de ${yahooQuote.currency} para BRL.`);
+    }
+  }
+  const ticker = brapiQuote?.symbol ?? yahooQuote?.symbol ?? parsed.ticker;
   const parentData = {
     investmentClass: parsed.investmentClass as InvestmentClass,
     instrumentType,
     ticker,
-    name: brapiQuote?.name ?? parsed.name,
+    name: brapiQuote?.name ?? yahooQuote?.name ?? parsed.name,
     fixedIncomeFamilyCode: classifiesAsFixedIncome ? parsed.fixedIncomeFamilyCode : null,
     indexation: classifiesAsFixedIncome ? parsed.indexation as FixedIncomeIndexation : null,
     score: parsed.score,
@@ -141,23 +203,38 @@ export async function saveAssetAction(input: AssetInput) {
     exposureSource: "USER_OVERRIDE" as const,
     groupSource: classifiesAsFixedIncome ? "USER_OVERRIDE" as const : "AUTO" as const,
   };
-  const unitPrice = new Prisma.Decimal(brapiQuote?.price ?? parsed.unitPrice);
+  const unitPrice = new Prisma.Decimal(
+    brapiQuote?.price
+      ?? yahooQuote?.price
+      ?? existingHolding?.unitPrice
+      ?? parsed.unitPrice,
+  );
   const quantity = new Prisma.Decimal(parsed.quantity);
+  const fxRateToBrl = yahooFx
+    ? new Prisma.Decimal(yahooFx.rateToBrl)
+    : existingHolding?.fxRateToBrl ?? null;
+  const effectiveUnitPrice = yahooQuote && fxRateToBrl ? unitPrice.mul(fxRateToBrl) : unitPrice;
   const holdingData = {
-    issuer: brapiQuote?.name ?? existingHolding?.issuer ?? parsed.name,
-    productName: brapiQuote?.name ?? existingHolding?.productName ?? parsed.name,
-    pricingSource: (brapiQuote ? "BRAPI" : existingHolding?.pricingSource ?? "MANUAL") as "BRAPI" | "MANUAL",
-    ticker: brapiQuote?.symbol ?? existingHolding?.ticker ?? ticker,
+    issuer: brapiQuote?.name ?? yahooQuote?.name ?? existingHolding?.issuer ?? parsed.name,
+    productName: brapiQuote?.name ?? yahooQuote?.name ?? existingHolding?.productName ?? parsed.name,
+    pricingSource: (brapiQuote ? "BRAPI" : yahooQuote ? "YAHOO" : existingHolding?.pricingSource ?? "MANUAL") as "BRAPI" | "YAHOO" | "MANUAL",
+    ticker: brapiQuote?.symbol ?? yahooQuote?.symbol ?? existingHolding?.ticker ?? ticker,
     brapiAssetType: brapiMatch?.assetType ?? existingHolding?.brapiAssetType ?? null,
     brapiSubType: brapiMatch?.subType ?? existingHolding?.brapiSubType ?? null,
+    marketExchange: yahooMatch?.exchange ?? yahooQuote?.exchange ?? existingHolding?.marketExchange ?? null,
+    marketQuoteType: yahooMatch?.quoteType ?? yahooQuote?.quoteType ?? existingHolding?.marketQuoteType ?? null,
+    marketSector: yahooMatch?.sector ?? existingHolding?.marketSector ?? null,
+    marketIndustry: yahooMatch?.industry ?? existingHolding?.marketIndustry ?? null,
     quantity: new Prisma.Decimal(parsed.quantity),
     unitPrice,
-    investedValue: existingHolding?.investedValue ?? (parsed.manualValue == null ? quantity.mul(unitPrice) : new Prisma.Decimal(parsed.manualValue)),
-    currentValue: brapiQuote || existingHolding?.pricingSource === "BRAPI" || parsed.manualValue == null ? null : new Prisma.Decimal(parsed.manualValue),
-    currency: brapiQuote?.currency ?? existingHolding?.currency ?? parsed.currency.toUpperCase(),
-    fractional: instrumentType === "ETF" ? false : parsed.fractional,
-    logoUrl: brapiMatch?.logoUrl ?? brapiQuote?.logoUrl ?? existingHolding?.logoUrl ?? null,
-    priceUpdatedAt: brapiQuote?.asOf ?? existingHolding?.priceUpdatedAt ?? new Date(),
+    fxRateToBrl,
+    fxUpdatedAt: yahooFx?.asOf ?? existingHolding?.fxUpdatedAt ?? null,
+    investedValue: existingHolding?.investedValue ?? (parsed.manualValue == null ? quantity.mul(effectiveUnitPrice) : new Prisma.Decimal(parsed.manualValue)),
+    currentValue: brapiQuote || yahooQuote || ["BRAPI", "YAHOO"].includes(existingHolding?.pricingSource ?? "") || parsed.manualValue == null ? null : new Prisma.Decimal(parsed.manualValue),
+    currency: brapiQuote?.currency ?? yahooQuote?.currency ?? existingHolding?.currency ?? parsed.currency.toUpperCase(),
+    fractional: instrumentType === "ETF" ? false : yahooQuote ? true : parsed.fractional,
+    logoUrl: brapiMatch?.logoUrl ?? brapiQuote?.logoUrl ?? yahooQuote?.logoUrl ?? existingHolding?.logoUrl ?? null,
+    priceUpdatedAt: brapiQuote?.asOf ?? yahooQuote?.asOf ?? existingHolding?.priceUpdatedAt ?? new Date(),
   };
 
   await prisma.$transaction(async (tx) => {
@@ -410,19 +487,68 @@ export async function importPortfolioRowsAction(input: {
     if (missing.length) throw new Error(`A brapi não retornou cotação para: ${missing.join(", ")}.`);
   }
 
+  const yahooRows = parsed.marketRows.filter((row) =>
+    usesYahooQuotes(
+      row.investmentClass,
+      (row.instrumentType ?? inferInstrumentType(row.investmentClass)) as InstrumentType,
+    ),
+  );
+  const yahooQuotes = new Map<string, YahooQuote>();
+  const yahooMetadata = new Map<string, Awaited<ReturnType<typeof searchYahooTickers>>[number]>();
+  const yahooFxRates = new Map<string, Awaited<ReturnType<typeof fetchYahooFxRates>>[number]>();
+  if (yahooRows.length) {
+    const quotes = await fetchAvailableYahooQuotes({ symbols: yahooRows.map((row) => row.ticker) });
+    for (const quote of quotes) yahooQuotes.set(quote.requestedSymbol, quote);
+    const missing = yahooRows
+      .filter((row) => !yahooQuotes.has(normalizeYahooSymbol(row.ticker)))
+      .map((row) => row.ticker);
+    if (missing.length) throw new Error(`O Yahoo Finance não retornou cotação para: ${missing.join(", ")}.`);
+
+    for (const row of yahooRows) {
+      const instrumentType = (row.instrumentType ?? inferInstrumentType(row.investmentClass)) as InstrumentType;
+      const kind = yahooSearchKind(row.investmentClass, instrumentType);
+      const matches = await searchYahooTickers({ query: row.ticker, kind });
+      let match = matches.find((candidate) => candidate.symbol === normalizeYahooSymbol(row.ticker));
+      if (!match) throw new Error(`${row.ticker} não foi identificado como ativo internacional válido.`);
+      if (kind !== "ETF") {
+        const profile = await fetchYahooAssetProfile({ symbol: match.symbol });
+        const sector = profile.sector ?? match.sector;
+        const industry = profile.industry ?? match.industry;
+        const status = classifyYahooReitMetadata({ sector, industry });
+        if (kind === "REITS") {
+          if (status === "CONTRADICTED" || (status !== "CONFIRMED" && !row.yahooReitConfirmed)) {
+            throw new Error(`Confirme a classificação de ${row.ticker} como REIT antes de importar.`);
+          }
+        } else if (status === "CONFIRMED") {
+          throw new Error(`${row.ticker} foi identificado como REIT. Importe-o na classe REITs.`);
+        }
+        match = { ...match, sector, industry, reitStatus: status, requiresReitConfirmation: status !== "CONFIRMED" };
+      }
+      yahooMetadata.set(match.symbol, match);
+    }
+
+    const fxRates = await fetchYahooFxRates({ currencies: quotes.map((quote) => quote.currency) });
+    for (const rate of fxRates) yahooFxRates.set(rate.currency, rate);
+    const missingFx = [...new Set(quotes.filter((quote) => !yahooFxRates.has(quote.currency)).map((quote) => quote.currency))];
+    if (missingFx.length) throw new Error(`O Yahoo Finance não retornou câmbio para: ${missingFx.join(", ")}.`);
+  }
+
   await prisma.$transaction(async (tx) => {
     for (const row of parsed.marketRows) {
       const investmentClass = row.investmentClass as InvestmentClass;
       const instrumentType = (row.instrumentType ?? inferInstrumentType(row.investmentClass)) as InstrumentType;
       const brapiQuote = brapiQuotes.get(normalizeBrapiSymbol(row.ticker));
-      const ticker = brapiQuote?.symbol ?? row.ticker;
+      const yahooQuote = yahooQuotes.get(normalizeYahooSymbol(row.ticker));
+      const yahooMatch = yahooQuote ? yahooMetadata.get(yahooQuote.symbol) : undefined;
+      const yahooFx = yahooQuote ? yahooFxRates.get(yahooQuote.currency) : undefined;
+      const ticker = brapiQuote?.symbol ?? yahooQuote?.symbol ?? row.ticker;
       const classifiesAsFixedIncome = instrumentType === "ETF"
         && ["FIXED_INCOME", "INTERNATIONAL_FIXED_INCOME"].includes(row.investmentClass);
       const parentData = {
         investmentClass,
         instrumentType,
         ticker,
-        name: brapiQuote?.name ?? row.name,
+        name: brapiQuote?.name ?? yahooQuote?.name ?? row.name,
         score: row.score,
         fixedIncomeFamilyCode: classifiesAsFixedIncome ? row.fixedIncomeFamilyCode : null,
         indexation: classifiesAsFixedIncome ? row.indexation as FixedIncomeIndexation : null,
@@ -433,19 +559,29 @@ export async function importPortfolioRowsAction(input: {
         create: { ...parentData, portfolioId: portfolio.id },
       });
       const quantity = new Prisma.Decimal(row.quantity);
-      const unitPrice = new Prisma.Decimal(brapiQuote?.price ?? row.unitPrice);
+      const unitPrice = new Prisma.Decimal(brapiQuote?.price ?? yahooQuote?.price ?? row.unitPrice);
+      const effectiveUnitPrice = yahooFx ? unitPrice.mul(yahooFx.rateToBrl) : unitPrice;
       const holdingData = {
-        issuer: brapiQuote?.name ?? row.name,
-        productName: brapiQuote?.name ?? row.name,
-        pricingSource: (brapiQuote ? "BRAPI" : "MANUAL") as "BRAPI" | "MANUAL",
+        issuer: brapiQuote?.name ?? yahooQuote?.name ?? row.name,
+        productName: brapiQuote?.name ?? yahooQuote?.name ?? row.name,
+        pricingSource: (brapiQuote ? "BRAPI" : yahooQuote ? "YAHOO" : "MANUAL") as "BRAPI" | "YAHOO" | "MANUAL",
         ticker,
-        currency: brapiQuote?.currency ?? row.currency.toUpperCase(),
+        brapiAssetType: null,
+        brapiSubType: null,
+        marketExchange: yahooMatch?.exchange ?? yahooQuote?.exchange ?? null,
+        marketQuoteType: yahooMatch?.quoteType ?? yahooQuote?.quoteType ?? null,
+        marketSector: yahooMatch?.sector ?? null,
+        marketIndustry: yahooMatch?.industry ?? null,
+        currency: brapiQuote?.currency ?? yahooQuote?.currency ?? row.currency.toUpperCase(),
         quantity,
         unitPrice,
-        investedValue: row.manualValue == null ? quantity.mul(unitPrice) : new Prisma.Decimal(row.manualValue),
-        currentValue: brapiQuote || row.manualValue == null ? null : new Prisma.Decimal(row.manualValue),
-        fractional: instrumentType === "ETF" ? false : row.fractional,
-        priceUpdatedAt: brapiQuote?.asOf ?? new Date(),
+        fxRateToBrl: yahooFx?.rateToBrl ?? null,
+        fxUpdatedAt: yahooFx?.asOf ?? null,
+        investedValue: row.manualValue == null ? quantity.mul(effectiveUnitPrice) : new Prisma.Decimal(row.manualValue),
+        currentValue: brapiQuote || yahooQuote || row.manualValue == null ? null : new Prisma.Decimal(row.manualValue),
+        fractional: instrumentType === "ETF" ? false : yahooQuote ? true : row.fractional,
+        logoUrl: brapiQuote?.logoUrl ?? yahooQuote?.logoUrl ?? null,
+        priceUpdatedAt: brapiQuote?.asOf ?? yahooQuote?.asOf ?? new Date(),
       };
       const existingHolding = await tx.assetHolding.findFirst({
         where: { assetId: parent.id },
@@ -565,6 +701,12 @@ export async function searchBrapiTickersAction(input: string, kind: InvestmentCl
   return searchBrapiEtfTickers({ query });
 }
 
+export async function searchYahooTickersAction(input: string, kind: YahooSearchKind) {
+  await requireUserId();
+  const query = tickerSearchSchema.parse(input);
+  return searchYahooTickers({ query, kind: yahooSearchKindSchema.parse(kind) });
+}
+
 export async function removeBrapiApiKeyAction() {
   const userId = await requireUserId();
   await clearBrapiApiKey(userId);
@@ -572,60 +714,194 @@ export async function removeBrapiApiKeyAction() {
   revalidatePath("/configuracoes");
 }
 
-export async function refreshBrapiMarketPricesAction() {
+export type ProviderRefreshResult = {
+  requested: number;
+  updated: number;
+  missing: string[];
+  error: string | null;
+};
+
+export type MarketRefreshResult = {
+  updated: number;
+  brapi: ProviderRefreshResult;
+  yahoo: ProviderRefreshResult & { missingFx: string[] };
+};
+
+export async function refreshMarketPricesAction(): Promise<MarketRefreshResult> {
   const userId = await requireUserId();
   const portfolio = await ensurePortfolio(userId);
   const holdings = await prisma.assetHolding.findMany({
-    where: { asset: { portfolioId: portfolio.id }, pricingSource: "BRAPI", ticker: { not: null } },
+    where: {
+      asset: { portfolioId: portfolio.id },
+      ticker: { not: null },
+      includedInTotals: true,
+    },
     select: {
       id: true,
       ticker: true,
       currentValue: true,
       logoUrl: true,
+      pricingSource: true,
       positionSource: true,
-      asset: { select: { instrumentType: true } },
+      asset: { select: { id: true, instrumentType: true, investmentClass: true } },
     },
   });
-  if (!holdings.length) return { updated: 0, missing: [] as string[] };
-  const apiKey = await requireBrapiApiKey(userId);
-  const quotes = await fetchAvailableBrapiQuotes({ apiKey, tickers: holdings.flatMap((holding) => holding.ticker ? [holding.ticker] : []) });
-  const quotesBySymbol = new Map(quotes.map((quote) => [quote.requestedSymbol, quote]));
-  const updates = holdings.flatMap((holding) => {
-    const quote = holding.ticker ? quotesBySymbol.get(normalizeBrapiSymbol(holding.ticker)) : undefined;
+
+  const brapiHoldings = holdings.filter((holding) =>
+    holding.pricingSource === "BRAPI"
+    && usesBrapiQuotes(holding.asset.investmentClass as InvestmentClassKey, holding.asset.instrumentType),
+  );
+  const yahooHoldings = holdings.filter((holding) =>
+    usesYahooQuotes(holding.asset.investmentClass as InvestmentClassKey, holding.asset.instrumentType),
+  );
+
+  const [brapiSettled, yahooSettled] = await Promise.allSettled([
+    (async () => {
+      if (!brapiHoldings.length) return { quotes: [] as BrapiQuote[] };
+      const apiKey = await requireBrapiApiKey(userId);
+      const quotes = await fetchAvailableBrapiQuotes({
+        apiKey,
+        tickers: brapiHoldings.flatMap((holding) => holding.ticker ? [holding.ticker] : []),
+      });
+      return { quotes };
+    })(),
+    (async () => {
+      if (!yahooHoldings.length) {
+        return {
+          quotes: [] as YahooQuote[],
+          fxRates: [] as Awaited<ReturnType<typeof fetchYahooFxRates>>,
+        };
+      }
+      const quotes = await fetchAvailableYahooQuotes({
+        symbols: yahooHoldings.flatMap((holding) => holding.ticker ? [holding.ticker] : []),
+      });
+      const fxRates = await fetchYahooFxRates({ currencies: quotes.map((quote) => quote.currency) });
+      return { quotes, fxRates };
+    })(),
+  ]);
+
+  const brapiError = brapiSettled.status === "rejected"
+    ? brapiSettled.reason instanceof Error ? brapiSettled.reason.message : "Não foi possível atualizar a B3."
+    : null;
+  const yahooError = yahooSettled.status === "rejected"
+    ? yahooSettled.reason instanceof Error ? yahooSettled.reason.message : "Não foi possível atualizar os ativos internacionais."
+    : null;
+
+  const brapiQuotes = brapiSettled.status === "fulfilled" ? brapiSettled.value.quotes : [];
+  const yahooQuotes = yahooSettled.status === "fulfilled" ? yahooSettled.value.quotes : [];
+  const yahooFxRates = yahooSettled.status === "fulfilled" ? yahooSettled.value.fxRates : [];
+  const brapiQuotesBySymbol = new Map(brapiQuotes.map((quote) => [quote.requestedSymbol, quote]));
+  const yahooQuotesBySymbol = new Map(yahooQuotes.map((quote) => [quote.requestedSymbol, quote]));
+  const yahooFxByCurrency = new Map(yahooFxRates.map((rate) => [rate.currency, rate]));
+
+  const brapiUpdates = brapiHoldings.flatMap((holding) => {
+    const quote = holding.ticker ? brapiQuotesBySymbol.get(normalizeBrapiSymbol(holding.ticker)) : undefined;
     return quote ? [{ holding, quote }] : [];
   });
-  const missing = holdings.flatMap((holding) => holding.ticker && !quotesBySymbol.has(normalizeBrapiSymbol(holding.ticker)) ? [holding.ticker] : []);
-  if (!updates.length) return { updated: 0, missing };
-  await prisma.$transaction(async (tx) => {
-    for (const { holding, quote } of updates) {
-      await tx.assetHolding.update({
-        where: { id: holding.id },
-        data: {
-          unitPrice: quote.price,
-          ...(holding.currentValue != null
-            ? {
-                quantity: holding.asset.instrumentType === "ETF" ? holding.currentValue.div(quote.price).floor() : holding.currentValue.div(quote.price),
-                currentValue: null,
-              }
-            : {}),
-          fractional: holding.asset.instrumentType === "ETF" ? false : holding.asset.instrumentType === "CRYPTO",
-          ...(holding.positionSource === "MANUAL"
-            ? {
-                issuer: quote.name,
-                productName: quote.name,
-              }
-            : {}),
-          currency: quote.currency,
-          logoUrl: quote.logoUrl ?? holding.logoUrl,
-          priceUpdatedAt: quote.asOf,
-        },
-      });
-    }
-    await tx.portfolio.update({ where: { id: portfolio.id }, data: { version: { increment: 1 } } });
+  const yahooUpdates = yahooHoldings.flatMap((holding) => {
+    const quote = holding.ticker ? yahooQuotesBySymbol.get(normalizeYahooSymbol(holding.ticker)) : undefined;
+    const fx = quote ? yahooFxByCurrency.get(quote.currency) : undefined;
+    return quote && fx ? [{ holding, quote, fx }] : [];
   });
+
+  if (brapiUpdates.length || yahooUpdates.length) {
+    await prisma.$transaction(async (tx) => {
+      for (const { holding, quote } of brapiUpdates) {
+        await tx.assetHolding.update({
+          where: { id: holding.id },
+          data: {
+            pricingSource: "BRAPI",
+            unitPrice: quote.price,
+            currentValue: null,
+            fractional: holding.asset.instrumentType === "CRYPTO",
+            ...(holding.positionSource === "MANUAL"
+              ? {
+                  issuer: quote.name,
+                  productName: quote.name,
+                }
+              : {}),
+            currency: quote.currency,
+            fxRateToBrl: null,
+            fxUpdatedAt: null,
+            logoUrl: quote.logoUrl ?? holding.logoUrl,
+            priceUpdatedAt: quote.asOf,
+          },
+        });
+        if (holding.positionSource === "MANUAL") {
+          await tx.asset.update({ where: { id: holding.asset.id }, data: { name: quote.name } });
+        }
+      }
+      for (const { holding, quote, fx } of yahooUpdates) {
+        await tx.assetHolding.update({
+          where: { id: holding.id },
+          data: {
+            pricingSource: "YAHOO",
+            unitPrice: quote.price,
+            currentValue: null,
+            fractional: holding.asset.instrumentType !== "ETF",
+            ...(holding.positionSource === "MANUAL"
+              ? {
+                  issuer: quote.name,
+                  productName: quote.name,
+                }
+              : {}),
+            currency: quote.currency,
+            fxRateToBrl: fx.rateToBrl,
+            fxUpdatedAt: fx.asOf,
+            marketExchange: quote.exchange,
+            marketQuoteType: quote.quoteType,
+            logoUrl: quote.logoUrl ?? holding.logoUrl,
+            priceUpdatedAt: quote.asOf,
+          },
+        });
+        if (holding.positionSource === "MANUAL") {
+          await tx.asset.update({ where: { id: holding.asset.id }, data: { name: quote.name } });
+        }
+      }
+      await tx.portfolio.update({ where: { id: portfolio.id }, data: { version: { increment: 1 } } });
+    });
+  }
+
+  const brapiMissing = brapiHoldings.flatMap((holding) =>
+    holding.ticker && !brapiQuotesBySymbol.has(normalizeBrapiSymbol(holding.ticker)) ? [holding.ticker] : [],
+  );
+  const yahooMissing = yahooHoldings.flatMap((holding) =>
+    holding.ticker && !yahooQuotesBySymbol.has(normalizeYahooSymbol(holding.ticker)) ? [holding.ticker] : [],
+  );
+  const yahooMissingFx = [...new Set(yahooQuotes
+    .filter((quote) => !yahooFxByCurrency.has(quote.currency))
+    .map((quote) => quote.currency))];
+
   revalidatePath("/carteira");
   revalidatePath("/home");
-  return { updated: updates.length, missing };
+  return {
+    updated: brapiUpdates.length + yahooUpdates.length,
+    brapi: {
+      requested: brapiHoldings.length,
+      updated: brapiUpdates.length,
+      missing: [...new Set(brapiMissing)],
+      error: brapiError,
+    },
+    yahoo: {
+      requested: yahooHoldings.length,
+      updated: yahooUpdates.length,
+      missing: [...new Set(yahooMissing)],
+      missingFx: yahooMissingFx,
+      error: yahooError,
+    },
+  };
+}
+
+/**
+ * Kept temporarily for callers outside the portfolio UI. New code should use
+ * refreshMarketPricesAction so B3 and international quotes refresh together.
+ */
+export async function refreshBrapiMarketPricesAction() {
+  const result = await refreshMarketPricesAction();
+  return {
+    updated: result.brapi.updated,
+    missing: result.brapi.missing,
+  };
 }
 
 export async function saveInvestmentTargetsAction(values: Record<InvestmentClassKey, number>) {

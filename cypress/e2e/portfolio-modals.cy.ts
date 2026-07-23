@@ -4,24 +4,30 @@ describe("modais da carteira", () => {
     cy.visit("/carteira");
   });
 
-  it("exibe o logo do ativo na tabela da carteira", () => {
+  it("exibe o logo do Yahoo Finance na tabela da carteira", () => {
     cy.contains("button", "Adicionar ativo").click();
     cy.get("#asset-class").select("INTERNATIONAL_STOCKS");
-    cy.get("#asset-ticker").type("VOO");
+    cy.get("#asset-ticker").type("AAPL");
+    cy.get("#market-ticker-options", { timeout: 10000 }).contains('[role="option"]', "AAPL").click();
     cy.get("#asset-quantity").type("{selectall}1");
     cy.get('button[form="asset-modal-form"]').click();
 
-    cy.get("tbody tr").first().find("[data-asset-logo-container]").should("be.visible");
+    cy.contains("tbody tr", "AAPL")
+      .find("[data-asset-logo]")
+      .should("be.visible")
+      .and("have.attr", "src")
+      .and("include", "s.yimg.com");
   });
 
   it("abre o modal de adição de ativo e fecha pelo controle acessível", () => {
+    cy.contains("button", "Atualizar cotações").should("exist");
     cy.contains("button", "Adicionar ativo").click();
     cy.get('[role="dialog"]').should("be.visible").and("contain", "Adicionar ativo");
     cy.get('[role="dialog"]').find("#asset-class").should("be.visible");
     cy.get("#asset-ticker")
       .should("have.attr", "role", "combobox")
       .and("have.attr", "aria-autocomplete", "list")
-      .and("have.attr", "aria-controls", "brapi-ticker-options")
+      .and("have.attr", "aria-controls", "market-ticker-options")
       .and("have.attr", "aria-expanded", "false");
     cy.get("#asset-class").select("REAL_ESTATE_FUNDS");
     cy.get("#asset-ticker")
@@ -32,10 +38,11 @@ describe("modais da carteira", () => {
   });
 
   it("permite configurar uma chave brapi individual sem expor seu valor", () => {
-    cy.contains("button", "Configurar brapi").click();
-    cy.get('[role="dialog"]').should("contain", "Configurar brapi").and("contain", "Cada usuário conecta sua própria chave");
-    cy.get("#brapi-api-key").should("have.attr", "type", "password").and("have.attr", "autocomplete", "off");
-    cy.get('[role="dialog"]').contains("a", "Obter chave no painel da brapi").should("have.attr", "href", "https://brapi.dev/dashboard");
+    cy.visit("/configuracoes");
+    cy.contains("h1", "Configurações").should("be.visible");
+    cy.get("#settings-brapi-api-key").should("have.attr", "type", "password").and("have.attr", "autocomplete", "off");
+    cy.contains("a", "Obter chave na brapi").should("have.attr", "href", "https://brapi.dev/dashboard");
+    cy.contains("Yahoo Finance").should("be.visible");
   });
 
   it("sugere FIIs da brapi sem recortar a lista pelo modal", () => {
@@ -43,7 +50,7 @@ describe("modais da carteira", () => {
     cy.get("#asset-class").select("REAL_ESTATE_FUNDS");
     cy.get("#asset-ticker").type("RBVA11");
 
-    cy.get("#brapi-ticker-options", { timeout: 10000 }).should("be.visible");
+    cy.get("#market-ticker-options", { timeout: 10000 }).should("be.visible");
     cy.contains('[role="option"]', "RBVA11")
       .should("be.visible")
       .find("img")
@@ -58,7 +65,7 @@ describe("modais da carteira", () => {
     cy.get("#asset-ticker").type("ITAUSA");
     cy.get('button[form="asset-modal-form"]').should("be.disabled");
 
-    cy.get("#brapi-ticker-options", { timeout: 10000 })
+    cy.get("#market-ticker-options", { timeout: 10000 })
       .should("be.visible")
       .and("contain", "ITSA3")
       .and("contain", "ITSA4")
@@ -149,12 +156,13 @@ describe("modais da carteira", () => {
   it("reproduz o modal operacional de novo aporte", () => {
     cy.contains("button", "Adicionar ativo").click();
     cy.get("#asset-class").select("INTERNATIONAL_STOCKS");
-    cy.get("#asset-ticker").type("VOO");
+    cy.get("#asset-ticker").type("AAPL");
+    cy.get("#market-ticker-options", { timeout: 10000 }).contains('[role="option"]', "AAPL").click();
     cy.get("#asset-quantity").type("{selectall}32");
     cy.get('button[form="asset-modal-form"]').click();
     cy.contains("Ativo adicionado.").should("be.visible");
 
-    cy.get('button[aria-label="Editar VOO"]').click();
+    cy.get('button[aria-label="Editar AAPL"]').click();
     cy.get('[role="switch"]').click({ multiple: true });
     cy.get('button[form="asset-modal-form"]').click();
     cy.contains("Ativo atualizado.").should("be.visible");
@@ -167,12 +175,12 @@ describe("modais da carteira", () => {
 
     cy.contains("button", "Aportar").click();
     cy.contains("button", "Calcular").click();
-    cy.get('table[aria-label="Sugestões de investimento"]').contains("tr", "VOO").contains("button", "Aportar").click();
+    cy.get('table[aria-label="Sugestões de investimento"]').contains("tr", "AAPL").contains("button", "Aportar").click();
 
     cy.get('[role="dialog"]').should("contain", "Novo aporte");
     cy.get('[role="dialog"]').should("contain", "Unidades em carteira:").and("contain", "32");
     cy.get('[role="dialog"]').should("contain", "Quantidade a ser aportada:").and("contain", "Quantidade sugerida:");
     cy.get("#contribution-quantity").should("be.visible").type("{selectall}3");
-    cy.get('[role="dialog"]').should("contain", "8.670,00");
+    cy.get('[role="dialog"]').should("contain", "equivale a: R$");
   });
 });

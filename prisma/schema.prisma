@@ -30,6 +30,7 @@ enum InstrumentType {
 enum PricingSource {
   MANUAL
   BRAPI
+  YAHOO
   PLUGGY
 }
 
@@ -282,9 +283,15 @@ model AssetHolding {
   ticker               String?
   brapiAssetType       String?
   brapiSubType         String?
+  marketExchange       String?
+  marketQuoteType      String?
+  marketSector         String?
+  marketIndustry       String?
   currency             String                       @default("BRL")
   quantity             Decimal                      @default(0) @db.Decimal(30, 10)
   unitPrice            Decimal                      @default(0) @db.Decimal(30, 10)
+  fxRateToBrl          Decimal?                     @db.Decimal(20, 10)
+  fxUpdatedAt          DateTime?
   investedValue        Decimal?                     @db.Decimal(30, 2)
   currentValue         Decimal?                     @db.Decimal(30, 2)
   providerCurrentValue Decimal?                     @db.Decimal(30, 2)

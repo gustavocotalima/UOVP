@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import Decimal from "decimal.js";
 import { INVESTMENT_CLASSES, type InvestmentClassKey } from "./constants";
-import { aggregateHoldingValue, holdingCurrentValue } from "./asset-groups";
+import { aggregateHoldingValue, holdingCurrentValue, holdingUnitPriceBrl } from "./asset-groups";
 import { aggregateAveragePrices, calculateHoldingAveragePrice } from "./average-price";
 
 export async function ensurePortfolio(userId: string) {
@@ -134,7 +134,10 @@ export async function getPortfolioData(userId: string) {
         quantity: asset.instrumentType === "FIXED_INCOME"
           ? currentValue.toString()
           : holdings.reduce((total, holding) => total.add(holding.quantity.toString()), new Decimal(0)).toString(),
-        unitPrice: asset.instrumentType === "FIXED_INCOME" ? "1" : firstHolding?.unitPrice.toString() ?? "0",
+        unitPrice: asset.instrumentType === "FIXED_INCOME" ? "1" : firstHolding ? holdingUnitPriceBrl(firstHolding).toString() : "0",
+        nativeUnitPrice: asset.instrumentType === "FIXED_INCOME" ? null : firstHolding?.unitPrice.toString() ?? null,
+        fxRateToBrl: firstHolding?.fxRateToBrl?.toString() ?? null,
+        fxUpdatedAt: firstHolding?.fxUpdatedAt?.toISOString() ?? null,
         manualValue: asset.instrumentType === "FIXED_INCOME" ? currentValue.toString() : null,
         currentValue: currentValue.toString(),
         averagePricePaid: averagePrice.price?.toString() ?? null,
@@ -157,9 +160,16 @@ export async function getPortfolioData(userId: string) {
           ticker: holding.ticker,
           brapiAssetType: holding.brapiAssetType,
           brapiSubType: holding.brapiSubType,
+          marketExchange: holding.marketExchange,
+          marketQuoteType: holding.marketQuoteType,
+          marketSector: holding.marketSector,
+          marketIndustry: holding.marketIndustry,
           currency: holding.currency,
           quantity: holding.quantity.toString(),
           unitPrice: holding.unitPrice.toString(),
+          unitPriceBrl: holdingUnitPriceBrl(holding).toString(),
+          fxRateToBrl: holding.fxRateToBrl?.toString() ?? null,
+          fxUpdatedAt: holding.fxUpdatedAt?.toISOString() ?? null,
           investedValue: supportsAveragePrice && holdingAveragePrices[index].price
             ? holdingAveragePrices[index].price.mul(holding.quantity.toString()).toString()
             : holding.investedValue?.toString() ?? null,
