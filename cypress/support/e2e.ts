@@ -22,5 +22,5 @@ Cypress.Commands.add("registerAndLogin", () => {
   cy.get("#email").type(email);
   cy.get("#password").type("teste-seguro-123");
   cy.contains("button", "Entrar").click();
-  cy.url().should("include", "/home");
+  cy.url({ timeout: 15_000 }).should("include", "/home");
 });

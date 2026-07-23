@@ -130,6 +130,7 @@ describe("integração brapi", () => {
           currency: "BRL",
           regularMarketPrice: 43.21,
           regularMarketTime: "2026-07-22T17:00:00.000Z",
+          logourl: "https://icons.brapi.dev/icons/WEGE3.svg",
         },
       }],
       requestedAt: "2026-07-22T17:00:01.000Z",
@@ -146,6 +147,7 @@ describe("integração brapi", () => {
       name: "WEG S.A.",
       price: 43.21,
       currency: "BRL",
+      logoUrl: "https://icons.brapi.dev/icons/WEGE3.svg",
       asOf: new Date("2026-07-22T17:00:00.000Z"),
     }]);
     expect(normalizeBrapiSymbol("wege3.sa")).toBe("WEGE3");

@@ -13,6 +13,7 @@ const quoteResponseSchema = z.object({
       currency: z.string().nullish(),
       regularMarketPrice: z.number().nullish(),
       regularMarketTime: z.string().nullish(),
+      logourl: z.string().url().nullish(),
     }).passthrough(),
   }).passthrough()),
   requestedAt: z.string().nullish(),
@@ -45,6 +46,7 @@ export type BrapiQuote = {
   name: string;
   price: number;
   currency: string;
+  logoUrl: string | null;
   asOf: Date;
 };
 
@@ -200,6 +202,7 @@ export async function fetchBrapiQuotes({
       name: result.data.longName || result.data.shortName || result.symbol,
       price,
       currency: result.data.currency?.toUpperCase() || "BRL",
+      logoUrl: result.data.logourl ?? null,
       asOf: dateOrFallback(result.data.regularMarketTime, requestedAt),
     }];
   });

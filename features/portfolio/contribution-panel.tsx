@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { Calculator, CheckCircle2, DollarSign } from "lucide-react";
+import { Calculator, CheckCircle2, Clock3, DollarSign } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
@@ -66,6 +66,11 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
   const selectedQuantity = Number(contributionModal?.quantity ?? 0);
   const selectedEquivalent = selectedQuantity * Number(selectedAsset?.unitPrice ?? 0);
   const isFixedIncome = selectedAsset?.instrumentType === "FIXED_INCOME";
+  const selectedHolding = selectedAsset?.holdings.find((holding) => holding.id === contributionModal?.holdingId);
+  const pluggyControlled = Boolean(
+    selectedAsset?.pluggyControlled
+    && (!isFixedIncome || (contributionModal?.destination === "EXISTING" && selectedHolding?.positionSource === "PLUGGY")),
+  );
   const selectedCatalog = selectedAsset?.fixedIncomeFamilyCode
     ? catalog.filter((item) => item.familyCode === selectedAsset.fixedIncomeFamilyCode)
     : [];
@@ -120,14 +125,22 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
                 },
               }
           : undefined;
-        await executeContributionAction(simulation.id, selectedSuggestion.id, selectedQuantity, destination);
+        const result = await executeContributionAction(simulation.id, selectedSuggestion.id, selectedQuantity, destination);
         setSimulation({
           ...simulation,
           suggestions: simulation.suggestions.map((item) => item.id === selectedSuggestion.id
-            ? { ...item, quantity: selectedQuantity.toString(), value: selectedEquivalent.toString(), executed: true }
+            ? {
+                ...item,
+                quantity: selectedQuantity.toString(),
+                value: (isFixedIncome ? selectedQuantity : selectedEquivalent).toString(),
+                executed: !result.awaitingSync,
+                executionStatus: result.awaitingSync ? "AWAITING_SYNC" : "EXECUTED",
+              }
             : item),
         });
-        setMessage("Aporte registrado.");
+        setMessage(result.awaitingSync
+          ? "Aporte planejado. Faça o investimento na instituição e sincronize a Pluggy para confirmar."
+          : "Aporte registrado.");
         setContributionModal(undefined);
       } catch (error) {
         setMessage(error instanceof Error ? error.message : "Não foi possível registrar o aporte.");
@@ -196,7 +209,13 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
                           <td className="px-4 py-4 text-center font-semibold">{formatPercent(item.totalAfterSuggestionPercentage)}</td>
                           <td className="px-4 py-4 text-center font-semibold text-[var(--success)]">{formatMoney(item.value)}</td>
                           <td className="px-4 py-4 text-center font-semibold">{formatQuantity(item.quantity)}</td>
-                          <td className="px-4 py-4 text-center">{item.executed ? <span className="inline-flex items-center gap-1 text-xs text-[var(--success)]"><CheckCircle2 className="size-4" /> Registrado</span> : <Button onClick={() => openContribution(item.id, item.quantity)} disabled={pending}><DollarSign className="size-5" /> Aportar</Button>}</td>
+                          <td className="px-4 py-4 text-center">
+                            {item.executed
+                              ? <span className="inline-flex items-center gap-1 text-xs text-[var(--success)]"><CheckCircle2 className="size-4" /> Registrado</span>
+                              : item.executionStatus === "AWAITING_SYNC"
+                                ? <span className="inline-flex items-center gap-1 text-xs text-[var(--primary)]"><Clock3 className="size-4" /> Aguardando sync</span>
+                                : <Button onClick={() => openContribution(item.id, item.quantity)} disabled={pending}><DollarSign className="size-5" /> Aportar</Button>}
+                          </td>
                         </tr>
                       );
                     })}
@@ -275,9 +294,14 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
                 )}
               </div>
             )}
+            {pluggyControlled && (
+              <div className="rounded-xl border border-[var(--primary)]/50 bg-[var(--primary)]/10 p-4 text-sm">
+                Esta posição é controlada pela Pluggy. O aporte ficará aguardando e só alterará a carteira depois que a instituição informar a compra.
+              </div>
+            )}
             <div className="flex justify-center pt-5">
               <Button className="min-w-40" onClick={executeContribution} disabled={pending || !Number.isFinite(selectedQuantity) || selectedQuantity <= 0 || Boolean(isFixedIncome && contributionModal.destination === "EXISTING" && !contributionModal.holdingId) || Boolean(isFixedIncome && contributionModal.destination === "NEW" && ((!contributionModal.newHolding.catalogItemId && contributionModal.newHolding.customTypeName.trim().length < 2) || contributionModal.newHolding.issuer.trim().length < 2 || contributionModal.newHolding.productName.trim().length < 2))}>
-                {pending ? "Aportando…" : "Aportar"}
+                {pending ? "Salvando…" : pluggyControlled ? "Planejar aporte" : "Aportar"}
               </Button>
             </div>
           </div>

@@ -5,7 +5,7 @@ const ENVELOPE_VERSION = "v2";
 
 export type CredentialContext = {
   userId: string;
-  type: "brapi";
+  type: "brapi" | "pluggy-client-id" | "pluggy-client-secret";
 };
 
 function associatedData(context: CredentialContext) {

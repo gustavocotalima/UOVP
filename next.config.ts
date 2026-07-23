@@ -3,12 +3,12 @@ import type { NextConfig } from "next";
 const development = process.env.NODE_ENV === "development";
 const contentSecurityPolicy = [
   "default-src 'self'",
-  `script-src 'self' 'unsafe-inline'${development ? " 'unsafe-eval'" : ""}`,
+  `script-src 'self' 'unsafe-inline' https://cdn.pluggy.ai${development ? " 'unsafe-eval'" : ""}`,
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob: https://icons.brapi.dev https://api.qrserver.com https://*.basemaps.cartocdn.com",
+  "img-src 'self' data: blob: https://icons.brapi.dev https://cdn.pluggy.ai https://api.qrserver.com https://*.basemaps.cartocdn.com",
   "font-src 'self' data:",
-  "connect-src 'self' https://brapi.dev",
-  "frame-src https://open.spotify.com",
+  "connect-src 'self' https://brapi.dev https://api.pluggy.ai",
+  "frame-src https://open.spotify.com https://connect.pluggy.ai",
   "worker-src 'self' blob:",
   "object-src 'none'",
   "base-uri 'self'",
@@ -18,6 +18,9 @@ const contentSecurityPolicy = [
 ].join("; ");
 
 const nextConfig: NextConfig = {
+  images: {
+    remotePatterns: [{ protocol: "https", hostname: "cdn.pluggy.ai" }],
+  },
   experimental: {
     serverActions: {
       bodySizeLimit: "2mb",

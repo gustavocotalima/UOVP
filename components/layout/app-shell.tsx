@@ -5,12 +5,20 @@ import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
 import {
+  BadgeDollarSign,
+  ChartNoAxesCombined,
   CircleHelp,
-  Home,
+  CreditCard,
+  Goal,
+  Landmark,
+  ListChecks,
   LogOut,
   Menu,
   Moon,
   PieChart,
+  Settings,
+  Tags,
+  UserRound,
   Sun,
   WalletCards,
   Wrench,
@@ -21,11 +29,34 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
 const navigation = [
-  { href: "/home", label: "Home", icon: Home },
-  { href: "/carteira", label: "Carteira", icon: WalletCards },
-  { href: "/orcamento-domestico", label: "Orçamento Doméstico", icon: PieChart },
-  { href: "/ferramentas", label: "Ferramentas", icon: Wrench },
-  { href: "/faq", label: "FAQ", icon: CircleHelp },
+  {
+    label: "Menu",
+    items: [
+      { href: "/home", label: "Painel", icon: ChartNoAxesCombined },
+      { href: "/orcamento-domestico", label: "Orçamento", icon: PieChart },
+      { href: "/metas", label: "Metas", icon: Goal },
+      { href: "/contas", label: "Contas", icon: Landmark },
+      { href: "/faturas", label: "Faturas", icon: CreditCard },
+      { href: "/transacoes", label: "Transações", icon: ListChecks },
+      { href: "/tags", label: "Tags", icon: Tags },
+    ],
+  },
+  {
+    label: "Patrimônio",
+    items: [
+      { href: "/carteira", label: "Carteira", icon: WalletCards },
+      { href: "/ferramentas", label: "Ferramentas", icon: Wrench },
+      { href: "/open-finance", label: "Open Finance", icon: BadgeDollarSign },
+    ],
+  },
+  {
+    label: "Outros",
+    items: [
+      { href: "/perfil", label: "Perfil", icon: UserRound },
+      { href: "/configuracoes", label: "Configurações", icon: Settings },
+      { href: "/faq", label: "FAQ", icon: CircleHelp },
+    ],
+  },
 ];
 
 function Sidebar({ user, onNavigate }: { user: { name?: string | null; email?: string | null }; onNavigate?: () => void }) {
@@ -38,33 +69,40 @@ function Sidebar({ user, onNavigate }: { user: { name?: string | null; email?: s
   return (
     <aside className="flex h-full w-64 flex-col border-r bg-[#11120f] p-4 text-[#f4f3ed]">
       <Link href="/home" onClick={onNavigate} className="mb-8 flex items-center gap-3 rounded-xl px-2 py-2">
-        <span className="grid size-10 place-items-center rounded-full border border-[#d2ad50]/60 bg-[#d2ad50]/10 text-[#d2ad50]">A</span>
+        <span className="grid size-10 place-items-center rounded-full border border-[#d2ad50]/60 bg-[#d2ad50]/10 text-[#d2ad50]">U</span>
         <span>
-          <strong className="block text-lg tracking-[0.16em]">AURUM</strong>
-          <small className="text-[10px] uppercase tracking-[0.24em] text-white/45">Finanças</small>
+          <strong className="block text-lg tracking-[0.16em]">UOVP</strong>
+          <small className="block max-w-40 text-[9px] leading-tight tracking-[0.08em] text-white/45">Uma Outra Verdade Possível</small>
         </span>
       </Link>
 
-      <nav aria-label="Navegação principal" className="space-y-1">
-        {navigation.map((item) => {
-          const active = pathname.startsWith(item.href);
-          const Icon = item.icon;
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              onClick={onNavigate}
-              aria-current={active ? "page" : undefined}
-              className={cn(
-                "flex min-h-11 items-center gap-3 rounded-xl px-3 text-sm font-medium transition",
-                active ? "bg-[#d2ad50] text-[#11120f]" : "text-white/65 hover:bg-white/7 hover:text-white",
-              )}
-            >
-              <Icon className="size-4" aria-hidden="true" />
-              {item.label}
-            </Link>
-          );
-        })}
+      <nav aria-label="Navegação principal" className="min-h-0 flex-1 space-y-5 overflow-y-auto pr-1 scrollbar-thin">
+        {navigation.map((group) => (
+          <div key={group.label}>
+            <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/35">{group.label}</p>
+            <div className="space-y-1">
+              {group.items.map((item) => {
+                const active = pathname === item.href || (item.href !== "/home" && pathname.startsWith(`${item.href}/`));
+                const Icon = item.icon;
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={onNavigate}
+                    aria-current={active ? "page" : undefined}
+                    className={cn(
+                      "flex min-h-10 items-center gap-3 rounded-xl px-3 text-sm font-medium transition",
+                      active ? "bg-[#d2ad50] text-[#11120f]" : "text-white/65 hover:bg-white/7 hover:text-white",
+                    )}
+                  >
+                    <Icon className="size-4" aria-hidden="true" />
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </nav>
 
       <div className="mt-auto space-y-3 border-t border-white/10 pt-4">
@@ -117,7 +155,7 @@ export function AppShell({ user, children }: { user: { name?: string | null; ema
           <Button variant="ghost" size="icon" onClick={() => setMobileOpen(true)} aria-label="Abrir menu">
             <Menu className="size-5" />
           </Button>
-          <span className="font-semibold tracking-[0.16em]">AURUM</span>
+          <span className="font-semibold tracking-[0.16em]">UOVP</span>
           <span className="size-10" aria-hidden="true" />
         </header>
         <main className="mx-auto min-h-screen max-w-[1480px] p-4 sm:p-6 lg:p-8">{children}</main>

@@ -1,5 +1,18 @@
 export { auth as middleware } from "@/auth";
 
 export const config = {
-  matcher: ["/home/:path*", "/carteira/:path*", "/orcamento-domestico/:path*", "/ferramentas/:path*", "/faq/:path*"],
+  matcher: [
+    "/home/:path*",
+    "/orcamento-domestico/:path*",
+    "/metas/:path*",
+    "/contas/:path*",
+    "/faturas/:path*",
+    "/transacoes/:path*",
+    "/tags/:path*",
+    "/perfil/:path*",
+    "/carteira/:path*",
+    "/open-finance/:path*",
+    "/ferramentas/:path*",
+    "/faq/:path*",
+  ],
 };

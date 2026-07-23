@@ -53,7 +53,7 @@ const fixedIncomeGroupSchema = z.object({
   familyCode: z.string().trim().min(2).max(80),
   indexation: z.enum(FIXED_INCOME_INDEXATIONS),
   investmentClass: z.enum(["FIXED_INCOME", "INTERNATIONAL_FIXED_INCOME"]).default("FIXED_INCOME"),
-  score: z.coerce.number().int().min(0).max(30).default(0),
+  score: z.coerce.number().int().min(-30).max(30).default(0),
 });
 
 export type FixedIncomeHoldingInput = z.input<typeof fixedIncomeHoldingSchema>;
@@ -116,16 +116,14 @@ export async function saveAssetAction(input: AssetInput) {
   if (parsed.id && !existingHolding) throw new Error("Posição do ativo não encontrada.");
   let brapiQuote: BrapiQuote | undefined;
   let brapiMatch: Awaited<ReturnType<typeof searchBrapiTickers>>[number] | undefined;
-  if ((!parsed.id || instrumentType === "ETF") && usesBrapiQuotes(parsed.investmentClass, instrumentType)) {
+  if (!parsed.id && usesBrapiQuotes(parsed.investmentClass, instrumentType)) {
     const apiKey = await requireBrapiApiKey(userId);
-    if (!parsed.id) {
-      const matches = instrumentType === "ETF"
-        ? await searchBrapiEtfTickers({ query: parsed.ticker })
-        : await searchBrapiTickers({ query: parsed.ticker, subType: parsed.investmentClass === "REAL_ESTATE_FUNDS" ? "fii" : undefined });
-      brapiMatch = matches.find((match) => match.symbol === normalizeBrapiSymbol(parsed.ticker));
-      if (!brapiMatch) {
-        throw new Error(`${parsed.ticker} não foi identificado como um ativo válido pela brapi.`);
-      }
+    const matches = instrumentType === "ETF"
+      ? await searchBrapiEtfTickers({ query: parsed.ticker })
+      : await searchBrapiTickers({ query: parsed.ticker, subType: parsed.investmentClass === "REAL_ESTATE_FUNDS" ? "fii" : undefined });
+    brapiMatch = matches.find((match) => match.symbol === normalizeBrapiSymbol(parsed.ticker));
+    if (!brapiMatch) {
+      throw new Error(`${parsed.ticker} não foi identificado como um ativo válido pela brapi.`);
     }
     [brapiQuote] = await fetchBrapiQuotes({ apiKey, tickers: [parsed.ticker] });
     if (!brapiQuote) throw new Error(`A brapi não retornou uma cotação para ${parsed.ticker}.`);
@@ -139,6 +137,9 @@ export async function saveAssetAction(input: AssetInput) {
     fixedIncomeFamilyCode: classifiesAsFixedIncome ? parsed.fixedIncomeFamilyCode : null,
     indexation: classifiesAsFixedIncome ? parsed.indexation as FixedIncomeIndexation : null,
     score: parsed.score,
+    instrumentSource: "USER_OVERRIDE" as const,
+    exposureSource: "USER_OVERRIDE" as const,
+    groupSource: classifiesAsFixedIncome ? "USER_OVERRIDE" as const : "AUTO" as const,
   };
   const unitPrice = new Prisma.Decimal(brapiQuote?.price ?? parsed.unitPrice);
   const quantity = new Prisma.Decimal(parsed.quantity);
@@ -155,7 +156,7 @@ export async function saveAssetAction(input: AssetInput) {
     currentValue: brapiQuote || existingHolding?.pricingSource === "BRAPI" || parsed.manualValue == null ? null : new Prisma.Decimal(parsed.manualValue),
     currency: brapiQuote?.currency ?? existingHolding?.currency ?? parsed.currency.toUpperCase(),
     fractional: instrumentType === "ETF" ? false : parsed.fractional,
-    logoUrl: brapiMatch?.logoUrl ?? existingHolding?.logoUrl ?? null,
+    logoUrl: brapiMatch?.logoUrl ?? brapiQuote?.logoUrl ?? existingHolding?.logoUrl ?? null,
     priceUpdatedAt: brapiQuote?.asOf ?? existingHolding?.priceUpdatedAt ?? new Date(),
   };
 
@@ -172,9 +173,17 @@ export async function saveAssetAction(input: AssetInput) {
         create: { ...parentData, portfolioId: portfolio.id },
       });
     }
-    const existingHolding = await tx.assetHolding.findFirst({ where: { assetId: parent.id }, orderBy: { createdAt: "asc" } });
-    if (existingHolding) await tx.assetHolding.update({ where: { id: existingHolding.id }, data: holdingData });
-    else await tx.assetHolding.create({ data: { ...holdingData, assetId: parent.id } });
+    const pluggyControlled = await tx.assetHolding.count({
+      where: { assetId: parent.id, positionSource: "PLUGGY", includedInTotals: true },
+    });
+    if (!pluggyControlled) {
+      const existingHolding = await tx.assetHolding.findFirst({
+        where: { assetId: parent.id, positionSource: "MANUAL" },
+        orderBy: { createdAt: "asc" },
+      });
+      if (existingHolding) await tx.assetHolding.update({ where: { id: existingHolding.id }, data: holdingData });
+      else await tx.assetHolding.create({ data: { ...holdingData, assetId: parent.id } });
+    }
     await tx.portfolio.update({ where: { id: portfolio.id }, data: { version: { increment: 1 } } });
   });
   revalidatePath("/carteira");
@@ -245,6 +254,8 @@ export async function saveFixedIncomeGroupAction(input: FixedIncomeGroupInput, i
           ticker,
           name,
           score: parsed.score,
+          exposureSource: "USER_OVERRIDE",
+          groupSource: "USER_OVERRIDE",
         },
       });
     } else {
@@ -253,7 +264,14 @@ export async function saveFixedIncomeGroupAction(input: FixedIncomeGroupInput, i
       });
       parent = existing ? await tx.asset.update({
         where: { id: existing.id },
-        data: { investmentClass: parsed.investmentClass as InvestmentClass, ticker, name, score: parsed.score },
+        data: {
+          investmentClass: parsed.investmentClass as InvestmentClass,
+          ticker,
+          name,
+          score: parsed.score,
+          exposureSource: "USER_OVERRIDE",
+          groupSource: "USER_OVERRIDE",
+        },
       }) : await tx.asset.create({
         data: {
           portfolioId: portfolio.id,
@@ -264,6 +282,9 @@ export async function saveFixedIncomeGroupAction(input: FixedIncomeGroupInput, i
           fixedIncomeFamilyCode: family.code,
           indexation: parsed.indexation as FixedIncomeIndexation,
           score: parsed.score,
+          instrumentSource: "USER_OVERRIDE",
+          exposureSource: "USER_OVERRIDE",
+          groupSource: "USER_OVERRIDE",
         },
       });
     }
@@ -286,7 +307,9 @@ export async function saveAssetHoldingAction(assetId: string, input: FixedIncome
   await prisma.$transaction(async (tx) => {
     const data = fixedIncomeHoldingData(parsed);
     if (parsed.id) {
-      const owned = await tx.assetHolding.findFirst({ where: { id: parsed.id, assetId, asset: { portfolio: { userId } } } });
+      const owned = await tx.assetHolding.findFirst({
+        where: { id: parsed.id, assetId, positionSource: "MANUAL", asset: { portfolio: { userId } } },
+      });
       if (!owned) throw new Error("Aplicação não encontrada.");
       await tx.assetHolding.update({ where: { id: parsed.id }, data });
     } else {
@@ -302,7 +325,7 @@ export async function saveAssetHoldingAction(assetId: string, input: FixedIncome
 export async function deleteAssetHoldingAction(holdingId: string) {
   const userId = await requireUserId();
   const holding = await prisma.assetHolding.findFirst({
-    where: { id: holdingId, asset: { portfolio: { userId } } },
+    where: { id: holdingId, positionSource: "MANUAL", asset: { portfolio: { userId } } },
     select: { id: true, assetId: true, asset: { select: { portfolioId: true } } },
   });
   if (!holding) throw new Error("Aplicação não encontrada.");
@@ -492,6 +515,14 @@ export async function deleteAssetAction(assetId: string) {
   const userId = await requireUserId();
   const asset = await assertOwnedAsset(userId, assetId);
   await prisma.$transaction(async (tx) => {
+    await tx.pluggyInvestmentDiagramLink.updateMany({
+      where: { holding: { assetId: asset.id } },
+      data: {
+        status: "EXCLUDED",
+        classificationSource: "USER_OVERRIDE",
+        reviewReason: "Ativo removido do diagrama pelo usuário.",
+      },
+    });
     await tx.contributionSuggestion.deleteMany({ where: { assetId: asset.id } });
     await tx.asset.delete({ where: { id: asset.id } });
     await tx.portfolio.update({ where: { id: asset.portfolioId }, data: { version: { increment: 1 } } });
@@ -520,6 +551,7 @@ export async function saveBrapiApiKeyAction(input: string) {
   await fetchBrapiQuotes({ apiKey, tickers: ["WEGE3"] });
   const status = await storeBrapiApiKey(userId, apiKey);
   revalidatePath("/carteira");
+  revalidatePath("/configuracoes");
   return status;
 }
 
@@ -537,6 +569,7 @@ export async function removeBrapiApiKeyAction() {
   const userId = await requireUserId();
   await clearBrapiApiKey(userId);
   revalidatePath("/carteira");
+  revalidatePath("/configuracoes");
 }
 
 export async function refreshBrapiMarketPricesAction() {
@@ -544,7 +577,14 @@ export async function refreshBrapiMarketPricesAction() {
   const portfolio = await ensurePortfolio(userId);
   const holdings = await prisma.assetHolding.findMany({
     where: { asset: { portfolioId: portfolio.id }, pricingSource: "BRAPI", ticker: { not: null } },
-    select: { id: true, ticker: true, currentValue: true, asset: { select: { instrumentType: true } } },
+    select: {
+      id: true,
+      ticker: true,
+      currentValue: true,
+      logoUrl: true,
+      positionSource: true,
+      asset: { select: { instrumentType: true } },
+    },
   });
   if (!holdings.length) return { updated: 0, missing: [] as string[] };
   const apiKey = await requireBrapiApiKey(userId);
@@ -569,9 +609,14 @@ export async function refreshBrapiMarketPricesAction() {
               }
             : {}),
           fractional: holding.asset.instrumentType === "ETF" ? false : holding.asset.instrumentType === "CRYPTO",
-          issuer: quote.name,
-          productName: quote.name,
+          ...(holding.positionSource === "MANUAL"
+            ? {
+                issuer: quote.name,
+                productName: quote.name,
+              }
+            : {}),
           currency: quote.currency,
+          logoUrl: quote.logoUrl ?? holding.logoUrl,
           priceUpdatedAt: quote.asOf,
         },
       });
@@ -655,6 +700,7 @@ export async function simulateContributionAction(value: number) {
       suggestionPercentage: suggestion.suggestionPercentage.toString(),
       totalAfterSuggestionPercentage: suggestion.totalAfterSuggestionPercentage.toString(),
       executed: suggestion.executed,
+      executionStatus: suggestion.executionStatus,
     })),
   };
 }
@@ -684,9 +730,60 @@ export async function executeContributionAction(
         throw new Error("A carteira mudou. Calcule novamente antes de aportar.");
       }
       const selected = simulation.suggestions.filter(
-        (suggestion) => !suggestion.executed && (!parsedSuggestionId || suggestion.id === parsedSuggestionId),
+        (suggestion) => suggestion.executionStatus === "PENDING"
+          && (!parsedSuggestionId || suggestion.id === parsedSuggestionId),
       );
       if (!selected.length) throw new Error("Nenhuma sugestão disponível para executar.");
+
+      const externalSuggestion = selected.find((suggestion) => {
+        if (suggestion.asset.instrumentType !== "FIXED_INCOME") {
+          return suggestion.asset.holdings.some((holding) => holding.positionSource === "PLUGGY");
+        }
+        return destination?.holdingId
+          ? suggestion.asset.holdings.some((holding) =>
+              holding.id === destination.holdingId && holding.positionSource === "PLUGGY",
+            )
+          : false;
+      });
+      if (externalSuggestion) {
+        if (selected.length !== 1) throw new Error("Planeje aportes de posições Pluggy individualmente.");
+        const quantity = parsedQuantity === undefined
+          ? externalSuggestion.quantity
+          : new Prisma.Decimal(parsedQuantity.toString());
+        const marketHolding = externalSuggestion.asset.holdings.find((holding) =>
+          holding.positionSource === "PLUGGY" && holding.unitPrice.gt(0),
+        );
+        const value = parsedQuantity === undefined
+          ? externalSuggestion.value
+          : externalSuggestion.asset.instrumentType === "FIXED_INCOME"
+            ? quantity
+            : quantity.mul(marketHolding?.unitPrice ?? 0);
+        const baselineQuantity = externalSuggestion.asset.holdings
+          .filter((holding) => holding.positionSource === "PLUGGY" && holding.includedInTotals)
+          .reduce((total, holding) => total.add(holding.quantity), new Prisma.Decimal(0));
+        const baselineValue = externalSuggestion.asset.holdings
+          .filter((holding) => holding.positionSource === "PLUGGY" && holding.includedInTotals)
+          .reduce(
+            (total, holding) => total.add(
+              holding.providerCurrentValue
+              ?? holding.currentValue
+              ?? holding.quantity.mul(holding.unitPrice),
+            ),
+            new Prisma.Decimal(0),
+          );
+        await tx.contributionSuggestion.update({
+          where: { id: externalSuggestion.id },
+          data: {
+            quantity,
+            value,
+            executionStatus: "AWAITING_SYNC",
+            awaitingSyncAt: new Date(),
+            baselineQuantity,
+            baselineValue,
+          },
+        });
+        return;
+      }
 
       const versionClaim = await tx.portfolio.updateMany({
         where: { id: portfolio.id, version: portfolio.version },
@@ -698,7 +795,7 @@ export async function executeContributionAction(
       for (const suggestion of selected) {
         const suggestionClaim = await tx.contributionSuggestion.updateMany({
           where: { id: suggestion.id, simulationId: simulation.id, executed: false },
-          data: { executed: true },
+          data: { executed: true, executionStatus: "EXECUTED" },
         });
         if (suggestionClaim.count !== 1) {
           throw new Error("Esta sugestão já foi executada.");
@@ -774,6 +871,13 @@ export async function executeContributionAction(
   }
   revalidatePath("/carteira");
   revalidatePath("/home");
+  return { awaitingSync: Boolean(parsedSuggestionId && await prisma.contributionSuggestion.count({
+    where: {
+      id: parsedSuggestionId,
+      simulation: { userId },
+      executionStatus: "AWAITING_SYNC",
+    },
+  })) };
 }
 
 export async function createQuestionAction(input: { type: DiagramType; criterion: string; text: string }) {

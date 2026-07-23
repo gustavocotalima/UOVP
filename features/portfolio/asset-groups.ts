@@ -2,14 +2,21 @@ import Decimal from "decimal.js";
 
 export type HoldingAmount = {
   currentValue?: Decimal.Value | null;
+  providerCurrentValue?: Decimal.Value | null;
   quantity: Decimal.Value;
   unitPrice: Decimal.Value;
+  pricingSource?: "MANUAL" | "BRAPI" | "PLUGGY";
 };
 
 export function holdingCurrentValue(holding: HoldingAmount) {
-  return holding.currentValue == null
-    ? new Decimal(holding.quantity).mul(holding.unitPrice)
-    : new Decimal(holding.currentValue);
+  if (holding.pricingSource === "BRAPI") {
+    const marketValue = new Decimal(holding.quantity).mul(holding.unitPrice);
+    if (marketValue.gt(0)) return marketValue;
+    if (holding.providerCurrentValue != null) return new Decimal(holding.providerCurrentValue);
+  }
+  if (holding.currentValue != null) return new Decimal(holding.currentValue);
+  if (holding.providerCurrentValue != null) return new Decimal(holding.providerCurrentValue);
+  return new Decimal(holding.quantity).mul(holding.unitPrice);
 }
 
 export function aggregateHoldingValue(holdings: HoldingAmount[]) {
