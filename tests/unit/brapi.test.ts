@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchAvailableBrapiQuotes, fetchBrapiQuotes, fetchBrapiTickerMetadata, isBrapiOddLotSymbol, normalizeBrapiSymbol, searchBrapiEtfTickers, searchBrapiTickers } from "@/features/portfolio/brapi";
+import { fetchAvailableBrapiQuotes, fetchBrapiQuotes, fetchBrapiTickerMetadata, isBrapiOddLotSymbol, normalizeBrapiSymbol, preferredBrapiLogoUrl, searchBrapiEtfTickers, searchBrapiTickers } from "@/features/portfolio/brapi";
 import { decryptCredential, encryptCredential } from "@/lib/credential-cipher";
 
 const originalCredentialKeys = process.env.CREDENTIAL_ENCRYPTION_KEYS;
@@ -81,6 +81,14 @@ describe("integração brapi", () => {
       logoUrl: "https://icons.brapi.dev/icons/EMBR3.svg",
     })]);
     expect(new Headers(vi.mocked(fetcher).mock.calls[0][1]?.headers).get("Authorization")).toBeNull();
+  });
+
+  it("prioriza o logo do catálogo quando a cotação aponta para um ticker legado inexistente", () => {
+    expect(preferredBrapiLogoUrl({
+      metadataLogoUrl: "https://icons.brapi.dev/icons/EMBR3.svg",
+      quoteLogoUrl: "https://icons.brapi.dev/icons/EMBJ3.svg",
+      existingLogoUrl: null,
+    })).toBe("https://icons.brapi.dev/icons/EMBR3.svg");
   });
 
   it("filtra o catálogo por fundos imobiliários no autocomplete de FIIs", async () => {

@@ -22,7 +22,7 @@ import {
   type BinanceAssetSearchResult,
   type BinanceQuote,
 } from "./binance";
-import { fetchAvailableBrapiQuotes, fetchBrapiQuotes, fetchBrapiTickerMetadata, normalizeBrapiSymbol, searchBrapiEtfTickers, searchBrapiTickers, type BrapiQuote } from "./brapi";
+import { fetchAvailableBrapiQuotes, fetchBrapiQuotes, fetchBrapiTickerMetadata, normalizeBrapiSymbol, preferredBrapiLogoUrl, searchBrapiEtfTickers, searchBrapiTickers, type BrapiQuote } from "./brapi";
 import { clearBrapiApiKey, requireBrapiApiKey, storeBrapiApiKey } from "./brapi-credentials";
 import { ensurePortfolio, getPortfolioData } from "./data";
 import { FIXED_INCOME_INDEXATIONS, INSTRUMENT_TYPES, INVESTMENT_CLASSES, RATE_CONVENTIONS, FIXED_INCOME_INDEXATION_META, type InvestmentClassKey } from "./constants";
@@ -1130,7 +1130,11 @@ async function refreshMarketPricesForUser(
             currency: quote.currency,
             fxRateToBrl: null,
             fxUpdatedAt: null,
-            logoUrl: quote.logoUrl ?? metadata?.logoUrl ?? holding.logoUrl,
+            logoUrl: preferredBrapiLogoUrl({
+              metadataLogoUrl: metadata?.logoUrl,
+              quoteLogoUrl: quote.logoUrl,
+              existingLogoUrl: holding.logoUrl,
+            }),
             priceUpdatedAt: quote.asOf,
           },
         });
