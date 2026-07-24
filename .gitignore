@@ -10,3 +10,4 @@ cypress/videos
 work/
 *.log
 .DS_Store
+.coolify.json
