@@ -34,7 +34,7 @@ A UOVP mantém frontend e backend na mesma aplicação Next.js. Os registros fin
 
 ### Segurança multiusuário
 
-- Cadastro somente por convite.
+- Bootstrap da primeira conta administradora seguido de cadastro somente por convite.
 - Autenticação por credenciais com Auth.js e revogação de sessões JWT.
 - Autorização por usuário nas operações financeiras e conexões com provedores.
 - Criptografia AES-256-GCM versionada para credenciais da brapi e Pluggy.
@@ -114,11 +114,12 @@ O projeto usa exclusivamente pnpm. Não instale as dependências com npm ou Yarn
 | `AUTH_URL` | Origem canônica da aplicação, como `http://localhost:3000` localmente ou a origem HTTPS pública em produção. |
 | `AUTH_TRUST_HOST` | Ativa o comportamento de host confiável quando a topologia de deploy exigir. |
 | `AUTH_TRUST_PROXY` | Ativa cabeçalhos de proxy confiável. Use somente atrás de um proxy reverso configurado corretamente. |
-| `APP_ADMIN_EMAILS` | Administradores, separados por vírgula, que podem criar e revogar convites de cadastro. |
 | `CREDENTIAL_ENCRYPTION_ACTIVE_KEY` | Identificador da chave ativa usada na criptografia de novas credenciais. |
 | `CREDENTIAL_ENCRYPTION_KEYS` | Keyring versionado no formato `id-da-chave:chave-base64url`. |
 
 As credenciais da brapi e da Pluggy não são compartilhadas no servidor. Cada usuário as configura em **Configurações**. Yahoo Finance e Binance não exigem credenciais do usuário.
+
+Quando o banco não possui usuários, `/register` cria a primeira conta como administradora. Depois disso, o cadastro passa a exigir convite, administrado por essa conta persistida.
 
 ### Webhooks da Pluggy
 

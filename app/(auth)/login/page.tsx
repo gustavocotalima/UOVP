@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { AuthForm } from "@/components/layout/auth-form";
 import { loginAction } from "@/features/auth/actions";
 import { getActiveUser } from "@/lib/current-user";
+import { prisma } from "@/lib/prisma";
 
 export const metadata = { title: "Entrar" };
 
@@ -11,6 +12,7 @@ export default async function LoginPage({
   searchParams: Promise<{ registration?: string }>;
 }) {
   if (await getActiveUser()) redirect("/home");
+  const registrationAvailable = !await prisma.user.findFirst({ select: { id: true } });
   const registrationAccepted = (await searchParams).registration === "accepted";
   return (
     <>
@@ -21,7 +23,11 @@ export default async function LoginPage({
           Se os dados estavam disponíveis, a conta foi criada. Use suas credenciais para entrar.
         </p>
       )}
-      <AuthForm mode="login" action={loginAction} />
+      <AuthForm
+        mode="login"
+        action={loginAction}
+        registrationAvailable={registrationAvailable}
+      />
     </>
   );
 }

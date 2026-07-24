@@ -34,7 +34,7 @@ UOVP keeps the frontend and backend in the same Next.js application. Financial r
 
 ### Multi-user security
 
-- Invitation-only registration.
+- First-user administrator bootstrap followed by invitation-only registration.
 - Auth.js credential authentication with JWT session revocation.
 - Per-user authorization on financial operations and provider connections.
 - Versioned AES-256-GCM encryption for brapi and Pluggy credentials.
@@ -114,11 +114,12 @@ The project is pnpm-only. Do not install dependencies with npm or Yarn.
 | `AUTH_URL` | Canonical application origin, such as `http://localhost:3000` locally or the public HTTPS origin in production. |
 | `AUTH_TRUST_HOST` | Enables trusted-host behavior when the deployment topology requires it. |
 | `AUTH_TRUST_PROXY` | Enables trusted proxy headers. Only use it behind a correctly configured reverse proxy. |
-| `APP_ADMIN_EMAILS` | Comma-separated administrators allowed to create and revoke registration invitations. |
 | `CREDENTIAL_ENCRYPTION_ACTIVE_KEY` | Active key identifier used for new credential encryption. |
 | `CREDENTIAL_ENCRYPTION_KEYS` | Versioned keyring in `key-id:base64url-key` format. |
 
 brapi and Pluggy credentials are not shared server-wide. Each user configures them in **Settings**. Yahoo Finance and Binance market data do not require user credentials.
+
+When the database has no users, `/register` creates the first account as the administrator. After that, registration is invitation-only and invitations are managed by that persisted administrator account.
 
 ### Pluggy webhooks
 

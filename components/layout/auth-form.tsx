@@ -13,11 +13,13 @@ export function AuthForm({
   action,
   inviteToken,
   invitedEmail,
+  registrationAvailable = false,
 }: {
   mode: "login" | "register";
   action: (state: AuthFormState, formData: FormData) => Promise<AuthFormState>;
   inviteToken?: string;
   invitedEmail?: string;
+  registrationAvailable?: boolean;
 }) {
   const [state, formAction, pending] = useActionState(action, {});
   const registering = mode === "register";
@@ -39,8 +41,8 @@ export function AuthForm({
           autoComplete="email"
           required
           maxLength={254}
-          value={registering ? invitedEmail : undefined}
-          readOnly={registering}
+          defaultValue={registering ? invitedEmail : undefined}
+          readOnly={registering && Boolean(invitedEmail)}
         />
       </div>
       <div className="space-y-2">
@@ -53,9 +55,17 @@ export function AuthForm({
         {registering ? "Criar conta" : "Entrar"}
       </Button>
       <p className="text-center text-sm text-[var(--muted-foreground)]">
-        {registering ? "Já possui conta?" : "Ainda não possui conta?"}{" "}
+        {registering
+          ? "Já possui conta?"
+          : registrationAvailable
+            ? "Primeira configuração?"
+            : "Ainda não possui conta?"}{" "}
         {registering ? (
           <Link href="/login" className="font-semibold text-[var(--primary)] hover:underline">Entrar</Link>
+        ) : registrationAvailable ? (
+          <Link href="/register" className="font-semibold text-[var(--primary)] hover:underline">
+            Criar conta administradora
+          </Link>
         ) : (
           <span>Solicite um convite ao administrador.</span>
         )}

@@ -25,7 +25,7 @@ const registerSchema = z.object({
     .min(8, "A senha deve ter pelo menos 8 caracteres.")
     .max(128, "A senha é muito longa.")
     .refine((value) => new TextEncoder().encode(value).length <= 72, "A senha excede o limite seguro de 72 bytes."),
-  inviteToken: z.string().min(32).max(256),
+  inviteToken: z.string().max(256).optional().default(""),
 });
 
 const loginSchema = registerSchema.pick({ email: true, password: true });
@@ -33,7 +33,11 @@ const loginSchema = registerSchema.pick({ email: true, password: true });
 export async function registerAction(_: AuthFormState, formData: FormData): Promise<AuthFormState> {
   const parsed = registerSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: parsed.error.issues[0]?.message };
-  if (!await checkRegistrationRateLimit(parsed.data.email, parsed.data.inviteToken, await headers())) {
+  if (!await checkRegistrationRateLimit(
+    parsed.data.email,
+    parsed.data.inviteToken || "first-user-bootstrap",
+    await headers(),
+  )) {
     return { error: "Não foi possível processar o cadastro agora. Tente novamente mais tarde." };
   }
 
@@ -42,11 +46,17 @@ export async function registerAction(_: AuthFormState, formData: FormData): Prom
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
         await prisma.$transaction(async (tx) => {
+          await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext('uovp:registration-bootstrap'))`;
+          const isFirstUser = !await tx.user.findFirst({ select: { id: true } });
+          if (!isFirstUser && !parsed.data.inviteToken) {
+            throw new Error("Cadastro somente por convite.");
+          }
           const user = await tx.user.create({
             data: {
               name: parsed.data.name,
               email: parsed.data.email,
               passwordHash,
+              isAdmin: isFirstUser,
               preference: { create: {} },
               portfolio: { create: {} },
               financeProfile: { create: {} },
@@ -81,12 +91,14 @@ export async function registerAction(_: AuthFormState, formData: FormData): Prom
               data: AUVP_FINANCE_TAGS.map((tag) => ({ userId: user.id, ...tag })),
             }),
           ]);
-          await consumeRegistrationInviteInTransaction(
-            tx,
-            parsed.data.inviteToken,
-            parsed.data.email,
-            user.id,
-          );
+          if (!isFirstUser) {
+            await consumeRegistrationInviteInTransaction(
+              tx,
+              parsed.data.inviteToken,
+              parsed.data.email,
+              user.id,
+            );
+          }
         }, { isolationLevel: "Serializable" });
         break;
       } catch (error) {
