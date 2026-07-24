@@ -45,7 +45,7 @@ UOVP keeps the frontend and backend in the same Next.js application. Financial r
 - Next.js 16 App Router, React 19, and TypeScript
 - Tailwind CSS and shadcn/ui-style components
 - Lucide, Recharts, Leaflet, and React Leaflet
-- PostgreSQL and Prisma
+- PostgreSQL, Prisma, and optional Redis shared market-data caching
 - Auth.js
 - Vitest and Cypress
 - pnpm
@@ -55,7 +55,7 @@ UOVP keeps the frontend and backend in the same Next.js application. Financial r
 - Node.js 20.9 or newer
 - pnpm 10.13.1
 - PostgreSQL 16 or a compatible version
-- Docker and Docker Compose, optionally, for the local PostgreSQL service
+- Docker and Docker Compose, optionally, for the local PostgreSQL and Redis services
 
 ## Local setup
 
@@ -74,10 +74,10 @@ UOVP keeps the frontend and backend in the same Next.js application. Financial r
 
    Use separate values for `AUTH_SECRET`, `AUTH_RATE_LIMIT_PEPPER`, and each entry in `CREDENTIAL_ENCRYPTION_KEYS`.
 
-3. Start PostgreSQL with Docker Compose, or provide another PostgreSQL instance:
+3. Start PostgreSQL and Redis with Docker Compose, or provide external services:
 
    ```bash
-   docker compose up -d postgres
+   docker compose up -d postgres redis
    ```
 
 4. Install dependencies:
@@ -109,6 +109,9 @@ The project is pnpm-only. Do not install dependencies with npm or Yarn.
 | --- | --- |
 | `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_PORT` | Local Docker Compose PostgreSQL configuration. |
 | `DATABASE_URL` | Prisma PostgreSQL connection string. |
+| `REDIS_PASSWORD`, `REDIS_PORT` | Local Docker Compose Redis configuration. |
+| `REDIS_URL` | Optional Redis connection string used only for shared public market data. Without it, providers are queried directly. |
+| `SHARED_CACHE_NAMESPACE` | Optional versioned Redis namespace. Defaults to `uovp:shared:v1`. |
 | `AUTH_SECRET` | Auth.js signing secret; use an independent high-entropy value. |
 | `AUTH_RATE_LIMIT_PEPPER` | Pepper used by database-backed authentication limits. |
 | `AUTH_URL` | Canonical application origin, such as `http://localhost:3000` locally or the public HTTPS origin in production. |
@@ -118,6 +121,10 @@ The project is pnpm-only. Do not install dependencies with npm or Yarn.
 | `CREDENTIAL_ENCRYPTION_KEYS` | Versioned keyring in `key-id:base64url-key` format. |
 
 brapi and Pluggy credentials are not shared server-wide. Each user configures them in **Settings**. Yahoo Finance and Binance market data do not require user credentials.
+
+Redis stores only public provider data: market catalogs, symbols, company metadata, logos, quotes, and current FX rates. Portfolio positions, transactions, credentials, sessions, Pluggy data, and authentication controls are never cached there. Quote refreshes remain scoped to the current user's holdings and overwrite only those provider/symbol keys.
+
+For Coolify, create a separate internal Redis resource, configure a memory limit with the `allkeys-lru` policy, and set its private connection string as `REDIS_URL` on the application. Redis persistence is not required because PostgreSQL and the providers remain the sources of truth.
 
 When the database has no users, `/register` creates the first account as the administrator. After that, registration is invitation-only and invitations are managed by that persisted administrator account.
 

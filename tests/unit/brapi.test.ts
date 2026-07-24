@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchAvailableBrapiQuotes, fetchBrapiQuotes, isBrapiOddLotSymbol, normalizeBrapiSymbol, searchBrapiEtfTickers, searchBrapiTickers } from "@/features/portfolio/brapi";
+import { fetchAvailableBrapiQuotes, fetchBrapiQuotes, fetchBrapiTickerMetadata, isBrapiOddLotSymbol, normalizeBrapiSymbol, searchBrapiEtfTickers, searchBrapiTickers } from "@/features/portfolio/brapi";
 import { decryptCredential, encryptCredential } from "@/lib/credential-cipher";
 
 const originalCredentialKeys = process.env.CREDENTIAL_ENCRYPTION_KEYS;
@@ -54,6 +54,33 @@ describe("integração brapi", () => {
       lastPrice: 39.12,
       logoUrl: "https://icons.brapi.dev/icons/PETR4.svg",
     });
+  });
+
+  it("recupera pelo catálogo o logo legado associado ao ticker atual", async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({
+      results: [{
+        symbol: "EMBJ3",
+        name: "EMBJ3",
+        longName: "Embraer S.A.",
+        assetType: "stock",
+        subType: "stock",
+        exchange: "B3",
+        currency: "BRL",
+        logoUrl: "https://icons.brapi.dev/icons/EMBR3.svg",
+      }],
+    }), { status: 200, headers: { "Content-Type": "application/json" } })) as unknown as typeof fetch;
+
+    const results = await fetchBrapiTickerMetadata({
+      tickers: ["embj3.sa", "EMBJ3"],
+      fetcher,
+    });
+
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(results).toEqual([expect.objectContaining({
+      symbol: "EMBJ3",
+      logoUrl: "https://icons.brapi.dev/icons/EMBR3.svg",
+    })]);
+    expect(new Headers(vi.mocked(fetcher).mock.calls[0][1]?.headers).get("Authorization")).toBeNull();
   });
 
   it("filtra o catálogo por fundos imobiliários no autocomplete de FIIs", async () => {

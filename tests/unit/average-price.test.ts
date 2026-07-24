@@ -31,6 +31,22 @@ describe("preço médio", () => {
     expect(result.coverage).toBe(0.8);
   });
 
+  it("calcula o preço médio quando as compras superam a quantidade atual", () => {
+    const result = calculateHoldingAveragePrice({
+      positionSource: "PLUGGY",
+      quantity: 12,
+      investedValue: null,
+      transactions: [
+        { type: "BUY", quantity: 2, value: 122.56, amount: 245.12, netAmount: null },
+        { type: "BUY", quantity: 2, value: 123.46, amount: 246.92, netAmount: null },
+        { type: "BUY", quantity: 10, value: 128.52, amount: 1285.2, netAmount: null },
+      ],
+    });
+
+    expect(result.price?.toDecimalPlaces(4).toNumber()).toBe(126.9457);
+    expect(result.coverage).toBe(1);
+  });
+
   it("usa o valor investido para posições manuais", () => {
     const result = calculateHoldingAveragePrice({
       positionSource: "MANUAL",
