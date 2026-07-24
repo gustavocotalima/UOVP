@@ -89,6 +89,18 @@ export type BrapiTickerSearchResult = {
   logoUrl: string | null;
 };
 
+export function preferredBrapiLogoUrl({
+  metadataLogoUrl,
+  quoteLogoUrl,
+  existingLogoUrl,
+}: {
+  metadataLogoUrl: string | null | undefined;
+  quoteLogoUrl: string | null | undefined;
+  existingLogoUrl: string | null | undefined;
+}) {
+  return metadataLogoUrl ?? quoteLogoUrl ?? existingLogoUrl ?? null;
+}
+
 export class BrapiApiError extends Error {
   constructor(message: string, readonly status: number, readonly code?: string) {
     super(message);

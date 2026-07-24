@@ -2,7 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useTransition, type FormEvent, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
-import { AlertTriangle, Building2, ChevronDown, ChevronRight, Clock3, Coins, Download, FileSpreadsheet, LoaderCircle, Pencil, Plus, RefreshCw, Search, Trash2, Upload } from "lucide-react";
+import { AlertTriangle, Bitcoin, Building2, ChartNoAxesCombined, ChevronDown, ChevronRight, Clock3, Download, FileSpreadsheet, Landmark, LoaderCircle, Pencil, Plus, RefreshCw, Search, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
@@ -383,8 +383,12 @@ function AssetLogo({ asset }: { asset: AssetDto }) {
   return (
     <span data-asset-logo-container className="relative grid size-9 shrink-0 place-items-center overflow-hidden rounded-xl border bg-white/95 text-neutral-500">
       {asset.instrumentType === "CRYPTO"
-        ? <Coins className="size-4" aria-hidden="true" />
-        : <Building2 className="size-4" aria-hidden="true" />}
+        ? <Bitcoin className="size-4" aria-hidden="true" />
+        : asset.instrumentType === "FIXED_INCOME"
+          ? <Landmark className="size-4" aria-hidden="true" />
+          : asset.instrumentType === "ETF"
+            ? <ChartNoAxesCombined className="size-4" aria-hidden="true" />
+            : <Building2 className="size-4" aria-hidden="true" />}
       {logoUrl && (
         // eslint-disable-next-line @next/next/no-img-element
         <img
@@ -1689,8 +1693,10 @@ export function AssetsPanel({
                             >
                               <span className="relative grid size-8 shrink-0 place-items-center overflow-hidden rounded-lg border bg-white/95 text-neutral-500">
                                 {option.provider === "BINANCE"
-                                  ? <Coins className="size-4" aria-hidden="true" />
-                                  : <Building2 className="size-4" aria-hidden="true" />}
+                                  ? <Bitcoin className="size-4" aria-hidden="true" />
+                                  : form.instrumentType === "ETF"
+                                    ? <ChartNoAxesCombined className="size-4" aria-hidden="true" />
+                                    : <Building2 className="size-4" aria-hidden="true" />}
                                 {logoUrl && (
                                   // eslint-disable-next-line @next/next/no-img-element
                                   <img
