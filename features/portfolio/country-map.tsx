@@ -228,6 +228,7 @@ function WorldLayer({
 }
 
 function CountryInfo({ country, tab, onTabChange }: { country?: CountryData; tab: DetailTab; onTabChange: (tab: DetailTab) => void }) {
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
   if (!country) {
     return <div className="grid h-[300px] place-items-center px-8 text-center text-lg text-slate-500">Selecione um país no mapa para ver informações detalhadas</div>;
   }
@@ -240,13 +241,30 @@ function CountryInfo({ country, tab, onTabChange }: { country?: CountryData; tab
         <span className="rounded-full px-4 py-2 text-sm font-semibold text-white" style={{ backgroundColor: riskColor(country.risk) }}>{riskLabel(country.risk)}</span>
       </div>
       <div role="tablist" aria-label="Dados do país" className="mb-6 flex border-b border-slate-200">
-        {(["indices", "companies", "etfs"] as const).map((item) => (
+        {(["indices", "companies", "etfs"] as const).map((item, index, tabs) => (
           <button
             key={item}
             type="button"
             role="tab"
+            id={`country-tab-${item}`}
+            aria-controls={`country-panel-${item}`}
             aria-selected={tab === item}
+            tabIndex={tab === item ? 0 : -1}
+            ref={(element) => {
+              tabRefs.current[index] = element;
+            }}
             onClick={() => onTabChange(item)}
+            onKeyDown={(event) => {
+              let nextIndex: number | undefined;
+              if (event.key === "ArrowRight") nextIndex = (index + 1) % tabs.length;
+              else if (event.key === "ArrowLeft") nextIndex = (index - 1 + tabs.length) % tabs.length;
+              else if (event.key === "Home") nextIndex = 0;
+              else if (event.key === "End") nextIndex = tabs.length - 1;
+              if (nextIndex === undefined) return;
+              event.preventDefault();
+              onTabChange(tabs[nextIndex]);
+              tabRefs.current[nextIndex]?.focus();
+            }}
             className={`border-b-2 px-6 py-3 font-medium transition ${tab === item ? "border-blue-500 text-blue-500" : "border-transparent text-slate-500 hover:text-slate-700"}`}
           >
             {item === "indices" ? "Índices" : item === "companies" ? "Empresas" : "ETFs"}
@@ -255,7 +273,7 @@ function CountryInfo({ country, tab, onTabChange }: { country?: CountryData; tab
       </div>
 
       {tab === "indices" && (
-        <div>
+        <div id="country-panel-indices" role="tabpanel" aria-labelledby="country-tab-indices">
           <div className="mb-6">
             <p className="mb-1 text-sm font-medium text-slate-500">Principal Índice</p>
             <p className="text-lg font-medium text-[#daa95a]">{country.mainIndex}</p>
@@ -273,13 +291,17 @@ function CountryInfo({ country, tab, onTabChange }: { country?: CountryData; tab
       )}
 
       {tab === "companies" && (
-        country.companies.length ? <div className="grid max-h-[400px] gap-4 overflow-y-auto pr-2 sm:grid-cols-[repeat(auto-fill,minmax(210px,1fr))] scrollbar-thin">
-          {country.companies.map((company, index) => <div key={`${company.ticker}-${index}`} className="rounded-lg bg-slate-50 p-4 transition hover:-translate-y-0.5 hover:bg-slate-100"><p className="mb-1 font-semibold text-[#daa95a]">{company.name}</p><p className="text-sm text-slate-500">{company.ticker}{company.sector ? ` • ${company.sector}` : ""}</p></div>)}
-        </div> : <div className="grid h-[300px] place-items-center text-center text-lg text-slate-500">Nenhuma empresa encontrada para este índice</div>
+        <div id="country-panel-companies" role="tabpanel" aria-labelledby="country-tab-companies">
+          {country.companies.length ? <div className="grid max-h-[400px] gap-4 overflow-y-auto pr-2 sm:grid-cols-[repeat(auto-fill,minmax(210px,1fr))] scrollbar-thin">
+            {country.companies.map((company, index) => <div key={`${company.ticker}-${index}`} className="rounded-lg bg-slate-50 p-4 transition hover:-translate-y-0.5 hover:bg-slate-100"><p className="mb-1 font-semibold text-[#daa95a]">{company.name}</p><p className="text-sm text-slate-500">{company.ticker}{company.sector ? ` • ${company.sector}` : ""}</p></div>)}
+          </div> : <div className="grid h-[300px] place-items-center text-center text-lg text-slate-500">Nenhuma empresa encontrada para este índice</div>}
+        </div>
       )}
 
       {tab === "etfs" && (
-        etfs.length ? <div>{etfs.map((etf) => <div key={etf} className="mb-3 rounded-lg bg-slate-50 p-4 transition hover:-translate-y-0.5 hover:bg-slate-100"><p className="mb-1 font-semibold text-[#daa95a]">{etf}</p><p className="text-sm text-slate-500">ETF Americano</p></div>)}</div> : <div className="grid h-[300px] place-items-center text-center text-lg text-slate-500">Nenhum ETF disponível para este país</div>
+        <div id="country-panel-etfs" role="tabpanel" aria-labelledby="country-tab-etfs">
+          {etfs.length ? <div>{etfs.map((etf) => <div key={etf} className="mb-3 rounded-lg bg-slate-50 p-4 transition hover:-translate-y-0.5 hover:bg-slate-100"><p className="mb-1 font-semibold text-[#daa95a]">{etf}</p><p className="text-sm text-slate-500">ETF Americano</p></div>)}</div> : <div className="grid h-[300px] place-items-center text-center text-lg text-slate-500">Nenhum ETF disponível para este país</div>}
+        </div>
       )}
     </div>
   );

@@ -39,6 +39,10 @@ export type FinancialAccountDto = {
   bankCode: string | null;
   brand: string | null;
   balance: string;
+  balanceBrl: string | null;
+  balanceFxRateToBrl: string | null;
+  balanceFxRateDate: string | null;
+  balanceFxSource: "NATIVE" | "PLUGGY" | "YAHOO" | "MANUAL" | null;
   creditLimit: string | null;
   availableCredit: string | null;
   dueDay: number | null;
@@ -67,6 +71,10 @@ export type FinanceTransactionDto = {
   paymentMethod: string | null;
   amount: string;
   currencyCode: string;
+  reportingAmountBrl: string | null;
+  fxRateToBrl: string | null;
+  fxRateDate: string | null;
+  fxSource: "NATIVE" | "PLUGGY" | "YAHOO" | "MANUAL" | null;
   originalAmount: string | null;
   originalCurrencyCode: string | null;
   date: string;
@@ -80,6 +88,8 @@ export type FinanceTransactionDto = {
   status: string | null;
   note: string | null;
   ignored: boolean;
+  providerLifecycle: "ACTIVE" | "DELETION_PENDING" | "KEPT_MANUAL" | "REMOVED" | null;
+  providerDeletedAt: string | null;
   internalTransfer: boolean;
   internalTransferSource: FinanceAssignmentSourceDto;
   installmentNumber: number | null;
@@ -90,6 +100,14 @@ export type FinanceTransactionDto = {
 };
 
 export type FinanceGoalRecord = Record<BudgetCategoryKey, number>;
+
+export type FinanceHistoryPointDto = {
+  year: number;
+  month: number;
+  grossIncome: number;
+  spent: number;
+  balance: number;
+};
 
 export type FinanceData = {
   year: number;
@@ -102,6 +120,7 @@ export type FinanceData = {
   profile: {
     monthlyIncome: string;
     financialMonthStart: number;
+    timeZone: string;
     objectives: string | null;
   };
   goals: FinanceGoalRecord;
@@ -109,9 +128,12 @@ export type FinanceData = {
   transactions: FinanceTransactionDto[];
   recentTransactions: FinanceTransactionDto[];
   historyTransactions: FinanceTransactionDto[];
+  history: FinanceHistoryPointDto[];
   tags: FinanceTagDto[];
   classificationRules: FinanceClassificationRuleDto[];
   unclassifiedTransactionCount: number;
+  pendingFxTransactionCount: number;
+  pendingDeletionCount: number;
   pluggy: {
     configured: boolean;
     itemCount: number;

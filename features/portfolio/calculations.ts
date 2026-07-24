@@ -39,8 +39,3 @@ export function firstMillionMatrix(
     })),
   }));
 }
-
-export function portfolioPercentage(value: Decimal.Value, total: Decimal.Value) {
-  const denominator = new Decimal(total);
-  return denominator.eq(0) ? new Decimal(0) : new Decimal(value).div(denominator).times(100);
-}

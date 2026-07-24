@@ -1,5 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("@/lib/auth-security", () => ({
+  clientIpFromHeaders: () => null,
+  consumeAuthRateLimit: vi.fn(async () => ({ allowed: true, retryAfterMs: 0 })),
+}));
+
 import {
   MAX_PLUGGY_WEBHOOK_BODY_BYTES,
   POST,

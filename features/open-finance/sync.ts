@@ -6,6 +6,8 @@ import {
 } from "@/lib/operation-security";
 import { resolveFinancialReference } from "@/features/finance/calculations";
 import { resolvePluggyTransactionAmounts } from "@/features/open-finance/transaction-amount";
+import { ensureHistoricalFxRates, resolveTransactionFx } from "@/features/finance/fx";
+import { fetchYahooFxRates } from "@/features/portfolio/yahoo-finance";
 import {
   classifyFinanceTransactionsForUser,
   type FinanceClassificationSummary,
@@ -163,14 +165,26 @@ function itemData(item: PluggyItemResponse, userId: string) {
   };
 }
 
-async function writeInBatches(operations: Prisma.PrismaPromise<unknown>[]) {
+type FencedWrite = (tx: Prisma.TransactionClient) => Promise<unknown>;
+
+async function writeInBatches(
+  lease: UserOperationLeaseContext,
+  operations: FencedWrite[],
+) {
   for (let index = 0; index < operations.length; index += WRITE_BATCH_SIZE) {
-    await prisma.$transaction(operations.slice(index, index + WRITE_BATCH_SIZE));
+    const batch = operations.slice(index, index + WRITE_BATCH_SIZE);
+    await lease.runFencedTransaction(async (tx) => {
+      await Promise.all(batch.map((operation) => operation(tx)));
+    });
   }
 }
 
-async function upsertAccount(pluggyItemDbId: string, account: PluggyAccountResponse) {
-  return prisma.pluggyAccount.upsert({
+async function upsertAccount(
+  tx: Prisma.TransactionClient,
+  pluggyItemDbId: string,
+  account: PluggyAccountResponse,
+) {
+  return tx.pluggyAccount.upsert({
     where: { pluggyAccountId: account.id },
     update: {
       pluggyItemDbId,
@@ -201,13 +215,22 @@ async function upsertAccount(pluggyItemDbId: string, account: PluggyAccountRespo
 }
 
 async function upsertFinancialAccount(
+  tx: Prisma.TransactionClient,
   userId: string,
   item: { pluggyItemId: string; institutionName: string | null; connectorName: string; connectorImageUrl: string | null },
   account: PluggyAccountResponse,
   sortOrder: number,
+  currentFx?: { rateToBrl: number; asOf: Date },
 ) {
   const bankNumber = parseBankNumber(account.bankData?.transferNumber ?? account.number);
   const type = account.type === "CREDIT" ? "CREDIT_CARD" : "BANK_ACCOUNT";
+  const currencyCode = (account.currencyCode ?? "BRL").trim().toUpperCase();
+  const balance = asDecimal(account.balance);
+  const accountFx = currencyCode === "BRL"
+    ? { rate: new Prisma.Decimal(1), date: new Date(), source: "NATIVE" as const }
+    : currentFx
+      ? { rate: new Prisma.Decimal(currentFx.rateToBrl), date: currentFx.asOf, source: "YAHOO" as const }
+      : null;
   const data = {
     userId,
     source: "PLUGGY" as const,
@@ -222,24 +245,32 @@ async function upsertFinancialAccount(
     numberLastFour: lastFour(account.number),
     bankCode: bankNumber.bankCode,
     brand: account.creditData?.brand ?? null,
-    balance: asDecimal(account.balance),
+    balance,
     creditLimit: nullableDecimal(account.creditData?.creditLimit),
     availableCredit: nullableDecimal(account.creditData?.availableCreditLimit),
     dueDay: dayOfMonth(account.creditData?.balanceDueDate),
     closingDay: dayOfMonth(account.creditData?.balanceCloseDate),
-    currencyCode: account.currencyCode ?? "BRL",
+    currencyCode,
+    balanceBrl: accountFx ? balance.mul(accountFx.rate).toDecimalPlaces(2) : null,
+    balanceFxRateToBrl: accountFx?.rate ?? null,
+    balanceFxRateDate: accountFx?.date ?? null,
+    balanceFxSource: accountFx?.source ?? null,
     providerUpdatedAt: asDate(account.updatedAt),
     active: true,
   };
   const { name, ...providerData } = data;
-  return prisma.financialAccount.upsert({
+  return tx.financialAccount.upsert({
     where: { externalId: account.id },
     update: providerData,
     create: { externalId: account.id, sortOrder, name, ...providerData },
   });
 }
 
-function transactionOperation(pluggyAccountDbId: string, transaction: PluggyTransactionResponse) {
+function transactionOperation(
+  tx: Prisma.TransactionClient,
+  pluggyAccountDbId: string,
+  transaction: PluggyTransactionResponse,
+) {
   const installmentData = transactionInstallment(transaction);
   const data = {
     pluggyAccountDbId,
@@ -262,22 +293,27 @@ function transactionOperation(pluggyAccountDbId: string, transaction: PluggyTran
     counterpartyName: transactionCounterparty(transaction),
     paymentMethod: transaction.paymentData?.paymentMethod ?? null,
     ...installmentData,
+    providerAvailable: true,
+    providerRemovedAt: null,
     providerCreatedAt: asDate(transaction.createdAt),
     providerUpdatedAt: asDate(transaction.updatedAt),
   };
-  return prisma.pluggyTransaction.upsert({
+  return tx.pluggyTransaction.upsert({
     where: { pluggyTransactionId: transaction.id },
     update: data,
     create: { pluggyTransactionId: transaction.id, ...data },
   });
 }
 
-function financeTransactionOperation(
+async function financeTransactionOperation(
+  tx: Prisma.TransactionClient,
   userId: string,
   financialAccountId: string,
   accountCurrencyCode: string,
   transaction: PluggyTransactionResponse,
   financialMonthStart: number,
+  timeZone: string,
+  historicalFx?: { rateDate: Date; rateToBrl: Prisma.Decimal } | null,
 ) {
   const date = asDate(transaction.date) ?? new Date(0);
   const providerAmount = asDecimal(transaction.amount);
@@ -288,7 +324,13 @@ function financeTransactionOperation(
     kind,
   });
   const installmentData = transactionInstallment(transaction);
-  const reference = resolveFinancialReference(date, financialMonthStart);
+  const reference = resolveFinancialReference(date, financialMonthStart, timeZone);
+  const fx = resolveTransactionFx({
+    amountInAccountCurrency: new Prisma.Decimal(resolvedAmounts.amount),
+    accountCurrencyCode,
+    originalCurrencyCode: transaction.currencyCode ?? accountCurrencyCode,
+    rate: historicalFx,
+  });
   const providerData = {
     userId,
     accountId: financialAccountId,
@@ -312,21 +354,45 @@ function financeTransactionOperation(
     status: transaction.status ?? null,
     operationType: transaction.operationType ?? null,
     providerUpdatedAt: asDate(transaction.updatedAt),
+    providerLifecycle: "ACTIVE" as const,
+    providerDeletedAt: null,
+    deleted: false,
     ...installmentData,
   };
-  return prisma.financeTransaction.upsert({
+  const stored = await tx.financeTransaction.upsert({
     where: { externalId: transaction.id },
     update: providerData,
     create: {
       externalId: transaction.id,
       referenceYear: reference.year,
       referenceMonth: reference.month,
+      ...fx,
       ...providerData,
     },
   });
+  if (stored.fxSource === null || stored.reportingAmountBrl === null) {
+    await tx.financeTransaction.update({
+      where: { id: stored.id },
+      data: fx,
+    });
+  }
+  if (!stored.referenceOverridden) {
+    return tx.financeTransaction.update({
+      where: { id: stored.id },
+      data: {
+        referenceYear: reference.year,
+        referenceMonth: reference.month,
+      },
+    });
+  }
+  return stored;
 }
 
-function investmentOperation(pluggyItemDbId: string, investment: PluggyInvestmentResponse) {
+function investmentOperation(
+  tx: Prisma.TransactionClient,
+  pluggyItemDbId: string,
+  investment: PluggyInvestmentResponse,
+) {
   const institution = typeof investment.institution === "object" ? investment.institution : null;
   const institutionName = typeof investment.institution === "string" ? investment.institution : institution?.name ?? null;
   const data = {
@@ -372,7 +438,7 @@ function investmentOperation(pluggyItemDbId: string, investment: PluggyInvestmen
     providerCreatedAt: asDate(investment.createdAt),
     providerUpdatedAt: asDate(investment.updatedAt),
   };
-  return prisma.pluggyInvestment.upsert({
+  return tx.pluggyInvestment.upsert({
     where: { pluggyInvestmentId: investment.id },
     update: data,
     create: { pluggyInvestmentId: investment.id, ...data },
@@ -380,6 +446,7 @@ function investmentOperation(pluggyItemDbId: string, investment: PluggyInvestmen
 }
 
 function investmentTransactionOperation(
+  tx: Prisma.TransactionClient,
   pluggyInvestmentDbId: string,
   transaction: PluggyInvestmentTransactionResponse,
 ) {
@@ -398,7 +465,7 @@ function investmentTransactionOperation(
     tradeDate: asDate(transaction.tradeDate),
     expenses: nullableJson(transaction.expenses),
   };
-  return prisma.pluggyInvestmentTransaction.upsert({
+  return tx.pluggyInvestmentTransaction.upsert({
     where: { pluggyInvestmentTransactionId: transaction.id },
     update: data,
     create: { pluggyInvestmentTransactionId: transaction.id, ...data },
@@ -409,29 +476,37 @@ async function syncInvestments(
   credentials: PluggyCredentials,
   pluggyItemDbId: string,
   investments: PluggyInvestmentResponse[],
+  lease: UserOperationLeaseContext,
 ) {
   let transactionCount = 0;
   for (let index = 0; index < investments.length; index += INVESTMENT_SYNC_CONCURRENCY) {
     const batch = investments.slice(index, index + INVESTMENT_SYNC_CONCURRENCY);
     const results = await Promise.all(
       batch.map(async (investment) => {
-        const storedInvestment = await investmentOperation(pluggyItemDbId, investment);
-        const transactions = await getPluggyInvestmentTransactions(credentials, investment.id);
+        const storedInvestment = await lease.runFencedTransaction((tx) =>
+          investmentOperation(tx, pluggyItemDbId, investment),
+        );
+        const transactions = await getPluggyInvestmentTransactions(credentials, investment.id, lease.signal);
         return { storedInvestment, transactions };
       }),
     );
     for (const { storedInvestment, transactions } of results) {
       await writeInBatches(
-        transactions.map((transaction) => investmentTransactionOperation(storedInvestment.id, transaction)),
+        lease,
+        transactions.map((transaction) => (tx) =>
+          investmentTransactionOperation(tx, storedInvestment.id, transaction),
+        ),
       );
-      await prisma.pluggyInvestmentTransaction.deleteMany({
-        where: {
-          pluggyInvestmentDbId: storedInvestment.id,
-          ...(transactions.length
-            ? { pluggyInvestmentTransactionId: { notIn: transactions.map((transaction) => transaction.id) } }
-            : {}),
-        },
-      });
+      await lease.runFencedTransaction((tx) =>
+        tx.pluggyInvestmentTransaction.deleteMany({
+          where: {
+            pluggyInvestmentDbId: storedInvestment.id,
+            ...(transactions.length
+              ? { pluggyInvestmentTransactionId: { notIn: transactions.map((transaction) => transaction.id) } }
+              : {}),
+          },
+        }),
+      );
       transactionCount += transactions.length;
     }
   }
@@ -491,13 +566,13 @@ async function syncPluggyItemForUserUnlocked(
   const stored = await ensureOwnedItem(userId, pluggyItemId);
   try {
     const credentials = await requirePluggyCredentials(userId);
-    const remote = await getPluggyItem(credentials, pluggyItemId);
+    const remote = await getPluggyItem(credentials, pluggyItemId, lease.signal);
     if (remote.status === "DELETED") {
       throw new RemotePluggyItemDeletedError(pluggyItemId);
     }
     const [accounts, investments] = await Promise.all([
-      getPluggyAccounts(credentials, pluggyItemId),
-      getPluggyInvestments(credentials, pluggyItemId),
+      getPluggyAccounts(credentials, pluggyItemId, lease.signal),
+      getPluggyInvestments(credentials, pluggyItemId, lease.signal),
     ]);
     const remoteItemData = itemData(remote, userId);
     const connectorImageUrl = resolvePluggyInstitutionLogo(
@@ -511,32 +586,100 @@ async function syncPluggyItemForUserUnlocked(
       ...remoteItemData,
       connectorImageUrl,
     };
-    const financialMonthStart =
-      (await prisma.financeProfile.findUnique({
+    const [financialMonthStart, timeZone] = await Promise.all([
+      prisma.financeProfile.findUnique({
         where: { userId },
         select: { financialMonthStart: true },
-      }))?.financialMonthStart ?? 1;
+      }).then((profile) => profile?.financialMonthStart ?? 1),
+      prisma.userPreference.findUnique({
+        where: { userId },
+        select: { timeZone: true },
+      }).then((preference) => preference?.timeZone ?? "America/Sao_Paulo"),
+    ]);
+    const foreignAccountCurrencies = [...new Set(accounts
+      .map((account) => (account.currencyCode ?? "BRL").trim().toUpperCase())
+      .filter((currency) => currency !== "BRL"))];
+    const currentFxRates = foreignAccountCurrencies.length
+      ? await fetchYahooFxRates({ currencies: foreignAccountCurrencies, signal: lease.signal }).catch(() => [])
+      : [];
+    const currentFxByCurrency = new Map(currentFxRates.map((rate) => [rate.currency, rate]));
 
     let transactionCount = 0;
     const classification = emptyClassificationSummary();
     for (const [accountIndex, account] of accounts.entries()) {
-      const storedAccount = await upsertAccount(stored.id, account);
-      const financialAccount = await upsertFinancialAccount(userId, syncedItem, account, accountIndex);
-      const transactions = await getPluggyTransactions(credentials, account.id);
+      const { storedAccount, financialAccount } = await lease.runFencedTransaction(async (tx) => ({
+        storedAccount: await upsertAccount(tx, stored.id, account),
+        financialAccount: await upsertFinancialAccount(
+          tx,
+          userId,
+          syncedItem,
+          account,
+          accountIndex,
+          currentFxByCurrency.get((account.currencyCode ?? "BRL").trim().toUpperCase()),
+        ),
+      }));
+      const transactions = await getPluggyTransactions(credentials, account.id, lease.signal);
+      const accountCurrency = financialAccount.currencyCode.trim().toUpperCase();
+      const historicalFxByDate = accountCurrency === "BRL"
+        ? new Map<string, { rateDate: Date; rateToBrl: Prisma.Decimal }>()
+        : await ensureHistoricalFxRates(
+            accountCurrency,
+            transactions.flatMap((transaction) => {
+              const date = asDate(transaction.date);
+              return date ? [date] : [];
+            }),
+            lease.signal,
+          ).catch(() => new Map<string, { rateDate: Date; rateToBrl: Prisma.Decimal }>());
       transactionCount += transactions.length;
-      await writeInBatches(transactions.map((transaction) => transactionOperation(storedAccount.id, transaction)));
       await writeInBatches(
-        transactions.map((transaction) =>
+        lease,
+        transactions.map((transaction) => (tx) => transactionOperation(tx, storedAccount.id, transaction)),
+      );
+      await writeInBatches(
+        lease,
+        transactions.map((transaction) => (tx) =>
           financeTransactionOperation(
+            tx,
             userId,
             financialAccount.id,
             financialAccount.currencyCode,
             transaction,
             financialMonthStart,
+            timeZone,
+            historicalFxByDate.get((asDate(transaction.date) ?? new Date(0)).toISOString().slice(0, 10)),
           ),
         ),
       );
       const externalIds = transactions.map((transaction) => transaction.id);
+      const removedAt = new Date();
+      await lease.runFencedTransaction(async (tx) => {
+        await tx.pluggyTransaction.updateMany({
+          where: {
+            pluggyAccountDbId: storedAccount.id,
+            providerAvailable: true,
+            ...(externalIds.length
+              ? { pluggyTransactionId: { notIn: externalIds } }
+              : {}),
+          },
+          data: {
+            providerAvailable: false,
+            providerRemovedAt: removedAt,
+          },
+        });
+        await tx.financeTransaction.updateMany({
+          where: {
+            userId,
+            accountId: financialAccount.id,
+            source: "PLUGGY",
+            providerLifecycle: "ACTIVE",
+            ...(externalIds.length ? { externalId: { notIn: externalIds } } : {}),
+          },
+          data: {
+            providerLifecycle: "DELETION_PENDING",
+            providerDeletedAt: removedAt,
+          },
+        });
+      });
       for (let index = 0; index < externalIds.length; index += 1_000) {
         const storedTransactions = await prisma.financeTransaction.findMany({
           where: {
@@ -548,18 +691,21 @@ async function syncPluggyItemForUserUnlocked(
         });
         addClassificationSummary(
           classification,
-          await classifyFinanceTransactionsForUser(
-            userId,
-            storedTransactions.map((transaction) => transaction.id),
+          await lease.runFencedTransaction((tx) =>
+            classifyFinanceTransactionsForUser(
+              userId,
+              storedTransactions.map((transaction) => transaction.id),
+              tx,
+            ),
           ),
         );
       }
     }
 
-    const investmentTransactionCount = await syncInvestments(credentials, stored.id, investments);
-    await lease.assertOwned();
-    await prisma.$transaction([
-      prisma.financialAccount.updateMany({
+    const investmentTransactionCount = await syncInvestments(credentials, stored.id, investments, lease);
+    await lease.runFencedTransaction(async (tx) => {
+      await Promise.all([
+      tx.financialAccount.updateMany({
         where: {
           userId,
           source: "PLUGGY",
@@ -568,14 +714,14 @@ async function syncPluggyItemForUserUnlocked(
         },
         data: { active: false },
       }),
-      prisma.pluggyInvestment.updateMany({
+      tx.pluggyInvestment.updateMany({
         where: {
           pluggyItemDbId: stored.id,
           ...(investments.length ? { pluggyInvestmentId: { notIn: investments.map((investment) => investment.id) } } : {}),
         },
         data: { providerAvailable: false, providerRemovedAt: new Date() },
       }),
-      prisma.pluggyItem.update({
+      tx.pluggyItem.update({
         where: { id: stored.id },
         data: {
           ...remoteItemData,
@@ -584,10 +730,10 @@ async function syncPluggyItemForUserUnlocked(
           lastSyncAt: new Date(),
         },
       }),
-    ]);
+      ]);
+    });
 
-    await lease.assertOwned();
-    const diagram = await reconcilePluggyInvestmentsForUser(userId);
+    const diagram = await reconcilePluggyInvestmentsForUser(userId, lease);
 
     return {
       accountCount: accounts.length,
@@ -599,13 +745,13 @@ async function syncPluggyItemForUserUnlocked(
     };
   } catch (error) {
     if (error instanceof RemotePluggyItemDeletedError) throw error;
-    await prisma.pluggyItem.update({
-      where: { id: stored.id },
-      data: {
-        syncPending: true,
-        errorMessage: error instanceof Error ? error.message.slice(0, 2_000) : "Falha desconhecida na sincronização.",
-      },
-    });
+    await lease.runFencedTransaction((tx) => tx.pluggyItem.update({
+        where: { id: stored.id },
+        data: {
+          syncPending: true,
+          errorMessage: error instanceof Error ? error.message.slice(0, 2_000) : "Falha desconhecida na sincronização.",
+        },
+      })).catch(() => undefined);
     throw error;
   }
 }

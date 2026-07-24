@@ -5,9 +5,10 @@ import { compare } from "bcryptjs";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { checkLoginRateLimit, clearAuthRateLimit } from "@/lib/auth-security";
-import { requireSecureSecret } from "@/lib/security-config";
+import { requireSecureSecret, validateProductionSecurityConfig } from "@/lib/security-config";
 
 const DUMMY_PASSWORD_HASH = "$2b$12$C6UzMDM.H6dfI/f/IKcEe.4YHfnn8vR7eV/XvD7iI8LQ0lVXm6M6a";
+validateProductionSecurityConfig();
 const authSecret = requireSecureSecret("AUTH_SECRET");
 
 const credentialsSchema = z.object({

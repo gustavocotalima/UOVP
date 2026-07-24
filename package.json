@@ -20,7 +20,8 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "fx:backfill": "tsx scripts/backfill-historical-fx.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

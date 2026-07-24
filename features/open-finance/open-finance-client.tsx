@@ -3,7 +3,7 @@
 import Script from "next/script";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AlertCircle,
   ArrowDownLeft,
@@ -85,13 +85,13 @@ function money(value: string | number, currency = "BRL") {
   }
 }
 
-function date(value: string | null) {
+function date(value: string | null, timeZone: string) {
   if (!value) return "Ainda não sincronizado";
-  return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(value));
+  return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone }).format(new Date(value));
 }
 
-function shortDate(value: string) {
-  return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short" }).format(new Date(value));
+function shortDate(value: string, timeZone: string) {
+  return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeZone }).format(new Date(value));
 }
 
 function statusLabel(status: string, executionStatus: string | null) {
@@ -112,6 +112,17 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("connections");
   const [expandedInvestment, setExpandedInvestment] = useState<string | null>(null);
+  const [transactions, setTransactions] = useState(data.transactions);
+  const [transactionPage, setTransactionPage] = useState(1);
+  const [transactionTotal, setTransactionTotal] = useState(0);
+  const [transactionsLoading, setTransactionsLoading] = useState(false);
+  const [investmentTransactions, setInvestmentTransactions] = useState<
+    Record<string, OpenFinanceData["investments"][number]["transactions"]>
+  >({});
+  const [investmentTransactionPages, setInvestmentTransactionPages] = useState<
+    Record<string, { page: number; total: number }>
+  >({});
+  const [investmentTransactionsLoading, setInvestmentTransactionsLoading] = useState<string | null>(null);
   const [showSoldInvestments, setShowSoldInvestments] = useState(data.showSoldInvestments);
   const [scriptReady, setScriptReady] = useState(false);
   const [scriptFailed, setScriptFailed] = useState(false);
@@ -124,6 +135,86 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
   const pendingDisconnection = data.pendingDisconnections.find(
     (item) => !resolvedDisconnections.has(item.id),
   );
+  const transactionPageSize = 25;
+
+  useEffect(() => {
+    if (tab !== "transactions") return;
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) setTransactionsLoading(true);
+    });
+    fetch(`/api/open-finance/transactions?page=${transactionPage}&pageSize=${transactionPageSize}`)
+      .then(async (response) => {
+        const payload = await response.json() as {
+          error?: string;
+          total: number;
+          transactions: OpenFinanceData["transactions"];
+        };
+        if (!response.ok) throw new Error(payload.error || "Não foi possível carregar as transações.");
+        if (!cancelled) {
+          setTransactions(payload.transactions);
+          setTransactionTotal(payload.total);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setNotice({
+            type: "error",
+            text: error instanceof Error ? error.message : "Não foi possível carregar as transações.",
+          });
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setTransactionsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [tab, transactionPage]);
+
+  async function loadInvestmentTransactions(id: string, page: number) {
+    if (investmentTransactionsLoading === id) return;
+    setInvestmentTransactionsLoading(id);
+    try {
+      const response = await fetch(
+        `/api/open-finance/investments/${encodeURIComponent(id)}/transactions?page=${page}&pageSize=25`,
+      );
+      const payload = await response.json() as {
+        error?: string;
+        page: number;
+        total: number;
+        transactions: OpenFinanceData["investments"][number]["transactions"];
+      };
+      if (!response.ok) throw new Error(payload.error || "Não foi possível carregar as movimentações.");
+      setInvestmentTransactions((current) => ({
+        ...current,
+        [id]: page === 1
+          ? payload.transactions
+          : [...(current[id] ?? []), ...payload.transactions],
+      }));
+      setInvestmentTransactionPages((current) => ({
+        ...current,
+        [id]: { page: payload.page, total: payload.total },
+      }));
+    } catch (error) {
+      setNotice({
+        type: "error",
+        text: error instanceof Error ? error.message : "Não foi possível carregar as movimentações.",
+      });
+    } finally {
+      setInvestmentTransactionsLoading(null);
+    }
+  }
+
+  async function toggleInvestment(id: string) {
+    if (expandedInvestment === id) {
+      setExpandedInvestment(null);
+      return;
+    }
+    setExpandedInvestment(id);
+    if (investmentTransactions[id]) return;
+    await loadInvestmentTransactions(id, 1);
+  }
 
   async function requestJson(url: string, body: object) {
     const response = await fetch(url, {
@@ -218,8 +309,8 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
       setNotice({
         type: "success",
         text: resolution === "KEEP_MANUAL"
-          ? "As posições foram mantidas como manuais."
-          : "As posições desconectadas foram removidas do diagrama.",
+          ? "Contas, transações e posições foram mantidas como dados manuais."
+          : "Os dados desconectados foram excluídos dos relatórios e do diagrama.",
       });
       setResolvedDisconnections((current) => new Set(current).add(disconnected.id));
       router.refresh();
@@ -374,9 +465,9 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="space-y-1 text-xs text-[var(--muted-foreground)]">
-                    <p>Dados locais: {date(item.lastSyncAt)}</p>
-                    <p>Instituição: {date(item.providerUpdatedAt)}</p>
-                    {item.consentExpiresAt && <p>Consentimento até: {date(item.consentExpiresAt)}</p>}
+                    <p>Dados locais: {date(item.lastSyncAt, data.timeZone)}</p>
+                    <p>Instituição: {date(item.providerUpdatedAt, data.timeZone)}</p>
+                    {item.consentExpiresAt && <p>Consentimento até: {date(item.consentExpiresAt, data.timeZone)}</p>}
                   </div>
                   {item.errorMessage && <p className="rounded-xl bg-[var(--danger)]/10 p-3 text-xs text-[var(--danger)]">{item.errorMessage}</p>}
                   {!disconnected && (
@@ -421,7 +512,7 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
                   </div>
                   <div className="text-left sm:text-right">
                     <p className="font-semibold tabular-nums">{money(account.balance, account.currencyCode)}</p>
-                    <p className="text-xs text-[var(--muted-foreground)]">{date(account.updatedAt)}</p>
+                    <p className="text-xs text-[var(--muted-foreground)]">{date(account.updatedAt, data.timeZone)}</p>
                   </div>
                 </div>
               ))}
@@ -437,9 +528,9 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
           role="tabpanel"
           aria-labelledby="open-finance-tab-transactions"
         >
-          <DataCard title="Transações recentes" description="Até 200 lançamentos mais recentes, ainda sem alterar o orçamento.">
+          <DataCard title="Transações recentes" description={`${transactionTotal} lançamento(s), carregados em páginas de ${transactionPageSize}.`}>
             <div className="divide-y">
-              {data.transactions.map((transaction) => {
+              {transactions.map((transaction) => {
                 const incoming = Number(transaction.amount) >= 0;
                 return (
                   <div key={transaction.id} className="grid gap-3 py-4 first:pt-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
@@ -456,13 +547,21 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
                     </div>
                     <div className="pl-12 text-left sm:pl-0 sm:text-right">
                       <p className={cn("text-sm font-semibold tabular-nums", incoming ? "text-[var(--success)]" : "")}>{money(transaction.amount, transaction.currencyCode)}</p>
-                      <p className="text-xs text-[var(--muted-foreground)]">{date(transaction.date)}</p>
+                      <p className="text-xs text-[var(--muted-foreground)]">{date(transaction.date, data.timeZone)}</p>
                     </div>
                   </div>
                 );
               })}
-              {!data.transactions.length && <p className="py-8 text-center text-sm text-[var(--muted-foreground)]">Nenhuma transação sincronizada.</p>}
+              {transactionsLoading && <p className="py-8 text-center text-sm text-[var(--muted-foreground)]">Carregando transações…</p>}
+              {!transactionsLoading && !transactions.length && <p className="py-8 text-center text-sm text-[var(--muted-foreground)]">Nenhuma transação sincronizada.</p>}
             </div>
+            {transactionTotal > transactionPageSize && (
+              <div className="mt-4 flex items-center justify-end gap-2 border-t pt-4">
+                <Button variant="outline" size="sm" disabled={transactionsLoading || transactionPage === 1} onClick={() => setTransactionPage((page) => Math.max(1, page - 1))}>Anterior</Button>
+                <span className="text-xs text-[var(--muted-foreground)]">Página {transactionPage} de {Math.ceil(transactionTotal / transactionPageSize)}</span>
+                <Button variant="outline" size="sm" disabled={transactionsLoading || transactionPage >= Math.ceil(transactionTotal / transactionPageSize)} onClick={() => setTransactionPage((page) => page + 1)}>Próxima</Button>
+              </div>
+            )}
           </DataCard>
         </section>
       )}
@@ -483,7 +582,12 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
             showSold={showSoldInvestments}
             onToggleSold={() => void toggleSoldInvestments()}
             expandedId={expandedInvestment}
-            onToggle={(id) => setExpandedInvestment((current) => (current === id ? null : id))}
+            onToggle={(id) => void toggleInvestment(id)}
+            loadedTransactions={investmentTransactions}
+            transactionPages={investmentTransactionPages}
+            loadingInvestmentId={investmentTransactionsLoading}
+            onLoadMore={(id, page) => void loadInvestmentTransactions(id, page)}
+            timeZone={data.timeZone}
           />
         </section>
       )}
@@ -493,7 +597,7 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
         onOpenChange={() => undefined}
         dismissible={false}
         title="Conexão removida"
-        description="Escolha o que fazer com as posições que vieram desta instituição."
+        description="Escolha o que fazer com os dados que vieram desta instituição."
         className="max-w-xl"
         initialFocusRef={keepManualFocusRef}
         footer={
@@ -503,7 +607,7 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
               onClick={() => void resolveDisconnection("REMOVE")}
               disabled={busy !== null}
             >
-              {busy?.startsWith("disconnect:") ? "Salvando…" : "Remover do diagrama"}
+              {busy?.startsWith("disconnect:") ? "Salvando…" : "Remover dos relatórios"}
             </Button>
             <span ref={keepManualFocusRef} className="inline-flex">
               <Button
@@ -535,9 +639,10 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
               <div>
                 <p className="font-semibold">{pendingDisconnection.connectorName}</p>
                 <p className="mt-1 text-sm leading-6 text-[var(--muted-foreground)]">
-                  A conexão foi excluída. Suas {pendingDisconnection.investmentCount} posição(ões)
-                  já foram retiradas dos totais. Você pode preservar os últimos valores como posições
-                  manuais ou removê-las do diagrama.
+                  A conexão foi excluída. As {pendingDisconnection.accountCount} conta(s), suas
+                  transações e {pendingDisconnection.investmentCount} posição(ões) continuam nos
+                  totais enquanto você decide. Você pode preservar os últimos dados como manuais ou
+                  removê-los dos relatórios e do diagrama.
                 </p>
               </div>
             </div>
@@ -635,6 +740,11 @@ function InvestmentPortfolio({
   onToggleSold,
   expandedId,
   onToggle,
+  loadedTransactions,
+  transactionPages,
+  loadingInvestmentId,
+  onLoadMore,
+  timeZone,
 }: {
   investments: OpenFinanceData["investments"];
   total: number;
@@ -643,6 +753,11 @@ function InvestmentPortfolio({
   onToggleSold: () => void;
   expandedId: string | null;
   onToggle: (id: string) => void;
+  loadedTransactions: Record<string, OpenFinanceData["investments"][number]["transactions"]>;
+  transactionPages: Record<string, { page: number; total: number }>;
+  loadingInvestmentId: string | null;
+  onLoadMore: (id: string, page: number) => void;
+  timeZone: string;
 }) {
   const groups = [...investments.reduce((map, investment) => {
     const sold = investment.status === "TOTAL_WITHDRAWAL";
@@ -739,7 +854,21 @@ function InvestmentPortfolio({
                       {expanded ? <ChevronUp className="size-4 text-[var(--muted-foreground)]" /> : <ChevronDown className="size-4 text-[var(--muted-foreground)]" />}
                     </span>
                   </button>
-                  {expanded && <InvestmentDetails investment={investment} />}
+                  {expanded && (
+                    <InvestmentDetails
+                      investment={{
+                        ...investment,
+                        transactions: loadedTransactions[investment.id] ?? [],
+                      }}
+                      loading={loadingInvestmentId === investment.id}
+                      loadedTotal={transactionPages[investment.id]?.total ?? investment.transactionCount}
+                      timeZone={timeZone}
+                      onLoadMore={() => onLoadMore(
+                        investment.id,
+                        (transactionPages[investment.id]?.page ?? 0) + 1,
+                      )}
+                    />
+                  )}
                 </div>
               );
             })}
@@ -750,7 +879,19 @@ function InvestmentPortfolio({
   );
 }
 
-function InvestmentDetails({ investment }: { investment: Investment }) {
+function InvestmentDetails({
+  investment,
+  loading = false,
+  loadedTotal,
+  timeZone,
+  onLoadMore,
+}: {
+  investment: Investment;
+  loading?: boolean;
+  loadedTotal: number;
+  timeZone: string;
+  onLoadMore: () => void;
+}) {
   const details = [
     { label: "Saldo", value: money(investment.balance, investment.currencyCode) },
     { label: "Rentabilidade", value: rate(investment) },
@@ -775,13 +916,13 @@ function InvestmentDetails({ investment }: { investment: Investment }) {
     investment.insurerCnpj ? { label: "CNPJ da seguradora", value: investment.insurerCnpj } : null,
     investment.owner ? { label: "Titular", value: investment.owner } : null,
     investment.number ? { label: "Número", value: investment.number } : null,
-    investment.issueDate ? { label: "Emissão", value: shortDate(investment.issueDate) } : null,
-    investment.purchaseDate ? { label: "Compra", value: shortDate(investment.purchaseDate) } : null,
-    investment.gracePeriodDate ? { label: "Fim da carência", value: shortDate(investment.gracePeriodDate) } : null,
-    investment.dueDate ? { label: "Vencimento", value: shortDate(investment.dueDate) } : null,
-    investment.quotaDate ? { label: "Data da posição", value: shortDate(investment.quotaDate) } : null,
+    investment.issueDate ? { label: "Emissão", value: shortDate(investment.issueDate, timeZone) } : null,
+    investment.purchaseDate ? { label: "Compra", value: shortDate(investment.purchaseDate, timeZone) } : null,
+    investment.gracePeriodDate ? { label: "Fim da carência", value: shortDate(investment.gracePeriodDate, timeZone) } : null,
+    investment.dueDate ? { label: "Vencimento", value: shortDate(investment.dueDate, timeZone) } : null,
+    investment.quotaDate ? { label: "Data da posição", value: shortDate(investment.quotaDate, timeZone) } : null,
     status(investment.status) ? { label: "Status", value: status(investment.status)! } : null,
-    { label: "Atualizado pela instituição", value: date(investment.updatedAt) },
+    { label: "Atualizado pela instituição", value: date(investment.updatedAt, timeZone) },
   ].filter((item): item is { label: string; value: string } => item !== null);
 
   return (
@@ -799,9 +940,14 @@ function InvestmentDetails({ investment }: { investment: Investment }) {
 
       <div className="mt-6">
         <p className="mb-3 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
-          Movimentações ({investment.transactions.length})
+          Movimentações ({investment.transactionCount})
         </p>
         <div className="space-y-2">
+          {loading && (
+            <p className="rounded-xl border border-dashed p-4 text-center text-xs text-[var(--muted-foreground)]">
+              Carregando movimentações…
+            </p>
+          )}
           {investment.transactions.map((transaction) => (
             <div key={transaction.id} className="rounded-xl border bg-[var(--card)] px-4 py-3">
               <div className="flex items-start justify-between gap-4">
@@ -817,7 +963,7 @@ function InvestmentDetails({ investment }: { investment: Investment }) {
                   <div className="min-w-0">
                     <strong className="block text-xs">{transaction.type.replaceAll("_", " ")}</strong>
                     <p className="mt-0.5 text-[11px] text-[var(--muted-foreground)]">
-                      {shortDate(transaction.date)}
+                      {shortDate(transaction.date, timeZone)}
                       {transaction.quantity !== null ? ` · ${decimal(transaction.quantity)} un.` : ""}
                       {transaction.description ? ` · ${transaction.description}` : ""}
                     </p>
@@ -833,10 +979,19 @@ function InvestmentDetails({ investment }: { investment: Investment }) {
                   {transaction.amount !== null ? money(transaction.amount, investment.currencyCode) : "—"}
                 </strong>
               </div>
-              {transaction.expenses && <JsonDetails title="Despesas da movimentação" value={transaction.expenses} compact />}
+              {Boolean(transaction.expenses) && (
+                <JsonDetails title="Despesas da movimentação" value={transaction.expenses} compact />
+              )}
             </div>
           ))}
-          {!investment.transactions.length && (
+          {!loading && investment.transactions.length < loadedTotal && (
+            <div className="pt-2 text-center">
+              <Button type="button" variant="outline" size="sm" onClick={onLoadMore}>
+                Carregar mais movimentações
+              </Button>
+            </div>
+          )}
+          {!loading && !investment.transactions.length && (
             <p className="rounded-xl border border-dashed p-4 text-center text-xs text-[var(--muted-foreground)]">
               A instituição não informou movimentações para este ativo.
             </p>

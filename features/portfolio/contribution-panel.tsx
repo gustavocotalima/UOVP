@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { Calculator, CheckCircle2, Clock3, DollarSign } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -57,6 +57,7 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
   const [contributionModal, setContributionModal] = useState<ContributionModalState>();
   const [message, setMessage] = useState<string>();
   const [pending, startTransition] = useTransition();
+  const calculationRequestId = useRef(0);
   const chartData = useMemo(() => simulation ? INVESTMENT_CLASSES.map((investmentClass) => ({
     name: INVESTMENT_CLASS_META[investmentClass].label,
     color: INVESTMENT_CLASS_META[investmentClass].color,
@@ -78,6 +79,7 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
 
   useEffect(() => {
     const invalidate = () => {
+      calculationRequestId.current += 1;
       setSimulation((current) => {
         if (current) {
           setMessage("A carteira, as metas ou as notas mudaram. Calcule o aporte novamente.");
@@ -104,13 +106,16 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
   }
 
   function calculate() {
+    const requestId = ++calculationRequestId.current;
     setMessage(undefined);
     startTransition(async () => {
       try {
         const result = await simulateContributionAction(value);
+        if (calculationRequestId.current !== requestId) return;
         setSimulation(result);
         if (!result.suggestions.length) setMessage("Nenhum ativo elegível. Confira metas, notas e preços.");
       } catch (error) {
+        if (calculationRequestId.current !== requestId) return;
         setMessage(error instanceof Error ? error.message : "Não foi possível calcular.");
       }
     });

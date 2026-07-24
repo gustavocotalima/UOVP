@@ -3,33 +3,31 @@ import { FinanceDashboardClient } from "@/features/finance/dashboard-client";
 import { getFinanceData } from "@/features/finance/data";
 import { MonthNavigator } from "@/features/finance/shared";
 import { requireUserId } from "@/lib/current-user";
+import { currentCalendarPeriod, greetingForTimeZone } from "@/lib/calendar";
+import { getUserTimeZone } from "@/lib/user-timezone";
 
 export const metadata = { title: "Painel" };
 
-function period(search: { year?: string; month?: string }) {
-  const now = new Date();
+function period(search: { year?: string; month?: string }, current: { year: number; month: number }) {
   return {
-    year: Number(search.year) || now.getFullYear(),
-    month: Math.min(12, Math.max(1, Number(search.month) || now.getMonth() + 1)),
+    year: Number(search.year) || current.year,
+    month: Math.min(12, Math.max(1, Number(search.month) || current.month)),
   };
 }
 
-function greeting() {
-  const hour = new Date().getHours();
-  if (hour < 5) return "Boa madrugada";
-  if (hour < 12) return "Bom dia";
-  if (hour < 18) return "Boa tarde";
-  return "Boa noite";
-}
-
 export default async function HomePage({ searchParams }: { searchParams: Promise<{ year?: string; month?: string }> }) {
-  const selected = period(await searchParams);
-  const data = await getFinanceData(await requireUserId(), selected.year, selected.month);
+  const userId = await requireUserId();
+  const timeZone = await getUserTimeZone(userId);
+  const selected = period(await searchParams, currentCalendarPeriod(timeZone));
+  const data = await getFinanceData(userId, selected.year, selected.month, {
+    transactionScope: "MONTH",
+    includeHistory: true,
+  });
   return (
     <div className="space-y-7">
       <PageHeader
         eyebrow="Painel"
-        title={`${greeting()}, ${data.user.name || "Investidor"}!`}
+        title={`${greetingForTimeZone(timeZone)}, ${data.user.name || "Investidor"}!`}
         description="Acompanhe sua vida financeira de forma simples e organizada."
         actions={<MonthNavigator year={selected.year} month={selected.month} />}
       />

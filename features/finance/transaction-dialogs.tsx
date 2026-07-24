@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { format } from "date-fns";
 import { ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
@@ -10,9 +9,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { BUDGET_CATEGORIES, BUDGET_CATEGORY_META, type BudgetCategoryKey } from "@/features/budget/constants";
+import { calendarParts } from "@/lib/calendar";
 import { formatCurrency } from "@/lib/money";
 import { cn } from "@/lib/utils";
-import { createFinanceTransactionAction, updateFinanceTransactionAction } from "./actions";
+import {
+  createFinanceTransactionAction,
+  saveFinanceTransactionManualFxAction,
+  updateFinanceTransactionAction,
+} from "./actions";
 import { FinanceNotice, runFinanceAction } from "./shared";
 import type { FinanceTagDto, FinanceTransactionDto, FinancialAccountDto } from "./types";
 
@@ -75,8 +79,10 @@ type TransactionEditorDialogProps = {
   transaction: FinanceTransactionDto | null;
   accounts: FinancialAccountDto[];
   tags: FinanceTagDto[];
+  timeZone?: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onSaved?: () => void;
 };
 
 export function TransactionEditorDialog(props: TransactionEditorDialogProps) {
@@ -95,8 +101,10 @@ function TransactionEditorDialogContent({
   transaction,
   accounts,
   tags,
+  timeZone = "America/Sao_Paulo",
   open,
   onOpenChange,
+  onSaved,
 }: Omit<TransactionEditorDialogProps, "transaction"> & {
   transaction: FinanceTransactionDto;
 }) {
@@ -114,6 +122,9 @@ function TransactionEditorDialogContent({
   );
   const [tagIds, setTagIds] = useState<string[]>(transaction.tags.map((tag) => tag.id));
   const [note, setNote] = useState(transaction.note ?? "");
+  const [manualFxRate, setManualFxRate] = useState(
+    transaction.fxSource === "MANUAL" ? transaction.fxRateToBrl ?? "" : "",
+  );
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
@@ -149,6 +160,20 @@ function TransactionEditorDialogContent({
       "Transação atualizada.",
     );
     if (ok) {
+      if (manualFxRate) {
+        const fxOk = await runFinanceAction(
+          () => saveFinanceTransactionManualFxAction({
+            id: transaction.id,
+            rateToBrl: Number(manualFxRate),
+            rateDate: date,
+          }),
+          setPending,
+          setNotice,
+          "Taxa de câmbio salva.",
+        );
+        if (!fxOk) return;
+      }
+      onSaved?.();
       router.refresh();
       onOpenChange(false);
     }
@@ -160,7 +185,7 @@ function TransactionEditorDialogContent({
       onOpenChange={onOpenChange}
       dismissible={!pending}
       title={formatCurrency(transaction.amount, transaction.currencyCode)}
-      description={new Intl.DateTimeFormat("pt-BR", { dateStyle: "long" }).format(new Date(transaction.date))}
+      description={new Intl.DateTimeFormat("pt-BR", { dateStyle: "long", timeZone }).format(new Date(transaction.date))}
       footer={<Button onClick={save} disabled={pending}>{pending ? "Salvando…" : "Salvar alterações"}</Button>}
     >
       <div className="space-y-5">
@@ -174,6 +199,18 @@ function TransactionEditorDialogContent({
               <ProviderDetail
                 label="Valor na moeda da conta"
                 value={formatCurrency(transaction.amount, transaction.currencyCode)}
+              />
+              <ProviderDetail
+                label="Valor reportável em BRL"
+                value={transaction.reportingAmountBrl === null
+                  ? "Conversão pendente"
+                  : formatCurrency(transaction.reportingAmountBrl, "BRL")}
+              />
+              <ProviderDetail
+                label="Câmbio"
+                value={transaction.fxRateToBrl
+                  ? `${transaction.fxRateToBrl} · ${transaction.fxSource ?? "—"}`
+                  : null}
               />
               {hasOriginalCurrency && (
                 <ProviderDetail
@@ -223,6 +260,22 @@ function TransactionEditorDialogContent({
           <Label>Meta<Select className="mt-2 w-full" value={category} onChange={(event) => setCategory(event.target.value as BudgetCategoryKey | "")}><option value="">Sem meta</option>{BUDGET_CATEGORIES.map((item) => <option key={item} value={item}>{BUDGET_CATEGORY_META[item].label}</option>)}</Select></Label>
           <Label>Mês de referência<Input className="mt-2" type="month" value={reference} onChange={(event) => setReference(event.target.value)} /></Label>
         </div>
+        {transaction.currencyCode !== "BRL" && (
+          <Label>
+            Taxa manual para BRL
+            <Input
+              className="mt-2"
+              type="number"
+              min="0.00000001"
+              step="0.00000001"
+              value={manualFxRate}
+              onChange={(event) => setManualFxRate(event.target.value)}
+              placeholder={transaction.reportingAmountBrl === null
+                ? "Obrigatória enquanto não houver cotação histórica"
+                : "Preencha somente para substituir o câmbio automático"}
+            />
+          </Label>
+        )}
         <div><Label>Tags</Label><div className="mt-2"><TagPicker tags={tags} selected={tagIds} onChange={setTagIds} /></div></div>
         <Label>Observação<textarea className="mt-2 min-h-24 w-full rounded-xl border bg-transparent p-3 text-sm" maxLength={2000} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Digite uma observação" /></Label>
       </div>
@@ -253,8 +306,10 @@ type NewTransactionDialogProps = {
   tags: FinanceTagDto[];
   year: number;
   month: number;
+  timeZone: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onSaved?: () => void;
 };
 
 export function NewTransactionDialog(props: NewTransactionDialogProps) {
@@ -268,15 +323,20 @@ function NewTransactionDialogContent({
   tags,
   year,
   month,
+  timeZone,
   open,
   onOpenChange,
+  onSaved,
 }: NewTransactionDialogProps) {
   const router = useRouter();
   const [kind, setKind] = useState<"INCOME" | "EXPENSE">("EXPENSE");
   const [description, setDescription] = useState("");
   const [accountId, setAccountId] = useState(accounts[0]?.id ?? "");
   const [amount, setAmount] = useState("");
-  const [date, setDate] = useState(format(new Date(), "yyyy-MM-dd"));
+  const [date, setDate] = useState(() => {
+    const today = calendarParts(new Date(), timeZone);
+    return `${today.year}-${String(today.month).padStart(2, "0")}-${String(today.day).padStart(2, "0")}`;
+  });
   const [reference, setReference] = useState(monthValue(year, month));
   const [category, setCategory] = useState<BudgetCategoryKey | "">("");
   const [tagIds, setTagIds] = useState<string[]>([]);
@@ -310,6 +370,7 @@ function NewTransactionDialogContent({
       setAmount("");
       setNote("");
       setTagIds([]);
+      onSaved?.();
       router.refresh();
       onOpenChange(false);
     }

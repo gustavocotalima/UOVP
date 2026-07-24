@@ -1,5 +1,4 @@
-import { addMonths, format, startOfMonth } from "date-fns";
-import { ptBR } from "date-fns/locale";
+import { calendarParts, financialReferenceForTimeZone } from "@/lib/calendar";
 import { BUDGET_CATEGORIES, BUDGET_CATEGORY_META, type BudgetCategoryKey } from "@/features/budget/constants";
 import type {
   FinanceGoalRecord,
@@ -9,7 +8,14 @@ import type {
 } from "./types";
 
 export function isReportable(transaction: FinanceTransactionDto) {
-  return !transaction.ignored && !transaction.internalTransfer;
+  return !transaction.ignored
+    && !transaction.internalTransfer
+    && transaction.providerLifecycle !== "REMOVED";
+}
+
+export function reportingValue(transaction: FinanceTransactionDto) {
+  if (!isReportable(transaction) || transaction.reportingAmountBrl === null) return null;
+  return Number(transaction.reportingAmountBrl);
 }
 
 export function needsFinanceClassification(
@@ -24,32 +30,51 @@ export function needsFinanceClassification(
     && !transaction.ignored;
 }
 
-export function resolveFinancialReference(date: Date, startDay: number) {
-  const normalizedStart = Math.max(1, Math.min(28, Math.trunc(startDay)));
-  const reference = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
-  if (date.getUTCDate() < normalizedStart) reference.setUTCMonth(reference.getUTCMonth() - 1);
-  return { year: reference.getUTCFullYear(), month: reference.getUTCMonth() + 1 };
+export function resolveFinancialReference(
+  date: Date,
+  startDay: number,
+  timeZone = "America/Sao_Paulo",
+) {
+  return financialReferenceForTimeZone(date, startDay, timeZone);
 }
 
 export function calculatePeriod(transactions: FinanceTransactionDto[]) {
   const reportable = transactions.filter(isReportable);
-  const income = reportable
-    .filter((transaction) => Number(transaction.amount) > 0)
-    .reduce((total, transaction) => total + Number(transaction.amount), 0);
+  const grossIncome = reportable
+    .map(reportingValue)
+    .filter((value): value is number => value !== null && value > 0)
+    .reduce((total, value) => total + value, 0);
+  const budgetBaseIncome = reportable
+    .filter((transaction) => transaction.budgetCategory === null)
+    .map(reportingValue)
+    .filter((value): value is number => value !== null && value > 0)
+    .reduce((total, value) => total + value, 0);
   const spent = reportable
-    .filter((transaction) => Number(transaction.amount) < 0)
-    .reduce((total, transaction) => total + Math.abs(Number(transaction.amount)), 0);
-  return { income, spent, balance: income - spent };
+    .map(reportingValue)
+    .filter((value): value is number => value !== null && value < 0)
+    .reduce((total, value) => total + Math.abs(value), 0);
+  const missingFxCount = reportable.filter(
+    (transaction) => transaction.reportingAmountBrl === null,
+  ).length;
+  return {
+    income: grossIncome,
+    grossIncome,
+    budgetBaseIncome,
+    spent,
+    balance: grossIncome - spent,
+    missingFxCount,
+  };
 }
 
 export function calculateAccountTotals(accounts: FinancialAccountDto[]) {
   const bankBalance = accounts
     .filter((account) => account.type === "BANK_ACCOUNT")
-    .reduce((total, account) => total + Number(account.balance), 0);
+    .reduce((total, account) => total + Number(account.balanceBrl ?? 0), 0);
   const cardDebt = accounts
     .filter((account) => account.type === "CREDIT_CARD")
-    .reduce((total, account) => total + Math.abs(Number(account.balance)), 0);
-  return { bankBalance, cardDebt, result: bankBalance - cardDebt };
+    .reduce((total, account) => total + Math.abs(Number(account.balanceBrl ?? 0)), 0);
+  const missingFxCount = accounts.filter((account) => account.balanceBrl === null).length;
+  return { bankBalance, cardDebt, result: bankBalance - cardDebt, missingFxCount };
 }
 
 export function calculateBudgetCategories(
@@ -62,11 +87,13 @@ export function calculateBudgetCategories(
       (transaction) => transaction.budgetCategory === category && isReportable(transaction),
     );
     const expenses = categoryTransactions
-      .filter((transaction) => Number(transaction.amount) < 0)
-      .reduce((total, transaction) => total + Math.abs(Number(transaction.amount)), 0);
+      .map(reportingValue)
+      .filter((value): value is number => value !== null && value < 0)
+      .reduce((total, value) => total + Math.abs(value), 0);
     const incomeOffsets = categoryTransactions
-      .filter((transaction) => Number(transaction.amount) > 0)
-      .reduce((total, transaction) => total + Number(transaction.amount), 0);
+      .map(reportingValue)
+      .filter((value): value is number => value !== null && value > 0)
+      .reduce((total, value) => total + value, 0);
     const spent = expenses - incomeOffsets;
     const target = income * (goals[category] / 100);
     return {
@@ -88,7 +115,7 @@ export function calculateBudgetCategories(
 
 export function calculateTagTotals(transactions: FinanceTransactionDto[], tags: FinanceTagDto[]) {
   const reportableExpenses = transactions.filter(
-    (transaction) => isReportable(transaction) && Number(transaction.amount) < 0,
+    (transaction) => (reportingValue(transaction) ?? 0) < 0,
   );
   const totals = tags
     .map((tag) => ({
@@ -97,12 +124,12 @@ export function calculateTagTotals(transactions: FinanceTransactionDto[], tags: 
       color: tag.color,
       value: reportableExpenses
         .filter((transaction) => transaction.tags.some((item) => item.id === tag.id))
-        .reduce((total, transaction) => total + Math.abs(Number(transaction.amount)), 0),
+        .reduce((total, transaction) => total + Math.abs(reportingValue(transaction) ?? 0), 0),
     }))
     .filter((item) => item.value > 0);
   const untagged = reportableExpenses
     .filter((transaction) => !transaction.tags.length)
-    .reduce((total, transaction) => total + Math.abs(Number(transaction.amount)), 0);
+    .reduce((total, transaction) => total + Math.abs(reportingValue(transaction) ?? 0), 0);
   if (untagged > 0) totals.unshift({ id: "untagged", name: "Sem Tags", color: "#64748b", value: untagged });
   return totals.sort((left, right) => right.value - left.value);
 }
@@ -113,10 +140,11 @@ export function calculateHistory(
   endMonth: number,
   months = 6,
 ) {
-  const end = new Date(endYear, endMonth - 1, 1);
-  return Array.from({ length: months }, (_, index) => addMonths(end, index - months + 1)).map((date) => {
-    const year = date.getFullYear();
-    const month = date.getMonth() + 1;
+  const endIndex = endYear * 12 + endMonth - 1;
+  return Array.from({ length: months }, (_, index) => {
+    const monthIndex = endIndex + index - months + 1;
+    const year = Math.floor(monthIndex / 12);
+    const month = (monthIndex % 12) + 1;
     const period = calculatePeriod(
       transactions.filter(
         (transaction) => transaction.referenceYear === year && transaction.referenceMonth === month,
@@ -124,7 +152,9 @@ export function calculateHistory(
     );
     return {
       key: `${year}-${String(month).padStart(2, "0")}`,
-      month: format(date, "MMM", { locale: ptBR }).replace(".", ""),
+      month: new Intl.DateTimeFormat("pt-BR", { month: "short", timeZone: "UTC" })
+        .format(new Date(Date.UTC(year, month - 1, 1)))
+        .replace(".", ""),
       income: period.income,
       spent: period.spent,
       balance: period.balance,
@@ -132,20 +162,11 @@ export function calculateHistory(
   });
 }
 
-export type InvoiceGroup = {
-  key: string;
-  year: number;
-  month: number;
-  dueDate: string;
-  open: boolean;
-  total: number;
-  transactions: FinanceTransactionDto[];
-};
-
 export function calculateInvoices(
   account: FinancialAccountDto,
   transactions: FinanceTransactionDto[],
   now = new Date(),
+  timeZone = "America/Sao_Paulo",
 ) {
   const cardTransactions = transactions.filter(
     (transaction) => transaction.accountId === account.id && transaction.accountType === "CREDIT_CARD",
@@ -153,25 +174,31 @@ export function calculateInvoices(
   const groups = new Map<string, FinanceTransactionDto[]>();
   for (const transaction of cardTransactions) {
     const purchaseDate = new Date(transaction.date);
+    const purchase = calendarParts(purchaseDate, timeZone);
     const dueDay = account.dueDay ?? 10;
     const inferredClosing = dueDay > 7 ? dueDay - 7 : Math.min(28, dueDay + 23);
     const closingDay = account.closingDay ?? inferredClosing;
     const closesBeforeDue = closingDay < dueDay;
     const monthOffset = closesBeforeDue
-      ? purchaseDate.getUTCDate() <= closingDay ? 0 : 1
-      : purchaseDate.getUTCDate() <= closingDay ? 1 : 2;
-    const invoiceDate = addMonths(startOfMonth(purchaseDate), monthOffset);
-    const key = `${invoiceDate.getFullYear()}-${String(invoiceDate.getMonth() + 1).padStart(2, "0")}`;
+      ? purchase.day <= closingDay ? 0 : 1
+      : purchase.day <= closingDay ? 1 : 2;
+    const invoiceMonthIndex = purchase.year * 12 + purchase.month - 1 + monthOffset;
+    const invoiceYear = Math.floor(invoiceMonthIndex / 12);
+    const invoiceMonth = (invoiceMonthIndex % 12) + 1;
+    const key = `${invoiceYear}-${String(invoiceMonth).padStart(2, "0")}`;
     groups.set(key, [...(groups.get(key) ?? []), transaction]);
   }
-  const openInvoiceDate = addMonths(startOfMonth(now), 1);
-  const openKey = `${openInvoiceDate.getFullYear()}-${String(openInvoiceDate.getMonth() + 1).padStart(2, "0")}`;
+  const current = calendarParts(now, timeZone);
+  const openMonthIndex = current.year * 12 + current.month;
+  const openYear = Math.floor(openMonthIndex / 12);
+  const openMonth = (openMonthIndex % 12) + 1;
+  const openKey = `${openYear}-${String(openMonth).padStart(2, "0")}`;
   if (!groups.has(openKey)) groups.set(openKey, []);
   return [...groups.entries()]
     .map(([key, items]) => {
       const [year, month] = key.split("-").map(Number);
-      const dueDay = Math.min(account.dueDay ?? 10, new Date(year, month, 0).getDate());
-      const dueDate = new Date(year, month - 1, dueDay);
+      const dueDay = Math.min(account.dueDay ?? 10, new Date(Date.UTC(year, month, 0)).getUTCDate());
+      const dueDate = new Date(Date.UTC(year, month - 1, dueDay, 12));
       return {
         key,
         year,
@@ -179,8 +206,8 @@ export function calculateInvoices(
         dueDate: dueDate.toISOString(),
         open: key === openKey,
         total: items
-          .filter((transaction) => Number(transaction.amount) < 0)
-          .reduce((total, transaction) => total + Math.abs(Number(transaction.amount)), 0),
+          .filter((transaction) => (reportingValue(transaction) ?? 0) < 0)
+          .reduce((total, transaction) => total + Math.abs(reportingValue(transaction) ?? 0), 0),
         transactions: items.sort((left, right) => right.date.localeCompare(left.date)),
       };
     })

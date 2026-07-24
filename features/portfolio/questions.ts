@@ -19,6 +19,17 @@ export const DEFAULT_QUESTIONS = [
   { type: "REAL_ESTATE", criterion: "Vacancia", text: "A vacância dos imóveis está abaixo de 5%" },
 ] as const;
 
+export function defaultQuestionTemplateKey(
+  question: (typeof DEFAULT_QUESTIONS)[number],
+) {
+  return `${question.type}:${question.criterion}`
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^A-Za-z0-9]+/g, "_")
+    .replace(/^_|_$/g, "")
+    .toUpperCase();
+}
+
 export function calculateDiagramScore(answers: boolean[]) {
   return answers.reduce((score, answer) => score + (answer ? 1 : -1), 0);
 }

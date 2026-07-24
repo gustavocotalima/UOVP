@@ -14,8 +14,8 @@ import type { FinanceData, FinanceTransactionDto } from "./types";
 export function BudgetOverviewClient({ data }: { data: FinanceData }) {
   const period = useMemo(() => calculatePeriod(data.transactions), [data.transactions]);
   const categories = useMemo(
-    () => calculateBudgetCategories(data.transactions, data.goals, period.income),
-    [data.transactions, data.goals, period.income],
+    () => calculateBudgetCategories(data.transactions, data.goals, period.budgetBaseIncome),
+    [data.transactions, data.goals, period.budgetBaseIncome],
   );
   const [selectedCategoryKey, setSelectedCategoryKey] = useState<
     (typeof categories)[number]["category"] | null
@@ -26,9 +26,15 @@ export function BudgetOverviewClient({ data }: { data: FinanceData }) {
 
   return (
     <div className="space-y-6">
-      <section className="grid gap-4 md:grid-cols-3">
-        <SummaryCard icon={TrendingUp} label="Sua Renda" value={period.income} detail="Soma dos recebimentos deste mês" />
-        <SummaryCard icon={TrendingDown} label="Gastos do Mês" value={period.spent} detail={`${formatPercent(period.income > 0 ? period.spent / period.income * 100 : 0)} da renda utilizada`} danger />
+      {period.missingFxCount > 0 && (
+        <div className="rounded-xl border border-[var(--primary)]/35 bg-[var(--primary)]/8 p-4 text-sm">
+          {period.missingFxCount} transação(ões) aguardam conversão para BRL e não entram nos totais.
+        </div>
+      )}
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <SummaryCard icon={TrendingUp} label="Entradas" value={period.grossIncome} detail="Todas as entradas reportáveis do mês" />
+        <SummaryCard icon={TrendingUp} label="Renda considerada nas metas" value={period.budgetBaseIncome} detail="Entradas sem meta atribuída" />
+        <SummaryCard icon={TrendingDown} label="Gastos do Mês" value={period.spent} detail={`${formatPercent(period.budgetBaseIncome > 0 ? period.spent / period.budgetBaseIncome * 100 : 0)} da renda-base utilizada`} danger />
         <SummaryCard icon={WalletCards} label="Saldo Restante" value={period.balance} detail="Valor livre para uso" danger={period.balance < 0} />
       </section>
 
@@ -91,7 +97,7 @@ export function BudgetOverviewClient({ data }: { data: FinanceData }) {
                 <div key={transaction.id} className="flex items-center gap-3 py-4">
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">{transaction.description}</p>
-                    <p className="mt-1 text-xs text-[var(--muted-foreground)]">{new Intl.DateTimeFormat("pt-BR").format(new Date(transaction.date))}</p>
+                    <p className="mt-1 text-xs text-[var(--muted-foreground)]">{new Intl.DateTimeFormat("pt-BR", { timeZone: data.profile.timeZone }).format(new Date(transaction.date))}</p>
                   </div>
                   <p className={cn("text-sm font-semibold", Number(transaction.amount) > 0 && "text-[var(--success)]")}>{formatCurrency(transaction.amount, transaction.currencyCode)}</p>
                   <Button variant="ghost" size="icon" aria-label="Editar transação" onClick={() => setEditing(transaction)}><Pencil className="size-4" /></Button>
@@ -103,7 +109,7 @@ export function BudgetOverviewClient({ data }: { data: FinanceData }) {
         )}
       </Dialog>
 
-      <TransactionEditorDialog transaction={editing} accounts={data.accounts} tags={data.tags} open={Boolean(editing)} onOpenChange={(open) => !open && setEditing(null)} />
+      <TransactionEditorDialog transaction={editing} accounts={data.accounts} tags={data.tags} timeZone={data.profile.timeZone} open={Boolean(editing)} onOpenChange={(open) => !open && setEditing(null)} />
     </div>
   );
 }

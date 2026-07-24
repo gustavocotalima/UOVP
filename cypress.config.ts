@@ -1,5 +1,6 @@
 import { defineConfig } from "cypress";
 import { PrismaClient } from "@prisma/client";
+import { createHash, randomBytes } from "node:crypto";
 
 export default defineConfig({
   e2e: {
@@ -11,6 +12,28 @@ export default defineConfig({
     video: false,
     setupNodeEvents(on) {
       on("task", {
+        async createRegistrationInvite({ email }: { email: string }) {
+          const prisma = new PrismaClient();
+          try {
+            const admin = await prisma.user.upsert({
+              where: { email: "cypress-invite-admin@example.com" },
+              update: {},
+              create: { email: "cypress-invite-admin@example.com", name: "Admin Cypress" },
+            });
+            const token = randomBytes(32).toString("base64url");
+            await prisma.registrationInvite.create({
+              data: {
+                email: email.trim().toLowerCase(),
+                tokenHash: createHash("sha256").update(token).digest("base64url"),
+                expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60_000),
+                createdByUserId: admin.id,
+              },
+            });
+            return token;
+          } finally {
+            await prisma.$disconnect();
+          }
+        },
         async seedFinanceClassification({ email }: { email: string }) {
           const prisma = new PrismaClient();
           try {

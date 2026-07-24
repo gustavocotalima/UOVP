@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { markPluggyItemDisconnected } from "@/features/open-finance/disconnection";
 import {
   requirePluggyWebhookSecret,
@@ -10,6 +11,7 @@ import {
   assertUserOperationRateLimit,
   OperationRateLimitError,
 } from "@/lib/operation-security";
+import { clientIpFromHeaders, consumeAuthRateLimit } from "@/lib/auth-security";
 import { prisma } from "@/lib/prisma";
 import { secretsMatch } from "@/lib/request-security";
 
@@ -117,95 +119,124 @@ async function readLimitedJson(request: Request) {
   }
 }
 
-async function cleanupWebhookEvents(userId: string, now: Date) {
-  await prisma.pluggyWebhookEvent.deleteMany({
-    where: {
-      userId,
-      OR: [
-        {
-          event: { not: "item/deleted" },
-          processedAt: { lt: new Date(now.getTime() - PROCESSED_EVENT_RETENTION_MS) },
-        },
-        {
-          processedAt: null,
-          createdAt: { lt: new Date(now.getTime() - FAILED_EVENT_RETENTION_MS) },
-        },
-      ],
-    },
-  });
-}
-
 async function claimEvent(userId: string, payload: z.infer<typeof webhookSchema>) {
-  const now = new Date();
-  await cleanupWebhookEvents(userId, now);
-
-  const existing = await prisma.pluggyWebhookEvent.findUnique({
-    where: { userId_eventId: { userId, eventId: payload.eventId } },
-  });
-  if (existing?.processedAt || (existing?.attempts ?? 0) >= MAX_EVENT_ATTEMPTS) return null;
-
-  if (!existing) {
-    const [pending, retained] = await Promise.all([
-      prisma.pluggyWebhookEvent.count({ where: { userId, processedAt: null } }),
-      prisma.pluggyWebhookEvent.count({ where: { userId } }),
-    ]);
-    if (
-      pending >= MAX_PENDING_PLUGGY_WEBHOOK_EVENTS
-      || retained >= MAX_RETAINED_PLUGGY_WEBHOOK_EVENTS
-    ) {
-      throw new WebhookQuotaError(60 * 60);
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const now = new Date();
+    try {
+      return await prisma.$transaction(async (tx) => {
+        await tx.pluggyWebhookEvent.deleteMany({
+          where: {
+            userId,
+            OR: [
+              { processedAt: { lt: new Date(now.getTime() - PROCESSED_EVENT_RETENTION_MS) } },
+              {
+                processedAt: null,
+                createdAt: { lt: new Date(now.getTime() - FAILED_EVENT_RETENTION_MS) },
+              },
+            ],
+          },
+        });
+        const existing = await tx.pluggyWebhookEvent.findUnique({
+          where: { userId_eventId: { userId, eventId: payload.eventId } },
+        });
+        if (existing?.processedAt || (existing?.attempts ?? 0) >= MAX_EVENT_ATTEMPTS) return null;
+        if (!existing) {
+          const [pending, retained] = await Promise.all([
+            tx.pluggyWebhookEvent.count({ where: { userId, processedAt: null } }),
+            tx.pluggyWebhookEvent.count({ where: { userId } }),
+          ]);
+          if (
+            pending >= MAX_PENDING_PLUGGY_WEBHOOK_EVENTS
+            || retained >= MAX_RETAINED_PLUGGY_WEBHOOK_EVENTS
+          ) {
+            throw new WebhookQuotaError(60 * 60);
+          }
+          return tx.pluggyWebhookEvent.create({
+            data: {
+              userId,
+              eventId: payload.eventId,
+              event: payload.event,
+              itemId: payload.itemId ?? null,
+              processingStartedAt: now,
+              attempts: 1,
+            },
+          });
+        }
+        const staleBefore = new Date(now.getTime() - 5 * 60_000);
+        const claimed = await tx.pluggyWebhookEvent.updateMany({
+          where: {
+            id: existing.id,
+            processedAt: null,
+            attempts: { lt: MAX_EVENT_ATTEMPTS },
+            OR: [
+              { processingStartedAt: null },
+              { processingStartedAt: { lt: staleBefore } },
+            ],
+          },
+          data: {
+            processingStartedAt: now,
+            attempts: { increment: 1 },
+            lastError: null,
+          },
+        });
+        return claimed.count
+          ? tx.pluggyWebhookEvent.findUniqueOrThrow({ where: { id: existing.id } })
+          : null;
+      }, { isolationLevel: "Serializable" });
+    } catch (error) {
+      const retryable = error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034";
+      if (!retryable || attempt === 2) throw error;
     }
   }
+  return null;
+}
 
-  const created = await prisma.pluggyWebhookEvent.createMany({
-    data: [
-      {
-        userId,
-        eventId: payload.eventId,
-        event: payload.event,
-        itemId: payload.itemId ?? null,
-        processingStartedAt: now,
-        attempts: 1,
-      },
-    ],
-    skipDuplicates: true,
-  });
-  if (created.count) {
-    return prisma.pluggyWebhookEvent.findUniqueOrThrow({
-      where: { userId_eventId: { userId, eventId: payload.eventId } },
-    });
+async function assertWebhookPreAuthRateLimit(request: Request) {
+  const secretFingerprint = request.headers.get("x-pluggy-webhook-secret")?.slice(0, 1_024) || "missing";
+  const ip = clientIpFromHeaders(request.headers);
+  const results = await Promise.all([
+    consumeAuthRateLimit({
+      scope: "pluggy-webhook-preauth-global",
+      identifier: "application",
+      limit: 3_000,
+      windowMs: 5 * 60_000,
+      blockMs: 5 * 60_000,
+    }),
+    consumeAuthRateLimit({
+      scope: "pluggy-webhook-preauth-secret",
+      identifier: secretFingerprint,
+      limit: 600,
+      windowMs: 5 * 60_000,
+      blockMs: 5 * 60_000,
+    }),
+    ip
+      ? consumeAuthRateLimit({
+          scope: "pluggy-webhook-preauth-ip",
+          identifier: ip,
+          limit: 1_000,
+          windowMs: 5 * 60_000,
+          blockMs: 5 * 60_000,
+        })
+      : Promise.resolve({ allowed: true, retryAfterMs: 0 }),
+  ]);
+  const blocked = results.find((result) => !result.allowed);
+  if (blocked) {
+    throw new OperationRateLimitError(Math.max(1, Math.ceil(blocked.retryAfterMs / 1_000)));
   }
-
-  const duplicate = existing ?? await prisma.pluggyWebhookEvent.findUnique({
-    where: { userId_eventId: { userId, eventId: payload.eventId } },
-  });
-  if (duplicate?.processedAt || (duplicate?.attempts ?? 0) >= MAX_EVENT_ATTEMPTS) return null;
-  const staleBefore = new Date(now.getTime() - 5 * 60_000);
-  const claimed = await prisma.pluggyWebhookEvent.updateMany({
-    where: {
-      eventId: payload.eventId,
-      userId,
-      processedAt: null,
-      attempts: { lt: MAX_EVENT_ATTEMPTS },
-      OR: [
-        { processingStartedAt: null },
-        { processingStartedAt: { lt: staleBefore } },
-      ],
-    },
-    data: {
-      processingStartedAt: now,
-      attempts: { increment: 1 },
-      lastError: null,
-    },
-  });
-  return claimed.count
-    ? prisma.pluggyWebhookEvent.findUniqueOrThrow({
-        where: { userId_eventId: { userId, eventId: payload.eventId } },
-      })
-    : null;
 }
 
 export async function POST(request: Request) {
+  try {
+    await assertWebhookPreAuthRateLimit(request);
+  } catch (error) {
+    if (error instanceof OperationRateLimitError) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: 429, headers: { "Retry-After": String(error.retryAfterSeconds) } },
+      );
+    }
+    throw error;
+  }
   let rawPayload: unknown;
   try {
     rawPayload = await readLimitedJson(request);
@@ -242,6 +273,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
   }
   await rotatePluggyWebhookSecretEncryption(userId).catch(() => undefined);
+
+  if (!existing && payload.data.event !== "item/created") {
+    return NextResponse.json({ received: true, linked: false });
+  }
 
   let event: Awaited<ReturnType<typeof claimEvent>>;
   try {
@@ -288,6 +323,66 @@ export async function POST(request: Request) {
       return NextResponse.json({ received: true });
     }
 
+    if (payload.data.event === "transactions/deleted") {
+      const account = payload.data.accountId
+        ? await prisma.pluggyAccount.findFirst({
+            where: {
+              pluggyAccountId: payload.data.accountId,
+              item: { pluggyItemId: payload.data.itemId, userId },
+            },
+            select: { id: true },
+          })
+        : null;
+      if (payload.data.accountId && !account) {
+        throw new WebhookRequestError(400, "Conta do evento não pertence ao item informado.");
+      }
+      const transactionIds = [...new Set(payload.data.transactionIds ?? [])];
+      const now = new Date();
+      await prisma.$transaction(async (tx) => {
+        if (transactionIds.length && account) {
+          const ownedRows = await tx.pluggyTransaction.findMany({
+            where: {
+              pluggyAccountDbId: account.id,
+              pluggyTransactionId: { in: transactionIds },
+            },
+            select: { pluggyTransactionId: true },
+          });
+          const ownedIds = ownedRows.map((row) => row.pluggyTransactionId);
+          if (ownedIds.length) {
+            await tx.pluggyTransaction.updateMany({
+              where: {
+                pluggyAccountDbId: account.id,
+                pluggyTransactionId: { in: ownedIds },
+              },
+              data: { providerAvailable: false, providerRemovedAt: now },
+            });
+            await tx.financeTransaction.updateMany({
+              where: {
+                userId,
+                source: "PLUGGY",
+                externalId: { in: ownedIds },
+                providerLifecycle: { not: "REMOVED" },
+              },
+              data: {
+                providerLifecycle: "DELETION_PENDING",
+                providerDeletedAt: now,
+                deleted: false,
+              },
+            });
+          }
+        }
+        await tx.pluggyItem.updateMany({
+          where: { pluggyItemId: payload.data.itemId, userId },
+          data: { syncPending: true },
+        });
+        await tx.pluggyWebhookEvent.update({
+          where: { id: event.id },
+          data: { processedAt: now, processingStartedAt: null },
+        });
+      });
+      return NextResponse.json({ received: true, linked: true });
+    }
+
     const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
     if (!user) {
       await prisma.pluggyWebhookEvent.update({
@@ -321,6 +416,9 @@ export async function POST(request: Request) {
         lastError: error instanceof Error ? error.message.slice(0, 2_000) : "Falha desconhecida.",
       },
     }).catch(() => undefined);
+    if (error instanceof WebhookRequestError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     return NextResponse.json({ error: "Falha temporária ao processar o webhook." }, { status: 500 });
   }
 }

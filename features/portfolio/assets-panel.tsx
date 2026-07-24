@@ -2,7 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useTransition, type FormEvent, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
-import { AlertTriangle, Building2, ChevronDown, ChevronRight, Coins, FileSpreadsheet, LoaderCircle, Pencil, Plus, RefreshCw, Search, Trash2, Upload } from "lucide-react";
+import { AlertTriangle, Building2, ChevronDown, ChevronRight, Coins, Download, FileSpreadsheet, LoaderCircle, Pencil, Plus, RefreshCw, Search, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
@@ -27,6 +27,7 @@ import {
 } from "./actions";
 import { notifyPortfolioSimulationInvalidated } from "./client-events";
 import { parseXlsxFile } from "./xlsx-parser";
+import { exportPortfolioXlsx } from "./xlsx-export";
 import type { BrapiTickerSearchResult } from "./brapi";
 import type { BinanceAssetSearchResult } from "./binance";
 import type { YahooSearchKind, YahooTickerSearchResult } from "./yahoo-finance";
@@ -104,6 +105,14 @@ type ReviewForm = PortfolioDto["integrationReview"][number] & {
   familyCode: string;
   indexation: FixedIncomeIndexationKey | "";
   score: number;
+};
+
+type HoldingTransactionsState = {
+  transactions: AssetHoldingDto["transactions"];
+  page: number;
+  total: number;
+  loading: boolean;
+  error?: string;
 };
 
 const emptyAsset: FormAsset = {
@@ -206,12 +215,12 @@ function reviewPercentage(value: string) {
   return `${Number(value).toLocaleString("pt-BR", { maximumFractionDigits: 4 })}%`;
 }
 
-function reviewDate(value: string) {
-  return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short" }).format(new Date(value));
+function reviewDate(value: string, timeZone: string) {
+  return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeZone }).format(new Date(value));
 }
 
-function reviewDateTime(value: string) {
-  return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(value));
+function reviewDateTime(value: string, timeZone: string) {
+  return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone }).format(new Date(value));
 }
 
 function reviewProfitability(review: ReviewForm) {
@@ -243,7 +252,7 @@ function ReviewDetailsGrid({ title, details }: { title: string; details: Array<{
   );
 }
 
-function PluggyReviewSourceData({ review }: { review: ReviewForm }) {
+function PluggyReviewSourceData({ review, timeZone }: { review: ReviewForm; timeZone: string }) {
   const metadataAvailable = Boolean(review.metadata && typeof review.metadata === "object");
   return (
     <div className="space-y-5 rounded-xl border bg-[var(--muted)]/15 p-4">
@@ -301,13 +310,13 @@ function PluggyReviewSourceData({ review }: { review: ReviewForm }) {
       <ReviewDetailsGrid
         title="Datas e situação"
         details={[
-          { label: "Emissão", value: review.issueDate ? reviewDate(review.issueDate) : null },
-          { label: "Compra", value: review.purchaseDate ? reviewDate(review.purchaseDate) : null },
-          { label: "Fim da carência", value: review.gracePeriodDate ? reviewDate(review.gracePeriodDate) : null },
-          { label: "Vencimento", value: review.dueDate ? reviewDate(review.dueDate) : null },
-          { label: "Data da posição", value: review.quotaDate ? reviewDate(review.quotaDate) : null },
+          { label: "Emissão", value: review.issueDate ? reviewDate(review.issueDate, timeZone) : null },
+          { label: "Compra", value: review.purchaseDate ? reviewDate(review.purchaseDate, timeZone) : null },
+          { label: "Fim da carência", value: review.gracePeriodDate ? reviewDate(review.gracePeriodDate, timeZone) : null },
+          { label: "Vencimento", value: review.dueDate ? reviewDate(review.dueDate, timeZone) : null },
+          { label: "Data da posição", value: review.quotaDate ? reviewDate(review.quotaDate, timeZone) : null },
           { label: "Status no provedor", value: review.status },
-          { label: "Atualizado pela instituição", value: reviewDateTime(review.updatedAt) },
+          { label: "Atualizado pela instituição", value: reviewDateTime(review.updatedAt, timeZone) },
         ]}
       />
       {review.transactions.length > 0 && (
@@ -320,7 +329,7 @@ function PluggyReviewSourceData({ review }: { review: ReviewForm }) {
                   <div>
                     <strong>{transaction.type.replaceAll("_", " ")}</strong>
                     <p className="mt-0.5 text-[var(--muted-foreground)]">
-                      {reviewDate(transaction.date)}
+                      {reviewDate(transaction.date, timeZone)}
                       {transaction.quantity !== null ? ` · ${reviewDecimal(transaction.quantity)} un.` : ""}
                       {transaction.description ? ` · ${transaction.description}` : ""}
                     </p>
@@ -405,6 +414,7 @@ export function AssetsPanel({
   integrationReview,
   questions,
   initialAnswers,
+  timeZone,
 }: {
   assets: AssetDto[];
   fixedIncomeFamilies: PortfolioDto["fixedIncomeFamilies"];
@@ -412,6 +422,7 @@ export function AssetsPanel({
   integrationReview: PortfolioDto["integrationReview"];
   questions: DiagramQuestionDto[];
   initialAnswers: { assetId: string; questionId: string; answer: boolean }[];
+  timeZone: string;
 }) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<InvestmentClassKey | "ALL">("ALL");
@@ -421,6 +432,7 @@ export function AssetsPanel({
   const [holdingForm, setHoldingForm] = useState<HoldingForm | null>(null);
   const [reviewForm, setReviewForm] = useState<ReviewForm | null>(null);
   const [expandedAssets, setExpandedAssets] = useState<Set<string>>(() => new Set());
+  const [holdingTransactions, setHoldingTransactions] = useState<Record<string, HoldingTransactionsState>>({});
   const [formAnswers, setFormAnswers] = useState<Record<string, boolean>>({});
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>();
   const [tickerOptions, setTickerOptions] = useState<MarketTickerOption[]>([]);
@@ -637,13 +649,68 @@ export function AssetsPanel({
     });
   }
 
+  async function loadHoldingTransactions(holdingId: string, page = 1, append = false) {
+    setHoldingTransactions((current) => ({
+      ...current,
+      [holdingId]: {
+        transactions: append ? current[holdingId]?.transactions ?? [] : [],
+        page: append ? current[holdingId]?.page ?? 0 : 0,
+        total: current[holdingId]?.total ?? 0,
+        loading: true,
+      },
+    }));
+    try {
+      const response = await fetch(
+        `/api/portfolio/holdings/${encodeURIComponent(holdingId)}/transactions?page=${page}&pageSize=25`,
+      );
+      const payload = await response.json() as {
+        error?: string;
+        page: number;
+        total: number;
+        transactions: AssetHoldingDto["transactions"];
+      };
+      if (!response.ok) throw new Error(payload.error || "Não foi possível carregar as movimentações.");
+      setHoldingTransactions((current) => ({
+        ...current,
+        [holdingId]: {
+          transactions: append
+            ? [...(current[holdingId]?.transactions ?? []), ...payload.transactions]
+            : payload.transactions,
+          page: payload.page,
+          total: payload.total,
+          loading: false,
+        },
+      }));
+    } catch (error) {
+      setHoldingTransactions((current) => ({
+        ...current,
+        [holdingId]: {
+          transactions: current[holdingId]?.transactions ?? [],
+          page: current[holdingId]?.page ?? 0,
+          total: current[holdingId]?.total ?? 0,
+          loading: false,
+          error: error instanceof Error ? error.message : "Não foi possível carregar as movimentações.",
+        },
+      }));
+    }
+  }
+
   function toggleExpanded(assetId: string) {
+    const opening = !expandedAssets.has(assetId);
     setExpandedAssets((current) => {
       const next = new Set(current);
       if (next.has(assetId)) next.delete(assetId);
       else next.add(assetId);
       return next;
     });
+    if (opening) {
+      const asset = assets.find((item) => item.id === assetId);
+      for (const holding of asset?.holdings ?? []) {
+        if (holding.transactionCount > 0 && !holdingTransactions[holding.id]) {
+          void loadHoldingTransactions(holding.id);
+        }
+      }
+    }
   }
 
   function changeTicker(value: string) {
@@ -963,6 +1030,7 @@ export function AssetsPanel({
           investmentClass: investmentClass === "INTERNATIONAL_FIXED_INCOME" ? "INTERNATIONAL_FIXED_INCOME" as const : "FIXED_INCOME" as const,
           score: Number(read(row, "nota", "Nota", "score") ?? 0),
           holding: {
+            id: String(read(row, "idAplicacao", "ID da aplicação", "holdingId", "id") ?? "").trim() || undefined,
             catalogItemId: catalogItem?.id ?? null,
             customTypeName: catalogItem ? null : customTypeName,
             issuer,
@@ -1049,6 +1117,7 @@ export function AssetsPanel({
                 <RefreshCw className="size-4" /> Atualizar cotações
               </Button>
               <input ref={fileInput} className="sr-only" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => event.target.files?.[0] && void importFile(event.target.files[0])} />
+              <Button variant="outline" onClick={() => exportPortfolioXlsx(assets)} disabled={!assets.length}><Download className="size-4" /> Exportar XLSX</Button>
               <Button variant="outline" onClick={() => fileInput.current?.click()}><Upload className="size-4" /> Importar XLSX</Button>
               <Button variant="outline" onClick={() => setFixedGroupForm({ ...emptyFixedGroup })}><Plus className="size-4" /> Renda fixa</Button>
               <Button onClick={startAdding}><Plus className="size-4" /> Adicionar ativo</Button>
@@ -1162,7 +1231,7 @@ export function AssetsPanel({
                                   </>
                                 )}
                           </td>}
-                          <td className="whitespace-nowrap px-3 text-xs text-[var(--muted-foreground)]">{new Date(asset.priceUpdatedAt ?? asset.updatedAt).toLocaleDateString("pt-BR")}</td>
+                          <td className="whitespace-nowrap px-3 text-xs text-[var(--muted-foreground)]">{reviewDate(asset.priceUpdatedAt ?? asset.updatedAt, timeZone)}</td>
                           <td className="px-3"><div className="flex justify-end"><Button variant="outline" size="sm" onClick={() => edit(asset)} aria-label={`Editar ${asset.ticker}`}><Pencil className="size-4" /> Editar</Button></div></td>
                         </tr>
                         {expandable && expanded && (
@@ -1176,7 +1245,10 @@ export function AssetsPanel({
                                 <div className="overflow-x-auto rounded-xl border bg-[var(--card)]">
                                   <table className="w-full min-w-[920px] text-left text-xs">
                                     <thead className="border-b text-[var(--muted-foreground)]"><tr><th className="px-3 py-2">Tipo / produto</th><th className="px-3 py-2">Emissor</th>{holdingColumns.invested && <th className="px-3 py-2">Investido</th>}<th className="px-3 py-2">Atual</th>{holdingColumns.quantity && <th className="px-3 py-2">Quantidade atual</th>}{holdingColumns.averagePrice && <th className="px-3 py-2">Preço médio</th>}{holdingColumns.profitability && <th className="px-3 py-2">Rentabilidade</th>}{holdingColumns.purchaseDate && <th className="px-3 py-2">Compra</th>}{holdingColumns.maturityDate && <th className="px-3 py-2">Vencimento</th>}<th className="px-3 py-2 text-right">Fonte / ações</th></tr></thead>
-                                    <tbody>{asset.holdings.map((holding) => (
+                                    <tbody>{asset.holdings.map((holding) => {
+                                      const movementState = holdingTransactions[holding.id];
+                                      const displayedTransactions = movementState?.transactions ?? holding.transactions;
+                                      return (
                                       <Fragment key={holding.id}>
                                         <tr className="border-b">
                                           <td className="px-3 py-3"><strong className="block max-w-52 truncate" title={holding.typeName}>{holding.typeName}</strong><span className="block max-w-52 truncate text-[var(--muted-foreground)]" title={holding.productName}>{holding.productName}</span></td>
@@ -1193,27 +1265,27 @@ export function AssetsPanel({
                                           {holdingColumns.quantity && <td className="whitespace-nowrap px-3 py-3">{Number(holding.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 8 })}</td>}
                                           {holdingColumns.averagePrice && <td className="whitespace-nowrap px-3 py-3">{holding.averagePricePaid == null ? "—" : formatMoney(holding.averagePricePaid)}</td>}
                                           {holdingColumns.profitability && <td className="whitespace-nowrap px-3 py-3">{holdingProfitability(holding) ?? "—"}</td>}
-                                          {holdingColumns.purchaseDate && <td className="whitespace-nowrap px-3 py-3">{holding.purchaseDate ? new Date(holding.purchaseDate).toLocaleDateString("pt-BR") : "—"}</td>}
-                                          {holdingColumns.maturityDate && <td className="whitespace-nowrap px-3 py-3">{holding.maturityDate ? new Date(holding.maturityDate).toLocaleDateString("pt-BR") : "—"}</td>}
+                                          {holdingColumns.purchaseDate && <td className="whitespace-nowrap px-3 py-3">{holding.purchaseDate ? reviewDate(holding.purchaseDate, timeZone) : "—"}</td>}
+                                          {holdingColumns.maturityDate && <td className="whitespace-nowrap px-3 py-3">{holding.maturityDate ? reviewDate(holding.maturityDate, timeZone) : "—"}</td>}
                                           <td className="px-3 py-3">
                                             {holding.positionSource === "PLUGGY"
                                               ? <div className="text-right"><span className="rounded-full bg-[var(--primary)]/12 px-2 py-1 text-[10px] font-semibold text-[var(--primary)]">Pluggy</span><span className="mt-1 block text-[10px] text-[var(--muted-foreground)]">{holding.providerStatus ?? "Sincronizado"}</span></div>
                                               : <div className="flex justify-end gap-2"><Button variant="ghost" size="sm" onClick={() => startHolding(asset, holding)}><Pencil className="size-3.5" /> Editar</Button><Button variant="ghost" size="sm" className="text-[var(--danger)]" onClick={() => setDeleteTarget({ kind: "holding", id: holding.id, label: holding.productName })}><Trash2 className="size-3.5" /> Excluir</Button></div>}
                                           </td>
                                         </tr>
-                                        {holding.transactions.length > 0 && (
+                                        {(holding.transactionCount > 0 || movementState?.loading || movementState?.error) && (
                                           <tr className="border-b last:border-0 bg-[var(--muted)]/15">
                                             <td colSpan={holdingColumnCount} className="px-4 py-3">
-                                              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">Operações informadas ({holding.transactions.length})</p>
+                                              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">Operações informadas ({holding.transactionCount})</p>
                                               <div className="overflow-hidden rounded-lg border">
                                                 <div className="grid grid-cols-[110px_minmax(110px,1fr)_110px_130px_130px] gap-3 border-b bg-[var(--muted)]/25 px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
                                                   <span>Data</span><span>Operação</span><span>Quantidade</span><span>Preço unitário</span><span className="text-right">Valor</span>
                                                 </div>
-                                                {holding.transactions.map((transaction) => {
+                                                {displayedTransactions.map((transaction) => {
                                                   const operationAmount = transaction.netAmount ?? transaction.amount;
                                                   return (
                                                     <div key={transaction.id} className="grid grid-cols-[110px_minmax(110px,1fr)_110px_130px_130px] gap-3 border-b px-3 py-2 last:border-0">
-                                                      <span className="whitespace-nowrap">{new Date(transaction.tradeDate ?? transaction.date).toLocaleDateString("pt-BR")}</span>
+                                                      <span className="whitespace-nowrap">{reviewDate(transaction.tradeDate ?? transaction.date, timeZone)}</span>
                                                       <span><strong>{operationTypeLabel(transaction.type)}</strong>{transaction.description && <span className="mt-0.5 block truncate text-[10px] text-[var(--muted-foreground)]" title={transaction.description}>{transaction.description}</span>}</span>
                                                       <span className="whitespace-nowrap">{transaction.quantity === null ? "—" : Number(transaction.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 8 })}</span>
                                                       <span className="whitespace-nowrap">{transaction.value === null ? "—" : reviewMoney(transaction.value, holding.currency)}</span>
@@ -1221,12 +1293,38 @@ export function AssetsPanel({
                                                     </div>
                                                   );
                                                 })}
+                                                {movementState?.loading && (
+                                                  <div className="flex items-center justify-center gap-2 px-3 py-4 text-xs text-[var(--muted-foreground)]">
+                                                    <LoaderCircle className="size-4 animate-spin" />
+                                                    Carregando movimentações…
+                                                  </div>
+                                                )}
+                                                {movementState?.error && (
+                                                  <div className="flex items-center justify-between gap-3 px-3 py-3 text-xs text-[var(--danger)]">
+                                                    <span>{movementState.error}</span>
+                                                    <Button size="sm" variant="outline" onClick={() => void loadHoldingTransactions(holding.id)}>
+                                                      Tentar novamente
+                                                    </Button>
+                                                  </div>
+                                                )}
+                                                {movementState && !movementState.loading && !movementState.error && movementState.transactions.length < movementState.total && (
+                                                  <div className="flex justify-center px-3 py-3">
+                                                    <Button
+                                                      size="sm"
+                                                      variant="outline"
+                                                      onClick={() => void loadHoldingTransactions(holding.id, movementState.page + 1, true)}
+                                                    >
+                                                      Carregar mais
+                                                    </Button>
+                                                  </div>
+                                                )}
                                               </div>
                                             </td>
                                           </tr>
                                         )}
                                       </Fragment>
-                                    ))}</tbody>
+                                    );
+                                    })}</tbody>
                                   </table>
                                 </div>
                               ) : <div className="rounded-xl border border-dashed p-6 text-center text-sm text-[var(--muted-foreground)]">Nenhuma aplicação cadastrada. O grupo continua elegível para receber aportes.</div>}
@@ -1274,7 +1372,7 @@ export function AssetsPanel({
               <p className="mt-2 font-semibold">{formatMoney(reviewForm.balance)}</p>
               {reviewForm.reviewReason && <p className="mt-3 text-sm text-[var(--primary)]">{reviewForm.reviewReason}</p>}
             </div>
-            <PluggyReviewSourceData review={reviewForm} />
+            <PluggyReviewSourceData review={reviewForm} timeZone={timeZone} />
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="review-instrument">Instrumento</Label>

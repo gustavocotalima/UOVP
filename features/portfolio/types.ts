@@ -38,6 +38,7 @@ export type AssetHoldingDto = {
   providerCurrentValue: string | null;
   providerStatus: string | null;
   providerAvailable: boolean;
+  transactionCount: number;
   transactions: Array<{
     id: string;
     description: string | null;
@@ -87,6 +88,7 @@ export type AssetDto = {
 export type PortfolioDto = {
   id: string;
   version: number;
+  timeZone: string;
   targets: Record<InvestmentClassKey, number>;
   assets: AssetDto[];
   fixedIncomeFamilies: Array<{ code: string; name: string; shortCode: string; sortOrder: number }>;

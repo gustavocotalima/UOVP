@@ -158,10 +158,12 @@ export async function fetchBrapiQuotes({
   apiKey,
   tickers,
   fetcher = fetch,
+  signal,
 }: {
   apiKey: string;
   tickers: string[];
   fetcher?: typeof fetch;
+  signal?: AbortSignal;
 }) {
   const symbols = [...new Set(tickers.map(normalizeBrapiSymbol).filter(Boolean))];
   if (!symbols.length) return [];
@@ -177,7 +179,9 @@ export async function fetchBrapiQuotes({
         Authorization: `Bearer ${apiKey}`,
       },
       cache: "no-store",
-      signal: AbortSignal.timeout(15_000),
+      signal: signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(15_000)])
+        : AbortSignal.timeout(15_000),
     });
   } catch {
     throw new BrapiApiError("Não foi possível conectar à brapi.", 0);
@@ -212,17 +216,19 @@ export async function fetchAvailableBrapiQuotes({
   apiKey,
   tickers,
   fetcher = fetch,
+  signal,
 }: {
   apiKey: string;
   tickers: string[];
   fetcher?: typeof fetch;
+  signal?: AbortSignal;
 }): Promise<BrapiQuote[]> {
   const symbols = [...new Set(tickers.map(normalizeBrapiSymbol).filter(Boolean))];
 
   async function fetchGroup(group: string[]): Promise<BrapiQuote[]> {
     if (!group.length) return [];
     try {
-      return await fetchBrapiQuotes({ apiKey, tickers: group, fetcher });
+      return await fetchBrapiQuotes({ apiKey, tickers: group, fetcher, signal });
     } catch (error) {
       const recoverable = error instanceof BrapiApiError && (error.status === 400 || error.status === 404);
       if (!recoverable) throw error;

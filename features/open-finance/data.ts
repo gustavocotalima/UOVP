@@ -6,6 +6,22 @@ type CurrencyAmount = {
   currencyCode: string | null | undefined;
 };
 
+export type OpenFinanceInvestmentTransaction = {
+  id: string;
+  description: string | null;
+  type: string;
+  movementType: string | null;
+  quantity: string | null;
+  value: string | null;
+  amount: string | null;
+  netAmount: string | null;
+  agreedRate: string | null;
+  brokerageNumber: string | null;
+  date: string;
+  tradeDate: string | null;
+  expenses: unknown;
+};
+
 export function sumAmountsByCurrency(values: CurrencyAmount[]) {
   return values.reduce<Record<string, number>>((totals, value) => {
     const amount = Number(value.amount);
@@ -24,20 +40,11 @@ export async function getOpenFinanceData(userId: string) {
       include: {
         accounts: {
           orderBy: [{ type: "asc" }, { name: "asc" }],
-          include: {
-            transactions: {
-              orderBy: [{ date: "desc" }, { createdAt: "desc" }],
-              take: 100,
-            },
-          },
+          include: { _count: { select: { transactions: true } } },
         },
         investments: {
           orderBy: [{ type: "asc" }, { name: "asc" }],
-          include: {
-            transactions: {
-              orderBy: [{ date: "desc" }, { createdAt: "desc" }],
-            },
-          },
+          include: { _count: { select: { transactions: true } } },
         },
       },
     }),
@@ -45,6 +52,7 @@ export async function getOpenFinanceData(userId: string) {
       where: { userId },
       select: {
         showSoldInvestments: true,
+        timeZone: true,
         pluggyClientIdCiphertext: true,
         pluggyClientSecretCiphertext: true,
         pluggyWebhookSecretCiphertext: true,
@@ -80,9 +88,13 @@ export async function getOpenFinanceData(userId: string) {
       item.connectorImageUrl,
       bankCodesByItem.get(item.pluggyItemId) ?? [],
     );
-  const connectedItems = items.filter((item) => item.status !== "DELETED");
+  const visibleItems = items.filter(
+    (item) =>
+      item.status !== "DELETED"
+      || item.disconnectionResolution === "PENDING",
+  );
 
-  const accounts = connectedItems.flatMap((item) =>
+  const accounts = visibleItems.flatMap((item) =>
     item.accounts.filter((account) => activePluggyAccountIds.has(account.pluggyAccountId)).map((account) => ({
       id: account.id,
       pluggyAccountId: account.pluggyAccountId,
@@ -96,31 +108,25 @@ export async function getOpenFinanceData(userId: string) {
       balance: account.balance.toString(),
       currencyCode: account.currencyCode,
       updatedAt: (account.providerUpdatedAt ?? account.updatedAt).toISOString(),
+      transactionCount: account._count.transactions,
     })),
   );
 
-  const transactions = connectedItems
-    .flatMap((item) =>
-      item.accounts.filter((account) => activePluggyAccountIds.has(account.pluggyAccountId)).flatMap((account) =>
-        account.transactions.map((transaction) => ({
-          id: transaction.id,
-          institution: item.institutionName || item.connectorName,
-          accountName: account.marketingName || account.name,
-          description: transaction.description,
-          amount: transaction.amount.toString(),
-          currencyCode: transaction.currencyCode,
-          date: transaction.date.toISOString(),
-          type: transaction.type,
-          status: transaction.status,
-          category: transaction.category,
-          merchantName: transaction.merchantName,
-        })),
-      ),
-    )
-    .sort((left, right) => right.date.localeCompare(left.date))
-    .slice(0, 200);
+  const transactions: Array<{
+    id: string;
+    institution: string;
+    accountName: string;
+    description: string;
+    amount: string;
+    currencyCode: string;
+    date: string;
+    type: string | null;
+    status: string | null;
+    category: string | null;
+    merchantName: string | null;
+  }> = [];
 
-  const investments = items.flatMap((item) =>
+  const investments = visibleItems.flatMap((item) =>
     item.investments.map((investment) => ({
       id: investment.id,
       institution: item.institutionName || item.connectorName,
@@ -163,21 +169,8 @@ export async function getOpenFinanceData(userId: string) {
       status: investment.status,
       providerAvailable: investment.providerAvailable,
       updatedAt: (investment.providerUpdatedAt ?? investment.updatedAt).toISOString(),
-      transactions: investment.transactions.map((transaction) => ({
-        id: transaction.id,
-        description: transaction.description,
-        type: transaction.type,
-        movementType: transaction.movementType,
-        quantity: transaction.quantity?.toString() ?? null,
-        value: transaction.value?.toString() ?? null,
-        amount: transaction.amount?.toString() ?? null,
-        netAmount: transaction.netAmount?.toString() ?? null,
-        agreedRate: transaction.agreedRate?.toString() ?? null,
-        brokerageNumber: transaction.brokerageNumber,
-        date: transaction.date.toISOString(),
-        tradeDate: transaction.tradeDate?.toISOString() ?? null,
-        expenses: transaction.expenses,
-      })),
+      transactionCount: investment._count.transactions,
+      transactions: [] as OpenFinanceInvestmentTransaction[],
     })),
   );
   const cashByCurrency = sumAmountsByCurrency(
@@ -201,6 +194,7 @@ export async function getOpenFinanceData(userId: string) {
       preference?.pluggyClientIdCiphertext &&
         preference.pluggyClientSecretCiphertext,
     ),
+    timeZone: preference?.timeZone ?? "America/Sao_Paulo",
     webhookConfigured: Boolean(preference?.pluggyWebhookSecretCiphertext),
     items: items.map((item) => ({
       id: item.id,
@@ -226,6 +220,7 @@ export async function getOpenFinanceData(userId: string) {
         connectorName: item.institutionName || item.connectorName,
         connectorImageUrl: itemLogo(item),
         disconnectedAt: item.disconnectedAt?.toISOString() ?? item.updatedAt.toISOString(),
+        accountCount: item.accounts.length,
         investmentCount: item.investments.filter((investment) => investment.status === "ACTIVE").length,
       })),
     accounts,

@@ -119,13 +119,22 @@ export async function clearAuthRateLimit(scope: string, identifier: string) {
 }
 
 export async function checkLoginRateLimit(email: string, headers: Headers) {
-  const account = await consumeAuthRateLimit({
-    scope: "login-account",
-    identifier: email,
-    limit: 8,
-    windowMs: 15 * 60_000,
-    blockMs: 30 * 60_000,
-  });
+  const [account, global] = await Promise.all([
+    consumeAuthRateLimit({
+      scope: "login-account",
+      identifier: email,
+      limit: 8,
+      windowMs: 15 * 60_000,
+      blockMs: 30 * 60_000,
+    }),
+    consumeAuthRateLimit({
+      scope: "login-global",
+      identifier: "application",
+      limit: 300,
+      windowMs: 15 * 60_000,
+      blockMs: 15 * 60_000,
+    }),
+  ]);
   const ip = clientIpFromHeaders(headers);
   const address = ip
     ? await consumeAuthRateLimit({
@@ -136,17 +145,33 @@ export async function checkLoginRateLimit(email: string, headers: Headers) {
         blockMs: 30 * 60_000,
       })
     : { allowed: true, retryAfterMs: 0 };
-  return account.allowed && address.allowed;
+  return account.allowed && address.allowed && global.allowed;
 }
 
-export async function checkRegistrationRateLimit(email: string, headers: Headers) {
-  const account = await consumeAuthRateLimit({
-    scope: "register-account",
-    identifier: email,
-    limit: 3,
-    windowMs: 60 * 60_000,
-    blockMs: 60 * 60_000,
-  });
+export async function checkRegistrationRateLimit(email: string, inviteToken: string, headers: Headers) {
+  const [account, invite, global] = await Promise.all([
+    consumeAuthRateLimit({
+      scope: "register-account",
+      identifier: email,
+      limit: 3,
+      windowMs: 60 * 60_000,
+      blockMs: 60 * 60_000,
+    }),
+    consumeAuthRateLimit({
+      scope: "register-invite",
+      identifier: inviteToken,
+      limit: 5,
+      windowMs: 60 * 60_000,
+      blockMs: 60 * 60_000,
+    }),
+    consumeAuthRateLimit({
+      scope: "register-global",
+      identifier: "application",
+      limit: 50,
+      windowMs: 60 * 60_000,
+      blockMs: 60 * 60_000,
+    }),
+  ]);
   const ip = clientIpFromHeaders(headers);
   const address = ip
     ? await consumeAuthRateLimit({
@@ -157,5 +182,5 @@ export async function checkRegistrationRateLimit(email: string, headers: Headers
         blockMs: 60 * 60_000,
       })
     : { allowed: true, retryAfterMs: 0 };
-  return account.allowed && address.allowed;
+  return account.allowed && invite.allowed && address.allowed && global.allowed;
 }

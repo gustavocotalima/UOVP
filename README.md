@@ -25,6 +25,10 @@ Aplicação financeira multiusuário em Next.js que reúne carteira de investime
 
 O primeiro `pnpm install` gera `pnpm-lock.yaml`; o projeto não deve ser instalado com npm ou yarn.
 
+Após aplicar a migration expansiva em uma base existente, complete as conversões históricas
+pendentes em lotes idempotentes com `pnpm fx:backfill`. O comando preserva taxas manuais e
+conversões já congeladas; transações sem par histórico continuam pendentes para revisão.
+
 Gere segredos independentes. Por exemplo, `openssl rand -base64 48` para `AUTH_SECRET` e
 `AUTH_RATE_LIMIT_PEPPER`, e `openssl rand -base64 32 | tr '+/' '-_' | tr -d '='` para cada
 entrada de `CREDENTIAL_ENCRYPTION_KEYS`. Ao rotacionar a chave de credenciais, mantenha a chave
@@ -38,7 +42,8 @@ automaticamente.
 
 Em produção atrás de um proxy confiável, configure `AUTH_TRUST_HOST=true` e
 `AUTH_TRUST_PROXY=true`, garantindo que o proxy remova cabeçalhos `Forwarded` e
-`X-Forwarded-For` enviados diretamente pelo cliente.
+`X-Forwarded-For` enviados diretamente pelo cliente. Configure também `AUTH_URL` com a origem
+pública HTTPS e `APP_ADMIN_EMAILS` com os e-mails que poderão criar e revogar convites.
 
 ## Validação
 

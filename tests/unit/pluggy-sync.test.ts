@@ -18,7 +18,17 @@ vi.mock("@/lib/prisma", () => ({
 }));
 
 vi.mock("@/lib/operation-security", () => ({
-  withUserOperationLease: vi.fn(async ({ action }: { action: () => Promise<unknown> }) => action()),
+  withUserOperationLease: vi.fn(async ({
+    action,
+  }: {
+    action: (lease: {
+      signal: AbortSignal;
+      runFencedTransaction: <T>(operation: (tx: unknown) => Promise<T>) => Promise<T>;
+    }) => Promise<unknown>;
+  }) => action({
+    signal: new AbortController().signal,
+    runFencedTransaction: async (operation) => operation({}),
+  })),
 }));
 
 vi.mock("@/features/open-finance/pluggy", () => ({

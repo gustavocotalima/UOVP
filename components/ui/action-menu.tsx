@@ -66,8 +66,16 @@ export function ActionMenu({
     else if (event.key === "End") nextIndex = items.length - 1;
     else if (event.key === "Tab") {
       event.preventDefault();
+      const trigger = triggerRef.current?.querySelector<HTMLButtonElement>("button");
+      const focusable = Array.from(document.querySelectorAll<HTMLElement>(
+        "a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex='-1'])",
+      )).filter((element) => !menuRef.current?.contains(element));
+      const triggerIndex = trigger ? focusable.indexOf(trigger) : -1;
+      const destination = event.shiftKey
+        ? focusable[triggerIndex - 1]
+        : focusable[triggerIndex + 1];
       onOpenChange(false);
-      triggerRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
+      window.setTimeout(() => destination?.focus());
       return;
     } else {
       return;
