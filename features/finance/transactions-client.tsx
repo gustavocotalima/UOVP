@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowDown,
@@ -17,6 +17,7 @@ import {
   Plus,
   Search,
   Trash2,
+  Undo2,
 } from "lucide-react";
 import { ActionMenu } from "@/components/ui/action-menu";
 import { Button } from "@/components/ui/button";
@@ -32,13 +33,14 @@ import { cn } from "@/lib/utils";
 import {
   applyFinanceTransactionClassificationToSimilarAction,
   deleteFinanceTransactionAction,
+  resolvePendingPluggyDeletionAction,
   saveFinanceTransactionNoteAction,
   setFinanceTransactionsIgnoredAction,
   toggleFinanceInternalTransferAction,
   updateFinanceTransactionCategoryAction,
   updateFinanceTransactionTagsAction,
 } from "./actions";
-import { calculatePeriod, isReportable, needsFinanceClassification } from "./calculations";
+import { isReportable } from "./calculations";
 import { FinanceNotice, runFinanceAction } from "./shared";
 import { NewTransactionDialog, TransactionEditorDialog } from "./transaction-dialogs";
 import type { FinanceData, FinanceTransactionDto } from "./types";
@@ -75,47 +77,73 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
   const [menu, setMenu] = useState<string | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const [pageSize, setPageSize] = useState(25);
   const [sort, setSort] = useState<{ key: "description" | "amount" | "date" | "account"; direction: "asc" | "desc" }>({ key: "date", direction: "desc" });
   const [reviewingAllPeriods, setReviewingAllPeriods] = useState(false);
+  const [reviewingDeletions, setReviewingDeletions] = useState(false);
+  const [transactions, setTransactions] = useState(data.transactions);
+  const [transactionTotal, setTransactionTotal] = useState(data.transactions.length);
+  const [transactionTotals, setTransactionTotals] = useState(() => ({
+    income: 0,
+    spent: 0,
+    balance: 0,
+  }));
+  const [tableRevision, setTableRevision] = useState(0);
+  const [tableLoading, setTableLoading] = useState(false);
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
-
-  const filtered = useMemo(() => {
-    const query = search.trim().toLocaleLowerCase("pt-BR");
-    const scopedTransactions = reviewingAllPeriods
-      ? data.historyTransactions.filter(needsFinanceClassification)
-      : data.transactions;
-    return scopedTransactions
-      .filter((transaction) => {
-        const value = Number(transaction.amount);
-        if (query && !`${transaction.description} ${transaction.merchantName ?? ""} ${transaction.accountName} ${transaction.note ?? ""}`.toLocaleLowerCase("pt-BR").includes(query)) return false;
-        if (filters.min && Math.abs(value) < Number(filters.min)) return false;
-        if (filters.max && Math.abs(value) > Number(filters.max)) return false;
-        if (filters.kind && transaction.kind !== filters.kind) return false;
-        if (filters.category === "NONE" && transaction.budgetCategory) return false;
-        if (filters.category && filters.category !== "NONE" && transaction.budgetCategory !== filters.category) return false;
-        if (filters.tagId === "NONE" && transaction.tags.length) return false;
-        if (filters.tagId && filters.tagId !== "NONE" && !transaction.tags.some((tag) => tag.id === filters.tagId)) return false;
-        if (filters.assignmentSource && transaction.budgetCategorySource !== filters.assignmentSource) return false;
-        if (filters.accountId && transaction.accountId !== filters.accountId) return false;
-        if (filters.ignored === "yes" && isReportable(transaction)) return false;
-        if (filters.ignored === "no" && !isReportable(transaction)) return false;
-        if (filters.internal === "yes" && !transaction.internalTransfer) return false;
-        if (filters.internal === "no" && transaction.internalTransfer) return false;
-        return true;
+  const deferredSearch = useDeferredValue(search);
+  useEffect(() => {
+    const controller = new AbortController();
+    const params = new URLSearchParams({
+      year: String(data.year),
+      month: String(data.month),
+      page: String(page),
+      pageSize: String(pageSize),
+      mode: reviewingDeletions ? "DELETIONS" : reviewingAllPeriods ? "UNCLASSIFIED" : "MONTH",
+      sortKey: sort.key,
+      sortDirection: sort.direction,
+    });
+    if (deferredSearch.trim()) params.set("search", deferredSearch.trim());
+    for (const [key, value] of Object.entries(filters)) {
+      if (value) params.set(key, value);
+    }
+    queueMicrotask(() => {
+      if (!controller.signal.aborted) setTableLoading(true);
+    });
+    fetch(`/api/finance/transactions?${params.toString()}`, { signal: controller.signal })
+      .then(async (response) => {
+        const payload = await response.json() as {
+          error?: string;
+          total: number;
+          transactions: FinanceTransactionDto[];
+          totals: { grossIncome: number; spent: number; balance: number };
+        };
+        if (!response.ok) throw new Error(payload.error || "Não foi possível carregar as transações.");
+        setTransactions(payload.transactions);
+        setTransactionTotal(payload.total);
+        setTransactionTotals({
+          income: payload.totals.grossIncome,
+          spent: payload.totals.spent,
+          balance: payload.totals.balance,
+        });
       })
-      .sort((left, right) => {
-        const direction = sort.direction === "asc" ? 1 : -1;
-        if (sort.key === "amount") return (Number(left.amount) - Number(right.amount)) * direction;
-        if (sort.key === "date") return left.date.localeCompare(right.date) * direction;
-        return (sort.key === "description" ? left.description.localeCompare(right.description) : left.accountName.localeCompare(right.accountName)) * direction;
+      .catch((error) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setNotice({
+          type: "error",
+          text: error instanceof Error ? error.message : "Não foi possível carregar as transações.",
+        });
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setTableLoading(false);
       });
-  }, [data.historyTransactions, data.transactions, filters, reviewingAllPeriods, search, sort]);
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+    return () => controller.abort();
+  }, [data.month, data.year, deferredSearch, filters, page, pageSize, reviewingAllPeriods, reviewingDeletions, sort, tableRevision]);
+  const totalPages = Math.max(1, Math.ceil(transactionTotal / pageSize));
   const safePage = Math.min(page, totalPages);
-  const visible = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
-  const totals = useMemo(() => calculatePeriod(filtered), [filtered]);
+  const visible = transactions;
+  const totals = transactionTotals;
   const activeFilterCount = (Object.keys(filters) as Array<keyof Filters>)
     .filter((key) => filters[key] !== EMPTY_FILTERS[key])
     .length;
@@ -124,9 +152,14 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
     setSort((current) => ({ key, direction: current.key === key && current.direction === "asc" ? "desc" : "asc" }));
   }
 
+  function reloadTransactions() {
+    setTableRevision((current) => current + 1);
+    router.refresh();
+  }
+
   async function updateCategory(transaction: FinanceTransactionDto, category: string) {
     const ok = await runFinanceAction(() => updateFinanceTransactionCategoryAction(transaction.id, (category || null) as BudgetCategoryKey | null), setPending, setNotice, "Meta atualizada.");
-    if (ok) router.refresh();
+    if (ok) reloadTransactions();
   }
 
   async function saveTags() {
@@ -134,7 +167,7 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
     const ok = await runFinanceAction(() => updateFinanceTransactionTagsAction(tagging.id, tagSelection), setPending, setNotice, "Tags atualizadas.");
     if (ok) {
       setTagging(null);
-      router.refresh();
+      reloadTransactions();
     }
   }
 
@@ -143,7 +176,7 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
     const ok = await runFinanceAction(() => saveFinanceTransactionNoteAction(noting.id, note), setPending, setNotice, "Observação salva.");
     if (ok) {
       setNoting(null);
-      router.refresh();
+      reloadTransactions();
     }
   }
 
@@ -151,7 +184,7 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
     const ok = await runFinanceAction(() => setFinanceTransactionsIgnoredAction(ids, ignored), setPending, setNotice, ignored ? "Transações ocultadas dos relatórios." : "Transações incluídas nos relatórios.");
     if (ok) {
       setSelected([]);
-      router.refresh();
+      reloadTransactions();
     }
   }
 
@@ -159,7 +192,7 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
     const ok = await runFinanceAction(() => toggleFinanceInternalTransferAction(transaction.id), setPending, setNotice, transaction.internalTransfer ? "Marcação de transferência removida." : "Marcada como transferência interna.");
     if (ok) {
       setMenu(null);
-      router.refresh();
+      reloadTransactions();
     }
   }
 
@@ -173,7 +206,7 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
     );
     if (ok) {
       setApplyingSimilar(null);
-      router.refresh();
+      reloadTransactions();
     }
   }
 
@@ -182,7 +215,25 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
     const ok = await runFinanceAction(() => deleteFinanceTransactionAction(deleting.id), setPending, setNotice, "Transação removida.");
     if (ok) {
       setDeleting(null);
-      router.refresh();
+      reloadTransactions();
+    }
+  }
+
+  async function resolveDeletion(
+    transaction: FinanceTransactionDto,
+    decision: "KEEP_MANUAL" | "REMOVE",
+  ) {
+    const ok = await runFinanceAction(
+      () => resolvePendingPluggyDeletionAction(transaction.id, decision),
+      setPending,
+      setNotice,
+      decision === "KEEP_MANUAL"
+        ? "Transação preservada como manual."
+        : "Transação removida dos relatórios.",
+    );
+    if (ok) {
+      setMenu(null);
+      reloadTransactions();
     }
   }
 
@@ -209,7 +260,7 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
           : "Transações importadas e atualizadas.",
       });
       setImportOpen(false);
-      router.refresh();
+      reloadTransactions();
     } catch (error) {
       setNotice({ type: "error", text: error instanceof Error ? error.message : "Não foi possível importar as transações." });
     } finally {
@@ -238,6 +289,41 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
             }}
           >
             Revisar agora
+          </Button>
+        </div>
+      )}
+      {data.pendingDeletionCount > 0 && !reviewingDeletions && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--primary)]/35 bg-[var(--primary)]/8 p-4">
+          <div>
+            <strong className="text-sm">
+              {data.pendingDeletionCount} transação(ões) não vieram mais da Pluggy
+            </strong>
+            <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+              Elas continuam nos cálculos até você decidir manter ou remover.
+            </p>
+          </div>
+          <Button variant="outline" onClick={() => {
+            setReviewingDeletions(true);
+            setReviewingAllPeriods(false);
+            setPage(1);
+          }}>
+            Revisar remoções
+          </Button>
+        </div>
+      )}
+      {reviewingDeletions && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-[var(--card)] p-4">
+          <div>
+            <strong className="text-sm">Remoções pendentes da Pluggy</strong>
+            <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+              Manter desliga o controle do provedor; remover preserva a auditoria.
+            </p>
+          </div>
+          <Button variant="outline" onClick={() => {
+            setReviewingDeletions(false);
+            setPage(1);
+          }}>
+            Voltar para o período
           </Button>
         </div>
       )}
@@ -279,7 +365,7 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
 
       <Card>
         <CardHeader className="gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div><CardTitle>Transações</CardTitle><p className="mt-1 text-sm text-[var(--muted-foreground)]">Um total de {filtered.length} transações encontradas</p></div>
+          <div><CardTitle>Transações</CardTitle><p className="mt-1 text-sm text-[var(--muted-foreground)]">Um total de {transactionTotal} transações encontradas</p></div>
           <div className="grid grid-cols-3 gap-2 sm:min-w-[450px]">
             <MiniTotal label="Entradas" value={totals.income} tone="success" />
             <MiniTotal label="Saídas" value={totals.spent} tone="danger" />
@@ -292,7 +378,7 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
               aria-label="Ocultar transações selecionadas dos relatórios"
               disabled={!selected.length || pending}
               checked={selected.length > 0 && selected.every((id) => {
-                const transaction = data.historyTransactions.find((item) => item.id === id);
+                const transaction = transactions.find((item) => item.id === id);
                 return transaction ? !isReportable(transaction) : false;
               })}
               onCheckedChange={(checked) => setIgnored(selected, checked)}
@@ -315,7 +401,14 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
               </thead>
               <tbody className="divide-y">
                 {visible.map((transaction) => (
-                  <tr key={transaction.id} className={cn(!isReportable(transaction) && "opacity-55")}>
+                  <tr
+                    key={transaction.id}
+                    className={cn(
+                      !isReportable(transaction) && "opacity-55",
+                      transaction.providerLifecycle === "DELETION_PENDING"
+                        && "bg-[var(--primary)]/5",
+                    )}
+                  >
                     <td className="py-3 pr-3"><input type="checkbox" aria-label={`Selecionar ${transaction.description}`} checked={selected.includes(transaction.id)} onChange={(event) => setSelected(event.target.checked ? [...selected, transaction.id] : selected.filter((id) => id !== transaction.id))} /></td>
                     <td className="max-w-[280px] py-3 pr-4"><p className="truncate font-medium">{transaction.description}</p><button type="button" className="mt-1 text-[11px] text-[var(--primary)] hover:underline" onClick={() => { setNoting(transaction); setNote(transaction.note ?? ""); }}>{transaction.note ? transaction.note : "+ Adicionar observação"}</button></td>
                     <td className={cn("py-3 pr-4 font-semibold", transaction.kind === "INCOME" && "text-[var(--success)]")}>
@@ -330,8 +423,17 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
                             )}
                           </small>
                         )}
+                      {transaction.reportingAmountBrl === null ? (
+                        <small className="mt-1 block font-normal text-[var(--danger)]">
+                          Câmbio pendente
+                        </small>
+                      ) : transaction.currencyCode !== "BRL" ? (
+                        <small className="mt-1 block font-normal text-[var(--muted-foreground)]">
+                          BRL: {formatCurrency(transaction.reportingAmountBrl, "BRL")}
+                        </small>
+                      ) : null}
                     </td>
-                    <td className="py-3 pr-4 text-xs">{new Intl.DateTimeFormat("pt-BR").format(new Date(transaction.date))}</td>
+                    <td className="py-3 pr-4 text-xs">{new Intl.DateTimeFormat("pt-BR", { timeZone: data.profile.timeZone }).format(new Date(transaction.date))}</td>
                     <td className="py-3 pr-4 text-xs">{new Intl.DateTimeFormat("pt-BR", { month: "long" }).format(new Date(transaction.referenceYear, transaction.referenceMonth - 1, 1))}</td>
                     <td className="max-w-[170px] py-3 pr-4"><p className="truncate text-xs font-medium">{transaction.accountName}</p><p className="truncate text-[10px] text-[var(--muted-foreground)]">{transaction.institutionName}</p></td>
                     <td className="py-3 pr-4"><Select className="h-9 max-w-40" value={transaction.budgetCategory ?? ""} onChange={(event) => updateCategory(transaction, event.target.value)} disabled={pending}><option value="">Sem meta</option>{BUDGET_CATEGORIES.map((category) => <option key={category} value={category}>{BUDGET_CATEGORY_META[category].label}</option>)}</Select><AssignmentSource source={transaction.budgetCategorySource} /></td>
@@ -384,6 +486,22 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
                         {transaction.source === "PLUGGY" && (
                           <MenuButton icon={CopyCheck} label="Aplicar às semelhantes" onClick={() => { setApplyingSimilar(transaction); setMenu(null); }} />
                         )}
+                        {transaction.providerLifecycle === "DELETION_PENDING" && (
+                          <>
+                            <div role="separator" className="my-1 border-t" />
+                            <MenuButton
+                              icon={Undo2}
+                              label="Manter como manual"
+                              onClick={() => resolveDeletion(transaction, "KEEP_MANUAL")}
+                            />
+                            <MenuButton
+                              icon={Trash2}
+                              label="Remover dos relatórios"
+                              danger
+                              onClick={() => resolveDeletion(transaction, "REMOVE")}
+                            />
+                          </>
+                        )}
                         <div role="separator" className="my-1 border-t" />
                         <MenuButton icon={ArrowDown} label={transaction.internalTransfer ? "Remover transferência interna" : "Marcar como transferência interna"} onClick={() => toggleInternal(transaction)} />
                         <div role="separator" className="my-1 border-t" />
@@ -394,12 +512,18 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
                 ))}
               </tbody>
             </table>
-            {!visible.length && <div className="py-16 text-center text-sm text-[var(--muted-foreground)]">Nenhuma transação encontrada.</div>}
+            {tableLoading && (
+              <div className="flex items-center justify-center gap-2 py-16 text-sm text-[var(--muted-foreground)]">
+                <LoaderCircle className="size-4 animate-spin" />
+                Carregando transações…
+              </div>
+            )}
+            {!tableLoading && !visible.length && <div className="py-16 text-center text-sm text-[var(--muted-foreground)]">Nenhuma transação encontrada.</div>}
           </div>
 
           <div className="mt-5 flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-xs text-[var(--muted-foreground)]">Mostrando {filtered.length ? (safePage - 1) * pageSize + 1 : 0}-{Math.min(safePage * pageSize, filtered.length)} de {filtered.length}</p>
-            <div className="flex items-center gap-2"><Label htmlFor="transactions-page-size" className="text-xs text-[var(--muted-foreground)]">Itens por página:</Label><Select id="transactions-page-size" className="h-9" value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }}><option value={10}>10</option><option value={25}>25</option><option value={50}>50</option></Select><Button variant="ghost" size="icon" aria-label="Página anterior" disabled={safePage <= 1} onClick={() => setPage(safePage - 1)}><ChevronLeft className="size-4" /></Button><span className="text-xs" aria-live="polite">Página {safePage} de {totalPages}</span><Button variant="ghost" size="icon" aria-label="Próxima página" disabled={safePage >= totalPages} onClick={() => setPage(safePage + 1)}><ChevronRight className="size-4" /></Button></div>
+            <p className="text-xs text-[var(--muted-foreground)]">Mostrando {transactionTotal ? (safePage - 1) * pageSize + 1 : 0}-{Math.min(safePage * pageSize, transactionTotal)} de {transactionTotal}</p>
+            <div className="flex items-center gap-2"><Label htmlFor="transactions-page-size" className="text-xs text-[var(--muted-foreground)]">Itens por página:</Label><Select id="transactions-page-size" className="h-9" value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }}><option value={25}>25</option><option value={50}>50</option><option value={100}>100</option></Select><Button variant="ghost" size="icon" aria-label="Página anterior" disabled={safePage <= 1 || tableLoading} onClick={() => setPage(safePage - 1)}><ChevronLeft className="size-4" /></Button><span className="text-xs" aria-live="polite">Página {safePage} de {totalPages}</span><Button variant="ghost" size="icon" aria-label="Próxima página" disabled={safePage >= totalPages || tableLoading} onClick={() => setPage(safePage + 1)}><ChevronRight className="size-4" /></Button></div>
           </div>
         </CardContent>
       </Card>
@@ -417,8 +541,8 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
         </div>
       </Dialog>
 
-      <NewTransactionDialog accounts={data.accounts} tags={data.tags} year={data.year} month={data.month} open={newOpen} onOpenChange={setNewOpen} />
-      <TransactionEditorDialog transaction={editing} accounts={data.accounts} tags={data.tags} open={Boolean(editing)} onOpenChange={(open) => !open && setEditing(null)} />
+      <NewTransactionDialog accounts={data.accounts} tags={data.tags} year={data.year} month={data.month} timeZone={data.profile.timeZone} open={newOpen} onOpenChange={setNewOpen} onSaved={reloadTransactions} />
+      <TransactionEditorDialog transaction={editing} accounts={data.accounts} tags={data.tags} timeZone={data.profile.timeZone} open={Boolean(editing)} onOpenChange={(open) => !open && setEditing(null)} onSaved={reloadTransactions} />
 
       <Dialog open={Boolean(tagging)} onOpenChange={(open) => !open && setTagging(null)} title="Selecionar tags" footer={<Button onClick={saveTags} disabled={pending}>Salvar</Button>}>
         <div className="grid gap-2 sm:grid-cols-2">{data.tags.map((tag) => <label key={tag.id} className="flex items-center gap-3 rounded-xl border p-3 text-sm"><input type="checkbox" checked={tagSelection.includes(tag.id)} onChange={(event) => setTagSelection(event.target.checked ? [...tagSelection, tag.id] : tagSelection.filter((id) => id !== tag.id))} /><span className="size-3 rounded-full" style={{ background: tag.color }} />{tag.name}</label>)}</div>

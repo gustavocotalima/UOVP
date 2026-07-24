@@ -35,6 +35,13 @@ export type YahooFxRate = {
   asOf: Date;
 };
 
+export type YahooHistoricalFxRate = {
+  currency: string;
+  symbol: string;
+  rateToBrl: number;
+  rateDate: Date;
+};
+
 const yahooFinance = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
 const YAHOO_TIMEOUT_MS = 15_000;
 
@@ -92,12 +99,24 @@ export type YahooClient = {
       industryDisp?: string;
     };
   }>;
+  chart?(symbol: string, options: {
+    period1: Date;
+    period2: Date;
+    interval: "1d";
+    events: "history";
+  }): Promise<{
+    quotes: Array<{
+      date: Date;
+      close: number | null;
+    }>;
+  }>;
 };
 
 const defaultYahooClient: YahooClient = {
   search: async (query, options) => yahooFinance.search(query, options),
   quote: async (symbols, options) => yahooFinance.quote(symbols, options),
   quoteSummary: async (symbol, options) => yahooFinance.quoteSummary(symbol, options),
+  chart: async (symbol, options) => yahooFinance.chart(symbol, options),
 };
 
 export class YahooFinanceApiError extends Error {
@@ -107,8 +126,10 @@ export class YahooFinanceApiError extends Error {
   }
 }
 
-async function withYahooTimeout<T>(operation: Promise<T>) {
+async function withYahooTimeout<T>(operation: Promise<T>, signal?: AbortSignal) {
+  if (signal?.aborted) throw signal.reason ?? new DOMException("Operação cancelada.", "AbortError");
   let timeout: ReturnType<typeof setTimeout> | undefined;
+  let abortListener: (() => void) | undefined;
   try {
     return await Promise.race([
       operation,
@@ -117,9 +138,16 @@ async function withYahooTimeout<T>(operation: Promise<T>) {
           reject(new YahooFinanceApiError("O Yahoo Finance demorou demais para responder. Tente novamente."));
         }, YAHOO_TIMEOUT_MS);
       }),
+      ...(signal
+        ? [new Promise<never>((_, reject) => {
+            abortListener = () => reject(signal.reason ?? new DOMException("Operação cancelada.", "AbortError"));
+            signal.addEventListener("abort", abortListener, { once: true });
+          })]
+        : []),
     ]);
   } finally {
     if (timeout) clearTimeout(timeout);
+    if (signal && abortListener) signal.removeEventListener("abort", abortListener);
   }
 }
 
@@ -203,14 +231,19 @@ export async function searchYahooTickers({
   query,
   kind,
   client = defaultYahooClient,
+  signal,
 }: {
   query: string;
   kind: YahooSearchKind;
   client?: YahooClient;
+  signal?: AbortSignal;
 }): Promise<YahooTickerSearchResult[]> {
   let result: Awaited<ReturnType<YahooClient["search"]>>;
   try {
-    result = await withYahooTimeout(client.search(query.trim(), { quotesCount: 20, newsCount: 0 }));
+    result = await withYahooTimeout(
+      client.search(query.trim(), { quotesCount: 20, newsCount: 0 }),
+      signal,
+    );
   } catch (error) {
     throw yahooError(error);
   }
@@ -248,6 +281,7 @@ export async function searchYahooTickers({
     const quotes = await fetchAvailableYahooQuotes({
       symbols: candidates.map((candidate) => candidate.symbol),
       client,
+      signal,
     });
     const quoteBySymbol = new Map(quotes.map((quote) => [quote.symbol, quote]));
     return candidates.map((candidate) => ({
@@ -262,13 +296,16 @@ export async function searchYahooTickers({
 export async function fetchYahooAssetProfile({
   symbol,
   client = defaultYahooClient,
+  signal,
 }: {
   symbol: string;
   client?: YahooClient;
+  signal?: AbortSignal;
 }) {
   try {
     const result = await withYahooTimeout(
       client.quoteSummary(normalizeYahooSymbol(symbol), { modules: ["assetProfile"] }),
+      signal,
     );
     return {
       sector: result.assetProfile?.sector ?? result.assetProfile?.sectorDisp ?? null,
@@ -282,9 +319,11 @@ export async function fetchYahooAssetProfile({
 export async function fetchYahooQuotes({
   symbols,
   client = defaultYahooClient,
+  signal,
 }: {
   symbols: string[];
   client?: YahooClient;
+  signal?: AbortSignal;
 }): Promise<YahooQuote[]> {
   const requestedSymbols = [...new Set(symbols.map(normalizeYahooSymbol).filter(Boolean))];
   if (!requestedSymbols.length) return [];
@@ -296,6 +335,7 @@ export async function fetchYahooQuotes({
         return: "object",
         fields: [...YAHOO_QUOTE_FIELDS],
       }),
+      signal,
     );
   } catch (error) {
     throw yahooError(error);
@@ -323,20 +363,22 @@ export async function fetchYahooQuotes({
 export async function fetchAvailableYahooQuotes({
   symbols,
   client = defaultYahooClient,
+  signal,
 }: {
   symbols: string[];
   client?: YahooClient;
+  signal?: AbortSignal;
 }): Promise<YahooQuote[]> {
   const unique = [...new Set(symbols.map(normalizeYahooSymbol).filter(Boolean))];
   if (!unique.length) return [];
   try {
-    return await fetchYahooQuotes({ symbols: unique, client });
+    return await fetchYahooQuotes({ symbols: unique, client, signal });
   } catch (error) {
     if (unique.length === 1) throw error;
     const middle = Math.ceil(unique.length / 2);
     const [left, right] = await Promise.allSettled([
-      fetchAvailableYahooQuotes({ symbols: unique.slice(0, middle), client }),
-      fetchAvailableYahooQuotes({ symbols: unique.slice(middle), client }),
+      fetchAvailableYahooQuotes({ symbols: unique.slice(0, middle), client, signal }),
+      fetchAvailableYahooQuotes({ symbols: unique.slice(middle), client, signal }),
     ]);
     const available = [
       ...(left.status === "fulfilled" ? left.value : []),
@@ -357,16 +399,18 @@ export function yahooFxSymbol(currency: string) {
 export async function fetchYahooFxRates({
   currencies,
   client = defaultYahooClient,
+  signal,
 }: {
   currencies: string[];
   client?: YahooClient;
+  signal?: AbortSignal;
 }): Promise<YahooFxRate[]> {
   const normalizedCurrencies = [...new Set(currencies.map((currency) => currency.trim().toUpperCase()).filter(Boolean))];
   const symbols = normalizedCurrencies.flatMap((currency) => {
     const symbol = yahooFxSymbol(currency);
     return symbol ? [symbol] : [];
   });
-  const quotes = await fetchAvailableYahooQuotes({ symbols, client });
+  const quotes = await fetchAvailableYahooQuotes({ symbols, client, signal });
   const quoteBySymbol = new Map(quotes.map((quote) => [quote.requestedSymbol, quote]));
   return normalizedCurrencies.flatMap<YahooFxRate>((currency) => {
     if (currency === "BRL") {
@@ -378,4 +422,60 @@ export async function fetchYahooFxRates({
       ? [{ currency, symbol, rateToBrl: quote.price, asOf: quote.asOf }]
       : [];
   });
+}
+
+export async function fetchYahooHistoricalFxRates({
+  currency,
+  period1,
+  period2,
+  client = defaultYahooClient,
+  signal,
+}: {
+  currency: string;
+  period1: Date;
+  period2: Date;
+  client?: YahooClient;
+  signal?: AbortSignal;
+}): Promise<YahooHistoricalFxRate[]> {
+  const normalizedCurrency = currency.trim().toUpperCase();
+  if (normalizedCurrency === "BRL") {
+    return [{
+      currency: "BRL",
+      symbol: "BRL",
+      rateToBrl: 1,
+      rateDate: new Date(Date.UTC(
+        period1.getUTCFullYear(),
+        period1.getUTCMonth(),
+        period1.getUTCDate(),
+      )),
+    }];
+  }
+  const symbol = yahooFxSymbol(normalizedCurrency);
+  if (!symbol || !client.chart) return [];
+  try {
+    const result = await withYahooTimeout(
+      client.chart(symbol, {
+        period1,
+        period2,
+        interval: "1d",
+        events: "history",
+      }),
+      signal,
+    );
+    return result.quotes.flatMap<YahooHistoricalFxRate>((quote) => {
+      if (quote.close == null || !Number.isFinite(quote.close) || quote.close <= 0) return [];
+      return [{
+        currency: normalizedCurrency,
+        symbol,
+        rateToBrl: quote.close,
+        rateDate: new Date(Date.UTC(
+          quote.date.getUTCFullYear(),
+          quote.date.getUTCMonth(),
+          quote.date.getUTCDate(),
+        )),
+      }];
+    });
+  } catch (error) {
+    throw yahooError(error);
+  }
 }

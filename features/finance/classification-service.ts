@@ -39,14 +39,17 @@ function ruleKey(
   return `${kind}:${matchType}:${matchValue}`;
 }
 
-async function ensureDefaultTags(userId: string) {
+async function ensureDefaultTags(
+  userId: string,
+  db: Prisma.TransactionClient | typeof prisma = prisma,
+) {
   for (const [systemKey, tag] of Object.entries(DEFAULT_FINANCE_TAGS)) {
-    const existing = await prisma.financeTag.findUnique({
+    const existing = await db.financeTag.findUnique({
       where: { userId_systemKey: { userId, systemKey } },
       select: { id: true },
     });
     if (existing) continue;
-    await prisma.financeTag.upsert({
+    await db.financeTag.upsert({
       where: { userId_name: { userId, name: tag.name } },
       update: { systemKey },
       create: { userId, systemKey, ...tag },
@@ -57,10 +60,12 @@ async function ensureDefaultTags(userId: string) {
 export async function classifyFinanceTransactionsForUser(
   userId: string,
   transactionIds?: string[],
+  transactionClient?: Prisma.TransactionClient,
 ): Promise<FinanceClassificationSummary> {
-  await ensureDefaultTags(userId);
+  const db = transactionClient ?? prisma;
+  await ensureDefaultTags(userId, db);
   const [transactions, rules, systemTags] = await Promise.all([
-    prisma.financeTransaction.findMany({
+    db.financeTransaction.findMany({
       where: {
         userId,
         source: "PLUGGY",
@@ -69,12 +74,12 @@ export async function classifyFinanceTransactionsForUser(
       },
       include: { tags: true },
     }),
-    prisma.financeClassificationRule.findMany({
+    db.financeClassificationRule.findMany({
       where: { userId, enabled: true },
       include: { tags: true },
       orderBy: { updatedAt: "desc" },
     }),
-    prisma.financeTag.findMany({
+    db.financeTag.findMany({
       where: { userId, systemKey: { not: null } },
       select: { id: true, systemKey: true },
     }),
@@ -177,7 +182,7 @@ export async function classifyFinanceTransactionsForUser(
     }
 
     operations.push(
-      prisma.financeTransaction.update({
+      db.financeTransaction.update({
         where: { id: transaction.id },
         data: {
           budgetCategory: budgetCategory as BudgetCategory | null,
@@ -201,7 +206,9 @@ export async function classifyFinanceTransactionsForUser(
   }
 
   for (let index = 0; index < operations.length; index += CLASSIFICATION_BATCH_SIZE) {
-    await prisma.$transaction(operations.slice(index, index + CLASSIFICATION_BATCH_SIZE));
+    const batch = operations.slice(index, index + CLASSIFICATION_BATCH_SIZE);
+    if (transactionClient) await Promise.all(batch);
+    else await prisma.$transaction(batch);
   }
   return summary;
 }

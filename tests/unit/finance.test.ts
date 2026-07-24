@@ -34,6 +34,10 @@ const bank: FinancialAccountDto = {
   bankCode: null,
   brand: null,
   balance: "1200",
+  balanceBrl: "1200",
+  balanceFxRateToBrl: "1",
+  balanceFxRateDate: "2026-07-10T00:00:00.000Z",
+  balanceFxSource: "NATIVE",
   creditLimit: null,
   availableCredit: null,
   dueDay: null,
@@ -49,6 +53,7 @@ const card: FinancialAccountDto = {
   type: "CREDIT_CARD",
   name: "Cartão",
   balance: "400",
+  balanceBrl: "400",
   creditLimit: "2000",
   availableCredit: "1600",
   dueDay: 14,
@@ -56,7 +61,7 @@ const card: FinancialAccountDto = {
 };
 
 function transaction(overrides: Partial<FinanceTransactionDto> = {}): FinanceTransactionDto {
-  return {
+  const result: FinanceTransactionDto = {
     id: "txn",
     accountId: bank.id,
     accountName: bank.name,
@@ -75,6 +80,10 @@ function transaction(overrides: Partial<FinanceTransactionDto> = {}): FinanceTra
     paymentMethod: null,
     amount: "-100",
     currencyCode: "BRL",
+    reportingAmountBrl: "-100",
+    fxRateToBrl: "1",
+    fxRateDate: "2026-07-10T00:00:00.000Z",
+    fxSource: "NATIVE",
     originalAmount: null,
     originalCurrencyCode: null,
     date: "2026-07-10T12:00:00.000Z",
@@ -88,6 +97,8 @@ function transaction(overrides: Partial<FinanceTransactionDto> = {}): FinanceTra
     status: null,
     note: null,
     ignored: false,
+    providerLifecycle: "ACTIVE",
+    providerDeletedAt: null,
     internalTransfer: false,
     internalTransferSource: "UNASSIGNED",
     installmentNumber: null,
@@ -97,6 +108,10 @@ function transaction(overrides: Partial<FinanceTransactionDto> = {}): FinanceTra
     tags: [],
     ...overrides,
   };
+  result.reportingAmountBrl = overrides.reportingAmountBrl === undefined
+    ? result.amount
+    : overrides.reportingAmountBrl;
+  return result;
 }
 
 describe("finanças AUVP", () => {
@@ -129,7 +144,14 @@ describe("finanças AUVP", () => {
       transaction({ id: "ignored", amount: "-500", ignored: true }),
       transaction({ id: "internal", amount: "-200", internalTransfer: true }),
     ]);
-    expect(result).toEqual({ income: 1000, spent: 250, balance: 750 });
+    expect(result).toEqual({
+      income: 1000,
+      grossIncome: 1000,
+      budgetBaseIncome: 0,
+      spent: 250,
+      balance: 750,
+      missingFxCount: 0,
+    });
   });
 
   it("desconta entradas categorizadas do valor realizado na mesma meta", () => {
@@ -189,7 +211,12 @@ describe("finanças AUVP", () => {
   });
 
   it("calcula saldo bancário, dívida dos cartões e resultado", () => {
-    expect(calculateAccountTotals([bank, card])).toEqual({ bankBalance: 1200, cardDebt: 400, result: 800 });
+    expect(calculateAccountTotals([bank, card])).toEqual({
+      bankBalance: 1200,
+      cardDebt: 400,
+      result: 800,
+      missingFxCount: 0,
+    });
   });
 
   it("monta o histórico no mês de referência, não apenas pela data da transação", () => {
@@ -227,5 +254,36 @@ describe("finanças AUVP", () => {
       new Date("2026-07-20T12:00:00.000Z"),
     );
     expect(invoices.find((invoice) => invoice.key === "2026-07")?.total).toBe(50);
+  });
+
+  it("usa o calendário do usuário perto da virada do dia", () => {
+    const invoices = calculateInvoices(
+      card,
+      [transaction({
+        id: "timezone-boundary",
+        accountId: card.id,
+        accountName: card.name,
+        accountType: "CREDIT_CARD",
+        amount: "-50",
+        date: "2026-07-08T01:00:00.000Z",
+      })],
+      new Date("2026-07-20T12:00:00.000Z"),
+      "America/Sao_Paulo",
+    );
+    expect(invoices.find((invoice) => invoice.key === "2026-07")?.total).toBe(50);
+  });
+
+  it("exclui dos totais BRL apenas a transação sem conversão", () => {
+    expect(calculatePeriod([
+      transaction({ id: "converted", kind: "INCOME", amount: "100", reportingAmountBrl: "550", budgetCategory: null }),
+      transaction({ id: "missing", amount: "-658600", currencyCode: "PYG", reportingAmountBrl: null }),
+    ])).toEqual({
+      income: 550,
+      grossIncome: 550,
+      budgetBaseIncome: 550,
+      spent: 0,
+      balance: 550,
+      missingFxCount: 1,
+    });
   });
 });

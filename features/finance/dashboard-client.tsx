@@ -11,7 +11,7 @@ import { formatCurrency, formatMoney, formatPercent } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import {
   calculateBudgetCategories,
-  calculateHistory,
+  calculateAccountTotals,
   calculatePeriod,
   calculateTagTotals,
   categoryLabel,
@@ -22,25 +22,37 @@ export function FinanceDashboardClient({ data }: { data: FinanceData }) {
   const [range, setRange] = useState<3 | 6 | 12>(6);
   const period = useMemo(() => calculatePeriod(data.transactions), [data.transactions]);
   const history = useMemo(
-    () => calculateHistory(data.historyTransactions, data.year, data.month, range),
-    [data.historyTransactions, data.year, data.month, range],
+    () => data.history.slice(-range).map((item) => ({
+      key: `${item.year}-${String(item.month).padStart(2, "0")}`,
+      month: new Intl.DateTimeFormat("pt-BR", { month: "short", timeZone: "UTC" })
+        .format(new Date(Date.UTC(item.year, item.month - 1, 1)))
+        .replace(".", ""),
+      income: item.grossIncome,
+      spent: item.spent,
+      balance: item.balance,
+    })),
+    [data.history, range],
   );
   const tags = useMemo(() => calculateTagTotals(data.transactions, data.tags), [data.transactions, data.tags]);
   const categories = useMemo(
-    () => calculateBudgetCategories(data.transactions, data.goals, period.income),
-    [data.transactions, data.goals, period.income],
+    () => calculateBudgetCategories(data.transactions, data.goals, period.budgetBaseIncome),
+    [data.transactions, data.goals, period.budgetBaseIncome],
   );
+  const accountTotals = useMemo(() => calculateAccountTotals(data.accounts), [data.accounts]);
 
   return (
     <div className="space-y-6">
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      {(period.missingFxCount > 0 || accountTotals.missingFxCount > 0) && (
+        <div className="rounded-xl border border-[var(--primary)]/35 bg-[var(--primary)]/8 p-4 text-sm">
+          Há valores em moeda estrangeira aguardando conversão. Eles não foram incluídos nos totais em BRL.
+        </div>
+      )}
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <Summary label="Resultado do período" value={period.balance} tone={period.balance < 0 ? "danger" : "default"} />
-        <Summary label="Receitas" value={period.income} tone="success" />
+        <Summary label="Entradas" value={period.grossIncome} tone="success" />
+        <Summary label="Renda considerada nas metas" value={period.budgetBaseIncome} />
         <Summary label="Despesas" value={period.spent} tone="danger" />
-        <Summary
-          label="Saldo em conta"
-          value={data.accounts.filter((account) => account.type === "BANK_ACCOUNT").reduce((sum, account) => sum + Number(account.balance), 0)}
-        />
+        <Summary label="Saldo em conta" value={accountTotals.bankBalance} />
       </section>
 
       <section className="grid gap-6 xl:grid-cols-[1.55fr_1fr]">
@@ -55,6 +67,7 @@ export function FinanceDashboardClient({ data }: { data: FinanceData }) {
                 <button
                   key={value}
                   type="button"
+                  aria-pressed={range === value}
                   className={cn("rounded-lg px-3 py-1.5 text-xs font-semibold", range === value && "bg-[var(--card)] shadow-sm")}
                   onClick={() => setRange(value)}
                 >
@@ -157,7 +170,7 @@ export function FinanceDashboardClient({ data }: { data: FinanceData }) {
           </CardHeader>
           <CardContent className="divide-y">
             {data.recentTransactions.map((transaction) => {
-              const incoming = Number(transaction.amount) >= 0;
+              const incoming = transaction.kind === "INCOME";
               return (
                 <div key={transaction.id} className="flex items-center gap-3 py-3 first:pt-0">
                   <span className={cn("grid size-9 shrink-0 place-items-center rounded-full", incoming ? "bg-[var(--success)]/12 text-[var(--success)]" : "bg-[var(--danger)]/10 text-[var(--danger)]")}>

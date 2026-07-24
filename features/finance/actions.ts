@@ -201,6 +201,10 @@ export async function saveFinancialAccountAction(input: {
     bankCode: parsed.bankCode || null,
     brand: parsed.brand || null,
     balance: parsed.balance,
+    balanceBrl: parsed.balance,
+    balanceFxRateToBrl: 1,
+    balanceFxRateDate: new Date(),
+    balanceFxSource: "NATIVE" as const,
     creditLimit: parsed.creditLimit ?? null,
     availableCredit:
       parsed.creditLimit == null
@@ -308,6 +312,11 @@ export async function createFinanceTransactionAction(input: {
         kind: parsed.kind,
         description: parsed.description,
         amount: signedAmount,
+        currencyCode: "BRL",
+        reportingAmountBrl: signedAmount,
+        fxRateToBrl: 1,
+        fxRateDate: new Date(`${parsed.date}T12:00:00.000Z`),
+        fxSource: "NATIVE",
         date: new Date(`${parsed.date}T12:00:00.000Z`),
         referenceYear: parsed.referenceYear,
         referenceMonth: parsed.referenceMonth,
@@ -322,7 +331,10 @@ export async function createFinanceTransactionAction(input: {
     if (account.source === "MANUAL") {
       await tx.financialAccount.update({
         where: { id: account.id },
-        data: { balance: { increment: balanceAdjustment(account.type, signedAmount) } },
+        data: {
+          balance: { increment: balanceAdjustment(account.type, signedAmount) },
+          balanceBrl: { increment: balanceAdjustment(account.type, signedAmount) },
+        },
       });
     }
   });
@@ -379,13 +391,19 @@ export async function updateFinanceTransactionAction(input: {
       if (oldAccount.source === "MANUAL") {
         await tx.financialAccount.update({
           where: { id: oldAccount.id },
-          data: { balance: { decrement: balanceAdjustment(oldAccount.type, transaction.amount) } },
+          data: {
+            balance: { decrement: balanceAdjustment(oldAccount.type, transaction.amount) },
+            balanceBrl: { decrement: balanceAdjustment(oldAccount.type, transaction.amount) },
+          },
         });
       }
       if (nextAccount.source === "MANUAL") {
         await tx.financialAccount.update({
           where: { id: nextAccount.id },
-          data: { balance: { increment: balanceAdjustment(nextAccount.type, amount) } },
+          data: {
+            balance: { increment: balanceAdjustment(nextAccount.type, amount) },
+            balanceBrl: { increment: balanceAdjustment(nextAccount.type, amount) },
+          },
         });
       }
     }
@@ -397,6 +415,12 @@ export async function updateFinanceTransactionAction(input: {
               description: parsed.description ?? transaction.description,
               accountId: targetAccount?.id ?? transaction.accountId,
               amount,
+              reportingAmountBrl: amount,
+              fxRateToBrl: 1,
+              fxRateDate: parsed.date
+                ? new Date(`${parsed.date}T12:00:00.000Z`)
+                : transaction.fxRateDate,
+              fxSource: "NATIVE",
               kind,
               date: parsed.date ? new Date(`${parsed.date}T12:00:00.000Z`) : transaction.date,
             }
@@ -648,6 +672,61 @@ export async function saveFinanceTransactionNoteAction(id: string, note: string)
   revalidateFinance();
 }
 
+export async function saveFinanceTransactionManualFxAction(input: {
+  id: string;
+  rateToBrl: number;
+  rateDate?: string;
+}) {
+  const userId = await requireUserId();
+  const parsed = z.object({
+    id: idSchema,
+    rateToBrl: z.number().finite().positive().max(1_000_000),
+    rateDate: z.string().date().optional(),
+  }).parse(input);
+  const transaction = await ownedTransaction(userId, parsed.id);
+  const rate = new Prisma.Decimal(parsed.rateToBrl);
+  await prisma.financeTransaction.update({
+    where: { id: transaction.id },
+    data: {
+      fxRateToBrl: rate,
+      fxRateDate: parsed.rateDate
+        ? new Date(`${parsed.rateDate}T12:00:00.000Z`)
+        : transaction.date,
+      fxSource: "MANUAL",
+      reportingAmountBrl: transaction.amount.mul(rate).toDecimalPlaces(2),
+    },
+  });
+  revalidateFinance();
+}
+
+export async function resolvePendingPluggyDeletionAction(
+  id: string,
+  decision: "KEEP_MANUAL" | "REMOVE",
+) {
+  const userId = await requireUserId();
+  const transaction = await ownedTransaction(userId, idSchema.parse(id));
+  if (transaction.source !== "PLUGGY" || transaction.providerLifecycle !== "DELETION_PENDING") {
+    throw new Error("Esta transação não está aguardando uma decisão.");
+  }
+  await prisma.financeTransaction.update({
+    where: { id: transaction.id },
+    data: decision === "KEEP_MANUAL"
+      ? {
+          source: "MANUAL",
+          externalId: null,
+          providerLifecycle: "KEPT_MANUAL",
+          providerDeletedAt: null,
+          deleted: false,
+        }
+      : {
+          providerLifecycle: "REMOVED",
+          providerDeletedAt: transaction.providerDeletedAt ?? new Date(),
+          deleted: true,
+        },
+  });
+  revalidateFinance();
+}
+
 export async function deleteFinanceTransactionAction(id: string) {
   const userId = await requireUserId();
   const transaction = await ownedTransaction(userId, idSchema.parse(id));
@@ -657,7 +736,10 @@ export async function deleteFinanceTransactionAction(id: string) {
       if (account.source === "MANUAL") {
         await tx.financialAccount.update({
           where: { id: account.id },
-          data: { balance: { decrement: balanceAdjustment(account.type, transaction.amount) } },
+          data: {
+            balance: { decrement: balanceAdjustment(account.type, transaction.amount) },
+            balanceBrl: { decrement: balanceAdjustment(account.type, transaction.amount) },
+          },
         });
       }
       await tx.financeTransaction.delete({ where: { id: transaction.id } });

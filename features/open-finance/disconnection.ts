@@ -1,5 +1,5 @@
 import { Prisma } from "@prisma/client";
-import { withUserOperationLease } from "@/lib/operation-security";
+import { type UserOperationLeaseContext, withUserOperationLease } from "@/lib/operation-security";
 import { prisma } from "@/lib/prisma";
 
 async function invalidatePortfolioAfterDisconnection(
@@ -19,7 +19,10 @@ async function invalidatePortfolioAfterDisconnection(
   });
 }
 
-async function markPluggyItemDisconnectedUnlocked(pluggyItemId: string) {
+async function markPluggyItemDisconnectedUnlocked(
+  pluggyItemId: string,
+  lease: UserOperationLeaseContext,
+) {
   const item = await prisma.pluggyItem.findUnique({
     where: { pluggyItemId },
     include: {
@@ -40,13 +43,9 @@ async function markPluggyItemDisconnectedUnlocked(pluggyItemId: string) {
   if (item.status === "DELETED" && item.disconnectionResolution && item.disconnectionResolution !== "PENDING") {
     return { userId: item.userId, itemId: item.id };
   }
-  const holdings = item.investments.flatMap((investment) =>
-    investment.diagramLink?.holding ? [investment.diagramLink.holding] : [],
-  );
-  const portfolioId = holdings[0]?.asset.portfolioId ?? null;
   const now = new Date();
 
-  await prisma.$transaction(async (tx) => {
+  await lease.runFencedTransaction(async (tx) => {
     await tx.pluggyItem.update({
       where: { id: item.id },
       data: {
@@ -63,23 +62,31 @@ async function markPluggyItemDisconnectedUnlocked(pluggyItemId: string) {
         source: "PLUGGY",
         providerItemId: item.pluggyItemId,
       },
-      data: { active: false },
+      data: { active: true },
     });
     await tx.pluggyInvestment.updateMany({
-      where: { pluggyItemDbId: item.id },
-      data: { providerAvailable: false, providerRemovedAt: now },
+      where: { pluggyItemDbId: item.id, status: "ACTIVE" },
+      data: { providerAvailable: true, providerRemovedAt: null },
     });
-    if (holdings.length) {
+    const mappedHoldingIds = item.investments.flatMap((investment) =>
+      investment.status === "ACTIVE"
+      && investment.diagramLink?.status === "MAPPED"
+      && investment.diagramLink.holding
+        ? [investment.diagramLink.holding.id]
+        : [],
+    );
+    if (mappedHoldingIds.length) {
       await tx.assetHolding.updateMany({
-        where: { id: { in: holdings.map((holding) => holding.id) } },
-        data: { includedInTotals: false },
+        where: { id: { in: mappedHoldingIds } },
+        data: { includedInTotals: true },
       });
+    }
+    if (item.investments.length) {
       await tx.pluggyInvestmentDiagramLink.updateMany({
         where: { pluggyInvestmentDbId: { in: item.investments.map((investment) => investment.id) } },
         data: { lastReconciledAt: now },
       });
     }
-    await invalidatePortfolioAfterDisconnection(tx, item.userId, portfolioId);
   });
 
   return { userId: item.userId, itemId: item.id };
@@ -95,7 +102,7 @@ export async function markPluggyItemDisconnected(pluggyItemId: string) {
     userId: item.userId,
     operation: "pluggy-sync",
     leaseMs: 10 * 60_000,
-    action: () => markPluggyItemDisconnectedUnlocked(pluggyItemId),
+    action: (lease) => markPluggyItemDisconnectedUnlocked(pluggyItemId, lease),
   });
 }
 
@@ -103,6 +110,7 @@ async function resolvePluggyItemDisconnectionUnlocked(
   userId: string,
   itemId: string,
   resolution: "KEEP_MANUAL" | "REMOVE",
+  lease: UserOperationLeaseContext,
 ) {
   const item = await prisma.pluggyItem.findFirst({
     where: {
@@ -136,8 +144,9 @@ async function resolvePluggyItemDisconnectionUnlocked(
       : [],
   );
   const portfolioId = linked[0]?.holding.asset.portfolioId ?? null;
+  const now = new Date();
 
-  await prisma.$transaction(async (tx) => {
+  await lease.runFencedTransaction(async (tx) => {
     for (const entry of linked) {
       if (resolution === "KEEP_MANUAL") {
         const providerValue = entry.holding.providerCurrentValue
@@ -168,6 +177,65 @@ async function resolvePluggyItemDisconnectionUnlocked(
         },
       });
     }
+    const accounts = await tx.financialAccount.findMany({
+      where: {
+        userId,
+        source: "PLUGGY",
+        providerItemId: item.pluggyItemId,
+      },
+      select: { id: true },
+    });
+    const accountIds = accounts.map((account) => account.id);
+    if (resolution === "KEEP_MANUAL") {
+      if (accountIds.length) {
+        await tx.financeTransaction.updateMany({
+          where: {
+            userId,
+            accountId: { in: accountIds },
+            source: "PLUGGY",
+          },
+          data: {
+            source: "MANUAL",
+            externalId: null,
+            providerLifecycle: "KEPT_MANUAL",
+            providerDeletedAt: now,
+          },
+        });
+      }
+      await tx.financialAccount.updateMany({
+        where: { id: { in: accountIds } },
+        data: {
+          source: "MANUAL",
+          externalId: null,
+          providerItemId: null,
+          active: true,
+        },
+      });
+    } else {
+      if (accountIds.length) {
+        await tx.financeTransaction.updateMany({
+          where: { userId, accountId: { in: accountIds }, source: "PLUGGY" },
+          data: {
+            providerLifecycle: "REMOVED",
+            providerDeletedAt: now,
+          },
+        });
+      }
+      await tx.financialAccount.updateMany({
+        where: { id: { in: accountIds } },
+        data: { active: false },
+      });
+      if (linked.length) {
+        await tx.assetHolding.updateMany({
+          where: { id: { in: linked.map((entry) => entry.holding.id) } },
+          data: { includedInTotals: false },
+        });
+      }
+    }
+    await tx.pluggyInvestment.updateMany({
+      where: { pluggyItemDbId: item.id },
+      data: { providerAvailable: false, providerRemovedAt: now },
+    });
     await tx.pluggyItem.update({
       where: { id: item.id },
       data: { disconnectionResolution: resolution },
@@ -190,6 +258,6 @@ export async function resolvePluggyItemDisconnection(
     userId,
     operation: "pluggy-sync",
     leaseMs: 10 * 60_000,
-    action: () => resolvePluggyItemDisconnectionUnlocked(userId, item.id, resolution),
+    action: (lease) => resolvePluggyItemDisconnectionUnlocked(userId, item.id, resolution, lease),
   });
 }

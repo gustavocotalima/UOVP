@@ -11,14 +11,19 @@ import { Label } from "@/components/ui/label";
 export function AuthForm({
   mode,
   action,
+  inviteToken,
+  invitedEmail,
 }: {
   mode: "login" | "register";
   action: (state: AuthFormState, formData: FormData) => Promise<AuthFormState>;
+  inviteToken?: string;
+  invitedEmail?: string;
 }) {
   const [state, formAction, pending] = useActionState(action, {});
   const registering = mode === "register";
   return (
     <form action={formAction} className="space-y-4">
+      {registering && inviteToken && <input type="hidden" name="inviteToken" value={inviteToken} />}
       {registering && (
         <div className="space-y-2">
           <Label htmlFor="name">Nome</Label>
@@ -27,7 +32,16 @@ export function AuthForm({
       )}
       <div className="space-y-2">
         <Label htmlFor="email">E-mail</Label>
-        <Input id="email" name="email" type="email" autoComplete="email" required maxLength={254} />
+        <Input
+          id="email"
+          name="email"
+          type="email"
+          autoComplete="email"
+          required
+          maxLength={254}
+          value={registering ? invitedEmail : undefined}
+          readOnly={registering}
+        />
       </div>
       <div className="space-y-2">
         <Label htmlFor="password">Senha</Label>
@@ -40,9 +54,11 @@ export function AuthForm({
       </Button>
       <p className="text-center text-sm text-[var(--muted-foreground)]">
         {registering ? "Já possui conta?" : "Ainda não possui conta?"}{" "}
-        <Link href={registering ? "/login" : "/register"} className="font-semibold text-[var(--primary)] hover:underline">
-          {registering ? "Entrar" : "Criar conta"}
-        </Link>
+        {registering ? (
+          <Link href="/login" className="font-semibold text-[var(--primary)] hover:underline">Entrar</Link>
+        ) : (
+          <span>Solicite um convite ao administrador.</span>
+        )}
       </p>
     </form>
   );

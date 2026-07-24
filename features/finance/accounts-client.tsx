@@ -28,7 +28,7 @@ import { Input } from "@/components/ui/input";
 import { InstitutionLogo } from "@/components/ui/institution-logo";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
-import { formatMoney } from "@/lib/money";
+import { formatCurrency, formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import {
   deleteFinancialAccountAction,
@@ -137,11 +137,20 @@ export function AccountsClient({ data }: { data: FinanceData }) {
         language: "pt",
         theme: document.documentElement.classList.contains("dark") ? "dark" : "light",
         onSuccess: async (payload) => {
-          const itemId = payload.item?.id ?? payload.id;
-          if (!itemId) throw new Error("A conexão terminou sem identificar a instituição.");
-          await requestJson("/api/pluggy/items", { itemId });
-          setNotice({ type: "success", text: "Instituição conectada e sincronizada." });
-          router.refresh();
+          try {
+            const itemId = payload.item?.id ?? payload.id;
+            if (!itemId) throw new Error("A conexão terminou sem identificar a instituição.");
+            await requestJson("/api/pluggy/items", { itemId });
+            setNotice({ type: "success", text: "Instituição conectada e sincronizada." });
+            router.refresh();
+          } catch (error) {
+            setNotice({
+              type: "error",
+              text: error instanceof Error ? error.message : "Não foi possível sincronizar a instituição.",
+            });
+          } finally {
+            setBusy(false);
+          }
         },
         onError: (error) => setNotice({ type: "error", text: error.message || "A Pluggy não concluiu a conexão." }),
         onClose: () => setBusy(false),
@@ -262,6 +271,11 @@ export function AccountsClient({ data }: { data: FinanceData }) {
         }}
       />
       {notice && <FinanceNotice type={notice.type}>{notice.text}</FinanceNotice>}
+      {totals.missingFxCount > 0 && (
+        <FinanceNotice type="info">
+          {totals.missingFxCount} conta(s) em moeda estrangeira aguardam conversão e não entram nos totais em BRL.
+        </FinanceNotice>
+      )}
       {scriptFailed && (
         <FinanceNotice type="error">
           <span className="flex flex-wrap items-center gap-3">
@@ -300,8 +314,8 @@ export function AccountsClient({ data }: { data: FinanceData }) {
         <AccountSummary label="Resultado do período" value={totals.result} icon={WalletCards} danger={totals.result < 0} />
       </section>
 
-      <AccountSection title="Contas Bancárias" accounts={banks} view={view} onEdit={openEdit} onDelete={setDeleting} />
-      <AccountSection title="Cartões" accounts={cards} view={view} onEdit={openEdit} onDelete={setDeleting} />
+      <AccountSection title="Contas Bancárias" accounts={banks} view={view} timeZone={data.profile.timeZone} onEdit={openEdit} onDelete={setDeleting} />
+      <AccountSection title="Cartões" accounts={cards} view={view} timeZone={data.profile.timeZone} onEdit={openEdit} onDelete={setDeleting} />
 
       <Dialog open={newChoiceOpen} onOpenChange={setNewChoiceOpen} title="Como você gostaria de adicioná-lo?" className="max-w-xl">
         <div className="grid gap-4 sm:grid-cols-2">
@@ -323,8 +337,8 @@ export function AccountsClient({ data }: { data: FinanceData }) {
       </Dialog>
 
       <Dialog open={orderOpen} onOpenChange={setOrderOpen} dismissible={!busy} title="Ordenar contas" description="Reorganize suas contas na ordem desejada." footer={<><Button variant="outline" onClick={() => setOrderOpen(false)}>Cancelar</Button><Button onClick={saveOrder} disabled={busy || !order.length}>Salvar</Button></>}>
-        <div className="grid grid-cols-2 rounded-xl bg-[var(--muted)] p-1">
-          {(["BANK_ACCOUNT", "CREDIT_CARD"] as const).map((type) => <button key={type} type="button" onClick={() => openOrder(type)} className={cn("rounded-lg px-3 py-2 text-sm font-semibold", orderType === type && "bg-[var(--card)] shadow-sm")}>{type === "BANK_ACCOUNT" ? "Contas Bancárias" : "Cartões"}</button>)}
+        <div className="grid grid-cols-2 rounded-xl bg-[var(--muted)] p-1" role="radiogroup" aria-label="Tipo de conta para ordenar">
+          {(["BANK_ACCOUNT", "CREDIT_CARD"] as const).map((type) => <button key={type} type="button" role="radio" aria-checked={orderType === type} onClick={() => openOrder(type)} className={cn("rounded-lg px-3 py-2 text-sm font-semibold", orderType === type && "bg-[var(--card)] shadow-sm")}>{type === "BANK_ACCOUNT" ? "Contas Bancárias" : "Cartões"}</button>)}
         </div>
         <div className="mt-5 space-y-2">
           {order.map((id, index) => {
@@ -354,23 +368,23 @@ function AccountSummary({ label, value, icon: Icon, danger = false }: { label: s
   return <Card><CardContent className="flex items-center gap-4 p-5"><span className="grid size-11 place-items-center rounded-xl bg-[var(--primary)]/12 text-[var(--primary)]"><Icon className="size-5" /></span><div><p className="text-xs text-[var(--muted-foreground)]">{label}</p><p className={cn("mt-1 text-xl font-semibold", danger && "text-[var(--danger)]")}>{formatMoney(value)}</p></div></CardContent></Card>;
 }
 
-function AccountSection({ title, accounts, view, onEdit, onDelete }: { title: string; accounts: FinancialAccountDto[]; view: "cards" | "list"; onEdit: (account: FinancialAccountDto) => void; onDelete: (account: FinancialAccountDto) => void }) {
+function AccountSection({ title, accounts, view, timeZone, onEdit, onDelete }: { title: string; accounts: FinancialAccountDto[]; view: "cards" | "list"; timeZone: string; onEdit: (account: FinancialAccountDto) => void; onDelete: (account: FinancialAccountDto) => void }) {
   return (
     <section>
       <div className="mb-3 flex items-center gap-2"><h2 className="text-lg font-semibold">{title}</h2><span className="rounded-full bg-[var(--muted)] px-2 py-0.5 text-xs">{accounts.length}</span></div>
       {view === "cards" ? (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {accounts.map((account) => <AccountCard key={account.id} account={account} onEdit={onEdit} onDelete={onDelete} />)}
+          {accounts.map((account) => <AccountCard key={account.id} account={account} timeZone={timeZone} onEdit={onEdit} onDelete={onDelete} />)}
         </div>
       ) : (
-        <Card className="overflow-hidden"><div className="overflow-x-auto"><table className="w-full min-w-[820px] text-left text-sm"><thead className="border-b text-[11px] uppercase tracking-wide text-[var(--muted-foreground)]"><tr><th className="p-4">Conta</th><th>Tipo</th><th>Agência / Conta</th><th>Saldo</th><th>Sincronização</th><th className="pr-4 text-right">Ações</th></tr></thead><tbody className="divide-y">{accounts.map((account) => <tr key={account.id}><td className="p-4"><div className="flex items-center gap-3"><AccountLogo account={account} /><div><p className="font-semibold">{account.name}</p><p className="text-xs text-[var(--muted-foreground)]">{account.institutionName}</p></div></div></td><td>{accountSubtypeLabel(account.subtype, account.type)}</td><td>{account.type === "CREDIT_CARD" ? `•••• ${account.numberLastFour || "—"}` : `${account.agency ? `Ag ${account.agency} · ` : ""}${account.accountNumber || "—"}`}</td><td className="font-semibold">{formatMoney(Number(account.balance))}</td><td className="text-xs text-[var(--muted-foreground)]">{account.providerUpdatedAt ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(account.providerUpdatedAt)) : "Manual"}</td><td className="pr-4"><div className="flex justify-end gap-1"><Button variant="ghost" size="icon" onClick={() => onEdit(account)} aria-label="Editar conta"><Pencil className="size-4" /></Button><Button variant="ghost" size="icon" onClick={() => onDelete(account)} aria-label="Excluir conta"><Trash2 className="size-4" /></Button></div></td></tr>)}</tbody></table></div></Card>
+        <Card className="overflow-hidden"><div className="overflow-x-auto"><table className="w-full min-w-[820px] text-left text-sm"><thead className="border-b text-[11px] uppercase tracking-wide text-[var(--muted-foreground)]"><tr><th className="p-4">Conta</th><th>Tipo</th><th>Agência / Conta</th><th>Saldo</th><th>Sincronização</th><th className="pr-4 text-right">Ações</th></tr></thead><tbody className="divide-y">{accounts.map((account) => <tr key={account.id}><td className="p-4"><div className="flex items-center gap-3"><AccountLogo account={account} /><div><p className="font-semibold">{account.name}</p><p className="text-xs text-[var(--muted-foreground)]">{account.institutionName}</p></div></div></td><td>{accountSubtypeLabel(account.subtype, account.type)}</td><td>{account.type === "CREDIT_CARD" ? `•••• ${account.numberLastFour || "—"}` : `${account.agency ? `Ag ${account.agency} · ` : ""}${account.accountNumber || "—"}`}</td><td className="font-semibold">{formatCurrency(account.balance, account.currencyCode)}</td><td className="text-xs text-[var(--muted-foreground)]">{account.providerUpdatedAt ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone }).format(new Date(account.providerUpdatedAt)) : "Manual"}</td><td className="pr-4"><div className="flex justify-end gap-1"><Button variant="ghost" size="icon" onClick={() => onEdit(account)} aria-label="Editar conta"><Pencil className="size-4" /></Button><Button variant="ghost" size="icon" onClick={() => onDelete(account)} aria-label="Excluir conta"><Trash2 className="size-4" /></Button></div></td></tr>)}</tbody></table></div></Card>
       )}
       {!accounts.length && <Card><CardContent className="py-10 text-center text-sm text-[var(--muted-foreground)]">Nenhuma conta nesta categoria.</CardContent></Card>}
     </section>
   );
 }
 
-function AccountCard({ account, onEdit, onDelete }: { account: FinancialAccountDto; onEdit: (account: FinancialAccountDto) => void; onDelete: (account: FinancialAccountDto) => void }) {
+function AccountCard({ account, timeZone, onEdit, onDelete }: { account: FinancialAccountDto; timeZone: string; onEdit: (account: FinancialAccountDto) => void; onDelete: (account: FinancialAccountDto) => void }) {
   const [show, setShow] = useState(false);
   const used = Math.abs(Number(account.balance));
   const limit = account.creditLimit ? Number(account.creditLimit) : null;
@@ -397,10 +411,10 @@ function AccountCard({ account, onEdit, onDelete }: { account: FinancialAccountD
         {account.type === "BANK_ACCOUNT" ? (
           <>
             <p className="text-xs text-[var(--muted-foreground)]">Saldo disponível</p>
-            <p className="mt-1 text-2xl font-semibold">{formatMoney(Number(account.balance))}</p>
+            <p className="mt-1 text-2xl font-semibold">{formatCurrency(account.balance, account.currencyCode)}</p>
             <p className="mt-4 text-xs text-[var(--muted-foreground)]">
               {account.providerUpdatedAt
-                ? `Sincronizado em ${new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(account.providerUpdatedAt))}`
+                ? `Sincronizado em ${new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone }).format(new Date(account.providerUpdatedAt))}`
                 : "Conta manual"}
             </p>
           </>
@@ -417,11 +431,11 @@ function AccountCard({ account, onEdit, onDelete }: { account: FinancialAccountD
             <div className="mt-5 grid grid-cols-2 gap-4">
               <div>
                 <p className="text-xs text-[var(--muted-foreground)]">Limite Total</p>
-                <p className="mt-1 font-semibold">{limit == null ? "•••" : formatMoney(limit)}</p>
+                <p className="mt-1 font-semibold">{limit == null ? "•••" : formatCurrency(limit, account.currencyCode)}</p>
               </div>
               <div>
                 <p className="text-xs text-[var(--muted-foreground)]">Utilizado</p>
-                <p className="mt-1 font-semibold">{formatMoney(used)}</p>
+                <p className="mt-1 font-semibold">{formatCurrency(used, account.currencyCode)}</p>
               </div>
             </div>
             <div className="mt-4">

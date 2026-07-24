@@ -3,6 +3,7 @@ import { PrismaClient } from "@prisma/client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   OperationInProgressError,
+  OperationLeaseLostError,
   withUserOperationLease,
 } from "@/lib/operation-security";
 
@@ -75,5 +76,29 @@ suite("lease distribuído de operações", () => {
     `;
 
     expect(constraints).toEqual([{ deleteAction: "CASCADE" }]);
+  });
+
+  it("impede gravações cercadas depois que o worker perde o lease", async () => {
+    const operation = `fencing-${randomUUID()}`;
+    await expect(withUserOperationLease({
+      userId,
+      operation,
+      leaseMs: 10_000,
+      action: async (lease) => {
+        await db!.userOperationLease.update({
+          where: { userId_operation: { userId, operation } },
+          data: {
+            id: randomUUID(),
+            lockedUntil: new Date(Date.now() + 10_000),
+          },
+        });
+        await expect(lease.runFencedTransaction(async (tx) => {
+          await tx.user.update({ where: { id: userId }, data: { name: "não deve gravar" } });
+        })).rejects.toBeInstanceOf(OperationLeaseLostError);
+        throw new OperationLeaseLostError();
+      },
+    })).rejects.toBeInstanceOf(OperationLeaseLostError);
+
+    expect((await db!.user.findUniqueOrThrow({ where: { id: userId } })).name).not.toBe("não deve gravar");
   });
 });

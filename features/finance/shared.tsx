@@ -33,10 +33,10 @@ export function MonthNavigator({
   const searchParams = useSearchParams();
 
   function move(offset: number) {
-    const date = new Date(year, month - 1 + offset, 1);
+    const monthIndex = year * 12 + month - 1 + offset;
     const next = new URLSearchParams(searchParams.toString());
-    next.set("year", String(date.getFullYear()));
-    next.set("month", String(date.getMonth() + 1));
+    next.set("year", String(Math.floor(monthIndex / 12)));
+    next.set("month", String((monthIndex % 12) + 1));
     router.push(`?${next.toString()}`, { scroll: false });
   }
 

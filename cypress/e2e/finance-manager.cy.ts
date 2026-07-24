@@ -47,7 +47,7 @@ describe("gestor financeiro inspirado no AUVP", () => {
     cy.contains("Renda mensal").parent().should("contain.text", "9.000");
 
     cy.contains("a", "Orçamento").click();
-    cy.contains("Sua Renda").parent().should("contain.text", "9.000");
+    cy.contains("Renda considerada nas metas").parent().should("contain.text", "9.000");
     cy.contains("Gastos do Mês").parent().should("contain.text", "100");
     cy.contains(/100,00/).should("be.visible");
 
@@ -68,7 +68,7 @@ describe("gestor financeiro inspirado no AUVP", () => {
       .should("contain.text", "100,00");
 
     cy.contains("a", "Painel").click();
-    cy.contains("Receitas").parent().should("contain.text", "9.000");
+    cy.contains("Entradas").parent().should("contain.text", "9.000");
     cy.contains("a", "Transações").click();
     cy.contains("Renda de teste").should("be.visible");
     cy.contains("Despesa de teste").should("be.visible");

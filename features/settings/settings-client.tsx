@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, useTransition, type FormEvent } from "react";
-import { CheckCircle2, Coins, ExternalLink, Globe2, KeyRound, Link2, ShieldCheck } from "lucide-react";
+import { CalendarClock, CheckCircle2, Coins, Copy, ExternalLink, Globe2, KeyRound, Link2, ShieldCheck, Trash2, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { removeBrapiApiKeyAction, saveBrapiApiKeyAction } from "@/features/portfolio/actions";
 import type { BrapiCredentialStatus } from "@/features/portfolio/brapi-credentials";
 import {
@@ -15,6 +16,20 @@ import {
   savePluggyWebhookSecretAction,
 } from "@/features/open-finance/pluggy-credential-actions";
 import type { PluggyCredentialStatus } from "@/features/open-finance/pluggy-credentials";
+import {
+  createRegistrationInviteAction,
+  revokeRegistrationInviteAction,
+} from "@/features/auth/invite-actions";
+import { saveTimeZoneAction } from "./actions";
+
+type RegistrationInviteDto = {
+  id: string;
+  email: string;
+  expiresAt: string;
+  usedAt: string | null;
+  revokedAt: string | null;
+  createdAt: string;
+};
 
 function updatedAtLabel(value: string | null) {
   if (!value) return null;
@@ -28,10 +43,14 @@ export function SettingsClient({
   initialCredential,
   initialPluggyCredential,
   pluggyWebhookUrl,
+  initialInvites,
+  initialTimeZone,
 }: {
   initialCredential: BrapiCredentialStatus;
   initialPluggyCredential: PluggyCredentialStatus;
   pluggyWebhookUrl: string | null;
+  initialInvites: RegistrationInviteDto[] | null;
+  initialTimeZone: string;
 }) {
   const [credential, setCredential] = useState(initialCredential);
   const [apiKey, setApiKey] = useState("");
@@ -47,6 +66,68 @@ export function SettingsClient({
   const [brapiPending, startBrapiTransition] = useTransition();
   const [pluggyPending, startPluggyTransition] = useTransition();
   const [webhookPending, startWebhookTransition] = useTransition();
+  const [invites, setInvites] = useState(initialInvites);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteLink, setInviteLink] = useState("");
+  const [inviteMessage, setInviteMessage] = useState<{ kind: "success" | "error"; text: string }>();
+  const [invitePending, startInviteTransition] = useTransition();
+  const [timeZone, setTimeZone] = useState(initialTimeZone);
+  const [timeZonePending, startTimeZoneTransition] = useTransition();
+  const [timeZoneMessage, setTimeZoneMessage] = useState<string>();
+
+  function saveTimeZone(value: string) {
+    setTimeZone(value);
+    setTimeZoneMessage(undefined);
+    startTimeZoneTransition(async () => {
+      try {
+        const result = await saveTimeZoneAction(value);
+        setTimeZone(result.timeZone);
+        setTimeZoneMessage("Fuso horário atualizado.");
+      } catch (error) {
+        setTimeZone(initialTimeZone);
+        setTimeZoneMessage(error instanceof Error ? error.message : "Não foi possível atualizar.");
+      }
+    });
+  }
+
+  function createInvite(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setInviteMessage(undefined);
+    startInviteTransition(async () => {
+      try {
+        const result = await createRegistrationInviteAction(inviteEmail);
+        const link = `${window.location.origin}/register?token=${encodeURIComponent(result.token)}`;
+        setInviteLink(link);
+        setInviteEmail("");
+        setInvites((current) => current ? [{
+          id: result.id,
+          email: result.email,
+          expiresAt: result.expiresAt,
+          usedAt: null,
+          revokedAt: null,
+          createdAt: new Date().toISOString(),
+        }, ...current.filter((invite) => invite.email !== result.email || invite.usedAt)] : current);
+        setInviteMessage({ kind: "success", text: "Convite criado. Copie o link agora; o token não será exibido novamente." });
+      } catch (error) {
+        setInviteMessage({ kind: "error", text: error instanceof Error ? error.message : "Não foi possível criar o convite." });
+      }
+    });
+  }
+
+  function revokeInvite(inviteId: string) {
+    setInviteMessage(undefined);
+    startInviteTransition(async () => {
+      try {
+        await revokeRegistrationInviteAction(inviteId);
+        setInvites((current) => current?.map((invite) =>
+          invite.id === inviteId ? { ...invite, revokedAt: new Date().toISOString() } : invite,
+        ) ?? null);
+        setInviteMessage({ kind: "success", text: "Convite revogado." });
+      } catch (error) {
+        setInviteMessage({ kind: "error", text: error instanceof Error ? error.message : "Não foi possível revogar o convite." });
+      }
+    });
+  }
 
   function saveCredential(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -170,6 +251,35 @@ export function SettingsClient({
 
   return (
     <>
+      <Card className="mb-6">
+        <CardHeader>
+          <div className="flex items-start gap-3">
+            <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-[var(--primary)]/12 text-[var(--primary)]">
+              <CalendarClock className="size-5" />
+            </span>
+            <div>
+              <CardTitle>Calendário financeiro</CardTitle>
+              <CardDescription>Datas, viradas de mês e faturas respeitam o fuso da sua conta.</CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="max-w-md space-y-2">
+          <Label htmlFor="settings-time-zone">Fuso horário</Label>
+          <Select
+            id="settings-time-zone"
+            value={timeZone}
+            disabled={timeZonePending}
+            onChange={(event) => saveTimeZone(event.target.value)}
+          >
+            <option value="America/Sao_Paulo">Brasília (São Paulo)</option>
+            <option value="America/Manaus">Amazonas (Manaus)</option>
+            <option value="America/Cuiaba">Mato Grosso (Cuiabá)</option>
+            <option value="America/Rio_Branco">Acre (Rio Branco)</option>
+            <option value="America/Noronha">Fernando de Noronha</option>
+          </Select>
+          {timeZoneMessage && <p role="status" className="text-xs text-[var(--muted-foreground)]">{timeZoneMessage}</p>}
+        </CardContent>
+      </Card>
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
         <Card>
           <CardHeader>
@@ -540,6 +650,87 @@ export function SettingsClient({
           </CardContent>
         </Card>
       </div>
+
+      {invites && (
+        <Card className="mt-6">
+          <CardHeader>
+            <div className="flex items-start gap-3">
+              <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-[var(--primary)]/12 text-[var(--primary)]">
+                <UserPlus className="size-5" />
+              </span>
+              <div>
+                <CardTitle>Convites de acesso</CardTitle>
+                <CardDescription>Novas contas só podem ser criadas com um convite individual válido por sete dias.</CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            {inviteMessage && (
+              <p
+                role={inviteMessage.kind === "error" ? "alert" : "status"}
+                className={inviteMessage.kind === "error"
+                  ? "rounded-xl bg-[var(--danger)]/10 p-3 text-sm text-[var(--danger)]"
+                  : "rounded-xl bg-[var(--success)]/10 p-3 text-sm text-[var(--success)]"}
+              >
+                {inviteMessage.text}
+              </p>
+            )}
+            <form onSubmit={createInvite} className="flex flex-col gap-3 sm:flex-row">
+              <div className="min-w-0 flex-1">
+                <Label className="sr-only" htmlFor="invite-email">E-mail do convidado</Label>
+                <Input
+                  id="invite-email"
+                  type="email"
+                  value={inviteEmail}
+                  onChange={(event) => setInviteEmail(event.target.value)}
+                  placeholder="amigo@exemplo.com"
+                  maxLength={254}
+                  required
+                />
+              </div>
+              <Button disabled={invitePending || !inviteEmail.trim()}><UserPlus className="size-4" />Criar convite</Button>
+            </form>
+            {inviteLink && (
+              <div className="flex flex-col gap-3 rounded-xl border bg-[var(--muted)]/30 p-4 sm:flex-row sm:items-center">
+                <code className="min-w-0 flex-1 truncate text-xs">{inviteLink}</code>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void navigator.clipboard.writeText(inviteLink)}
+                >
+                  <Copy className="size-4" />Copiar link
+                </Button>
+              </div>
+            )}
+            <div className="divide-y rounded-xl border">
+              {invites.length ? invites.map((invite) => {
+                const status = invite.usedAt
+                  ? "Utilizado"
+                  : invite.revokedAt
+                    ? "Revogado"
+                    : new Date(invite.expiresAt) <= new Date()
+                      ? "Expirado"
+                      : "Ativo";
+                return (
+                  <div key={invite.id} className="flex flex-wrap items-center justify-between gap-3 p-4">
+                    <div>
+                      <p className="font-semibold">{invite.email}</p>
+                      <p className="text-xs text-[var(--muted-foreground)]">
+                        {status} · expira em {updatedAtLabel(invite.expiresAt)}
+                      </p>
+                    </div>
+                    {status === "Ativo" && (
+                      <Button type="button" size="sm" variant="ghost" disabled={invitePending} onClick={() => revokeInvite(invite.id)}>
+                        <Trash2 className="size-4" />Revogar
+                      </Button>
+                    )}
+                  </div>
+                );
+              }) : <p className="p-4 text-sm text-[var(--muted-foreground)]">Nenhum convite criado.</p>}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <ConfirmDialog
         open={confirmRemove}

@@ -3,6 +3,7 @@ import {
   classifyYahooReitMetadata,
   fetchAvailableYahooQuotes,
   fetchYahooFxRates,
+  fetchYahooHistoricalFxRates,
   fetchYahooQuotes,
   isYahooB3Listing,
   normalizeYahooCurrency,
@@ -189,5 +190,27 @@ describe("integração Yahoo Finance", () => {
     const quotes = await fetchAvailableYahooQuotes({ symbols: ["AAPL", "INVALID"], client });
 
     expect(quotes).toEqual([expect.objectContaining({ symbol: "AAPL", price: 250 })]);
+  });
+
+  it("busca o histórico diário em lote para congelar o câmbio", async () => {
+    const chart = vi.fn(async () => ({
+      quotes: [
+        { date: new Date("2026-07-17T12:00:00.000Z"), close: 5.41 },
+        { date: new Date("2026-07-20T12:00:00.000Z"), close: 5.47 },
+        { date: new Date("2026-07-21T12:00:00.000Z"), close: null },
+      ],
+    }));
+    const rates = await fetchYahooHistoricalFxRates({
+      currency: "USD",
+      period1: new Date("2026-07-17T00:00:00.000Z"),
+      period2: new Date("2026-07-22T00:00:00.000Z"),
+      client: yahooClient({ chart }),
+    });
+    expect(chart).toHaveBeenCalledOnce();
+    expect(rates.map((rate) => [rate.rateDate.toISOString().slice(0, 10), rate.rateToBrl]))
+      .toEqual([
+        ["2026-07-17", 5.41],
+        ["2026-07-20", 5.47],
+      ]);
   });
 });

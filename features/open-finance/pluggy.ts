@@ -333,8 +333,8 @@ export async function validatePluggyCredentials(credentials: PluggyCredentials) 
   await getApiKey(credentials, true);
 }
 
-export async function getPluggyItem(credentials: PluggyCredentials, itemId: string) {
-  return pluggyRequest(credentials, `/items/${encodeURIComponent(itemId)}`, pluggyItemSchema);
+export async function getPluggyItem(credentials: PluggyCredentials, itemId: string, signal?: AbortSignal) {
+  return pluggyRequest(credentials, `/items/${encodeURIComponent(itemId)}`, pluggyItemSchema, { signal });
 }
 
 export async function createPluggyConnectToken(
@@ -359,16 +359,17 @@ export async function createPluggyConnectToken(
   );
 }
 
-export async function getPluggyAccounts(credentials: PluggyCredentials, itemId: string) {
+export async function getPluggyAccounts(credentials: PluggyCredentials, itemId: string, signal?: AbortSignal) {
   const data = await pluggyRequest(
     credentials,
     `/accounts?itemId=${encodeURIComponent(itemId)}`,
     z.object({ results: z.array(accountSchema) }).passthrough(),
+    { signal },
   );
   return data.results;
 }
 
-export async function getPluggyInvestments(credentials: PluggyCredentials, itemId: string) {
+export async function getPluggyInvestments(credentials: PluggyCredentials, itemId: string, signal?: AbortSignal) {
   const results: PluggyInvestmentResponse[] = [];
   let page = 1;
   let totalPages = 1;
@@ -377,6 +378,7 @@ export async function getPluggyInvestments(credentials: PluggyCredentials, itemI
       credentials,
       `/investments?itemId=${encodeURIComponent(itemId)}&pageSize=500&page=${page}`,
       z.object({ results: z.array(investmentSchema), totalPages: z.number().int().nonnegative() }).passthrough(),
+      { signal },
     );
     results.push(...data.results);
     totalPages = data.totalPages;
@@ -391,6 +393,7 @@ export async function getPluggyInvestments(credentials: PluggyCredentials, itemI
 export async function getPluggyInvestmentTransactions(
   credentials: PluggyCredentials,
   investmentId: string,
+  signal?: AbortSignal,
 ) {
   const results: PluggyInvestmentTransactionResponse[] = [];
   let page = 1;
@@ -405,6 +408,7 @@ export async function getPluggyInvestmentTransactions(
           totalPages: z.number().int().nonnegative(),
         })
         .passthrough(),
+      { signal },
     );
     results.push(...data.results);
     totalPages = data.totalPages;
@@ -416,7 +420,7 @@ export async function getPluggyInvestmentTransactions(
   return results;
 }
 
-export async function getPluggyTransactions(credentials: PluggyCredentials, accountId: string) {
+export async function getPluggyTransactions(credentials: PluggyCredentials, accountId: string, signal?: AbortSignal) {
   const results: PluggyTransactionResponse[] = [];
   let nextQuery: string | null = `?accountId=${encodeURIComponent(accountId)}`;
   let pageCount = 0;
@@ -425,6 +429,7 @@ export async function getPluggyTransactions(credentials: PluggyCredentials, acco
       credentials,
       `/v2/transactions${nextQuery}`,
       z.object({ results: z.array(transactionSchema), next: z.string().nullable().optional() }).passthrough(),
+      { signal },
     );
     results.push(...data.results);
     nextQuery = data.next ?? null;

@@ -1,9 +1,9 @@
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { BUDGET_CATEGORIES, type BudgetCategoryKey } from "@/features/budget/constants";
 import { getPluggyCredentialStatus } from "@/features/open-finance/pluggy-credentials";
 import { resolvePluggyInstitutionLogo } from "@/features/open-finance/institution-logo";
 import { DEFAULT_FINANCE_TAGS } from "./classification";
-import { needsFinanceClassification } from "./calculations";
 import type { FinanceData, FinanceGoalRecord, FinanceTransactionDto } from "./types";
 
 export const AUVP_FINANCE_GOALS: FinanceGoalRecord = {
@@ -43,7 +43,7 @@ export async function ensureFinanceSetup(userId: string) {
   ]);
 }
 
-function mapTransaction(
+export function mapFinanceTransaction(
   transaction: {
     id: string;
     accountId: string;
@@ -59,6 +59,10 @@ function mapTransaction(
     paymentMethod: string | null;
     amount: { toString(): string };
     currencyCode: string;
+    reportingAmountBrl: { toString(): string } | null;
+    fxRateToBrl: { toString(): string } | null;
+    fxRateDate: Date | null;
+    fxSource: "NATIVE" | "PLUGGY" | "YAHOO" | "MANUAL" | null;
     originalAmount: { toString(): string } | null;
     originalCurrencyCode: string | null;
     date: Date;
@@ -72,6 +76,8 @@ function mapTransaction(
     status: string | null;
     note: string | null;
     ignored: boolean;
+    providerLifecycle: "ACTIVE" | "DELETION_PENDING" | "KEPT_MANUAL" | "REMOVED" | null;
+    providerDeletedAt: Date | null;
     internalTransfer: boolean;
     internalTransferSource: "UNASSIGNED" | "PROVIDER_DEFAULT" | "USER_RULE" | "MANUAL";
     installmentNumber: number | null;
@@ -119,6 +125,10 @@ function mapTransaction(
     paymentMethod: transaction.paymentMethod,
     amount: transaction.amount.toString(),
     currencyCode: transaction.currencyCode,
+    reportingAmountBrl: transaction.reportingAmountBrl?.toString() ?? null,
+    fxRateToBrl: transaction.fxRateToBrl?.toString() ?? null,
+    fxRateDate: transaction.fxRateDate?.toISOString() ?? null,
+    fxSource: transaction.fxSource,
     originalAmount: transaction.originalAmount?.toString() ?? null,
     originalCurrencyCode: transaction.originalCurrencyCode,
     date: transaction.date.toISOString(),
@@ -132,6 +142,8 @@ function mapTransaction(
     status: transaction.status,
     note: transaction.note,
     ignored: transaction.ignored,
+    providerLifecycle: transaction.providerLifecycle,
+    providerDeletedAt: transaction.providerDeletedAt?.toISOString() ?? null,
     internalTransfer: transaction.internalTransfer,
     internalTransferSource: transaction.internalTransferSource,
     installmentNumber: transaction.installmentNumber,
@@ -142,22 +154,230 @@ function mapTransaction(
   };
 }
 
-export async function getFinanceData(userId: string, year: number, month: number): Promise<FinanceData> {
+export type FinanceTransactionPageMode = "MONTH" | "UNCLASSIFIED" | "DELETIONS";
+
+export type FinanceTransactionPageInput = {
+  year: number;
+  month: number;
+  page: number;
+  pageSize: number;
+  mode: FinanceTransactionPageMode;
+  search?: string;
+  min?: number;
+  max?: number;
+  kind?: "INCOME" | "EXPENSE";
+  category?: "NONE" | BudgetCategoryKey;
+  tagId?: "NONE" | string;
+  assignmentSource?: FinanceTransactionDto["budgetCategorySource"];
+  accountId?: string;
+  ignored?: "yes" | "no";
+  internal?: "yes" | "no";
+  sortKey?: "description" | "amount" | "date" | "account";
+  sortDirection?: "asc" | "desc";
+};
+
+export async function getFinanceTransactionsPage(
+  userId: string,
+  input: FinanceTransactionPageInput,
+) {
+  const and: Prisma.FinanceTransactionWhereInput[] = [];
+  if (input.mode === "MONTH") {
+    and.push({ referenceYear: input.year, referenceMonth: input.month });
+  } else if (input.mode === "UNCLASSIFIED") {
+    and.push({
+      kind: "EXPENSE",
+      budgetCategorySource: "UNASSIGNED",
+      ignored: false,
+      internalTransfer: false,
+    });
+  } else {
+    and.push({ providerLifecycle: "DELETION_PENDING" });
+  }
+  const search = input.search?.trim();
+  if (search) {
+    and.push({
+      OR: [
+        { description: { contains: search, mode: "insensitive" } },
+        { merchantName: { contains: search, mode: "insensitive" } },
+        { note: { contains: search, mode: "insensitive" } },
+        { account: { name: { contains: search, mode: "insensitive" } } },
+      ],
+    });
+  }
+  if (input.min !== undefined) {
+    and.push({
+      OR: [
+        { amount: { gte: input.min } },
+        { amount: { lte: -input.min } },
+      ],
+    });
+  }
+  if (input.max !== undefined) {
+    and.push({ amount: { gte: -input.max, lte: input.max } });
+  }
+  if (input.kind) and.push({ kind: input.kind });
+  if (input.category === "NONE") and.push({ budgetCategory: null });
+  else if (input.category) and.push({ budgetCategory: input.category });
+  if (input.tagId === "NONE") and.push({ tags: { none: {} } });
+  else if (input.tagId) and.push({ tags: { some: { tagId: input.tagId } } });
+  if (input.assignmentSource) and.push({ budgetCategorySource: input.assignmentSource });
+  if (input.accountId) and.push({ accountId: input.accountId });
+  if (input.ignored === "yes") and.push({ ignored: true });
+  else if (input.ignored === "no") and.push({ ignored: false });
+  if (input.internal === "yes") and.push({ internalTransfer: true });
+  else if (input.internal === "no") and.push({ internalTransfer: false });
+
+  const where: Prisma.FinanceTransactionWhereInput = {
+    userId,
+    deleted: false,
+    account: { active: true },
+    AND: and,
+  };
+  const direction = input.sortDirection ?? "desc";
+  const orderBy: Prisma.FinanceTransactionOrderByWithRelationInput[] =
+    input.sortKey === "description"
+      ? [{ description: direction }, { id: direction }]
+      : input.sortKey === "amount"
+        ? [{ amount: direction }, { id: direction }]
+        : input.sortKey === "account"
+          ? [{ account: { name: direction } }, { id: direction }]
+          : [{ date: direction }, { createdAt: direction }, { id: direction }];
+  const reportableWhere: Prisma.FinanceTransactionWhereInput = {
+    AND: [
+      where,
+      {
+        ignored: false,
+        internalTransfer: false,
+        providerLifecycle: { not: "REMOVED" },
+      },
+    ],
+  };
+  const [rows, total, income, expenses, missingFx, accountCodes] = await Promise.all([
+    prisma.financeTransaction.findMany({
+      where,
+      orderBy,
+      skip: (input.page - 1) * input.pageSize,
+      take: input.pageSize,
+      include: {
+        account: {
+          select: {
+            name: true,
+            type: true,
+            institutionName: true,
+            institutionImageUrl: true,
+            bankCode: true,
+            providerItemId: true,
+          },
+        },
+        tags: { include: { tag: true } },
+        classificationRule: { select: { id: true, matchLabel: true } },
+      },
+    }),
+    prisma.financeTransaction.count({ where }),
+    prisma.financeTransaction.aggregate({
+      where: { AND: [reportableWhere, { kind: "INCOME", reportingAmountBrl: { not: null } }] },
+      _sum: { reportingAmountBrl: true },
+    }),
+    prisma.financeTransaction.aggregate({
+      where: { AND: [reportableWhere, { kind: "EXPENSE", reportingAmountBrl: { not: null } }] },
+      _sum: { reportingAmountBrl: true },
+    }),
+    prisma.financeTransaction.count({
+      where: { AND: [reportableWhere, { reportingAmountBrl: null }] },
+    }),
+    prisma.financialAccount.findMany({
+      where: { userId, active: true, providerItemId: { not: null } },
+      select: { providerItemId: true, bankCode: true },
+    }),
+  ]);
+  const bankCodesByProviderItem = new Map<string, Array<string | null>>();
+  for (const account of accountCodes) {
+    if (!account.providerItemId) continue;
+    const codes = bankCodesByProviderItem.get(account.providerItemId) ?? [];
+    codes.push(account.bankCode);
+    bankCodesByProviderItem.set(account.providerItemId, codes);
+  }
+  const grossIncome = Number(income._sum.reportingAmountBrl ?? 0);
+  const spent = Math.abs(Number(expenses._sum.reportingAmountBrl ?? 0));
+  return {
+    page: input.page,
+    pageSize: input.pageSize,
+    total,
+    transactions: rows.map((transaction) =>
+      mapFinanceTransaction(transaction, bankCodesByProviderItem),
+    ),
+    totals: {
+      grossIncome,
+      spent,
+      balance: grossIncome - spent,
+      missingFxCount: missingFx,
+    },
+  };
+}
+
+export async function getFinanceData(
+  userId: string,
+  year: number,
+  month: number,
+  options: {
+    transactionScope?: "MONTH" | "PAGINATED" | "INVOICE_HISTORY" | "NONE";
+    includeHistory?: boolean;
+  } = {},
+): Promise<FinanceData> {
   await ensureFinanceSetup(userId);
-  const [user, profile, goals, accounts, transactions, tags, classificationRules, pluggyItems, pluggyCredential] = await Promise.all([
+  const transactionScope = options.transactionScope ?? "MONTH";
+  const historyPeriods = Array.from({ length: 12 }, (_, offset) => {
+    const monthIndex = year * 12 + month - 1 - offset;
+    return {
+      referenceYear: Math.floor(monthIndex / 12),
+      referenceMonth: (monthIndex % 12) + 1,
+    };
+  });
+  const transactionBaseWhere = { userId, deleted: false, account: { active: true } } as const;
+  const unclassifiedWhere = {
+    ...transactionBaseWhere,
+    kind: "EXPENSE" as const,
+    budgetCategorySource: "UNASSIGNED" as const,
+    ignored: false,
+    internalTransfer: false,
+  };
+  const transactionWhere =
+    transactionScope === "INVOICE_HISTORY"
+      ? { ...transactionBaseWhere, OR: historyPeriods }
+      : { ...transactionBaseWhere, referenceYear: year, referenceMonth: month };
+  const [
+    user,
+    profile,
+    preference,
+    goals,
+    accounts,
+    transactions,
+    tags,
+    classificationRules,
+    pluggyItems,
+    pluggyCredential,
+    unclassifiedTransactionCount,
+    pendingFxTransactionCount,
+    pendingDeletionCount,
+    historyGroups,
+  ] = await Promise.all([
     prisma.user.findUniqueOrThrow({
       where: { id: userId },
       select: { name: true, email: true, image: true },
     }),
     prisma.financeProfile.findUniqueOrThrow({ where: { userId } }),
+    prisma.userPreference.findUnique({ where: { userId }, select: { timeZone: true } }),
     prisma.financeGoal.findMany({ where: { userId } }),
     prisma.financialAccount.findMany({
       where: { userId, active: true },
       orderBy: [{ type: "asc" }, { sortOrder: "asc" }, { name: "asc" }],
     }),
     prisma.financeTransaction.findMany({
-      where: { userId, deleted: false, account: { active: true } },
+      where: transactionScope === "NONE"
+        ? { ...transactionBaseWhere, id: "__none__" }
+        : transactionWhere,
       orderBy: [{ date: "desc" }, { createdAt: "desc" }],
+      ...(transactionScope === "PAGINATED" ? { take: 25 } : {}),
       include: {
         account: {
           select: {
@@ -187,6 +407,33 @@ export async function getFinanceData(userId: string, year: number, month: number
       select: { syncPending: true, lastSyncAt: true },
     }),
     getPluggyCredentialStatus(userId),
+    prisma.financeTransaction.count({ where: unclassifiedWhere }),
+    prisma.financeTransaction.count({
+      where: {
+        ...transactionBaseWhere,
+        reportingAmountBrl: null,
+        ignored: false,
+        internalTransfer: false,
+        providerLifecycle: { not: "REMOVED" as const },
+      },
+    }),
+    prisma.financeTransaction.count({
+      where: { ...transactionBaseWhere, providerLifecycle: "DELETION_PENDING" as const },
+    }),
+    options.includeHistory
+      ? prisma.financeTransaction.groupBy({
+          by: ["referenceYear", "referenceMonth", "kind"],
+          where: {
+            ...transactionBaseWhere,
+            OR: historyPeriods,
+            ignored: false,
+            internalTransfer: false,
+            providerLifecycle: { not: "REMOVED" },
+            reportingAmountBrl: { not: null },
+          },
+          _sum: { reportingAmountBrl: true },
+        })
+      : Promise.resolve([]),
   ]);
 
   const bankCodesByProviderItem = new Map<string, Array<string | null>>();
@@ -197,8 +444,34 @@ export async function getFinanceData(userId: string, year: number, month: number
     bankCodesByProviderItem.set(account.providerItemId, bankCodes);
   }
   const mappedTransactions = transactions.map((transaction) =>
-    mapTransaction(transaction, bankCodesByProviderItem),
+    mapFinanceTransaction(transaction, bankCodesByProviderItem),
   );
+  const history = historyPeriods
+    .slice()
+    .reverse()
+    .map((period) => {
+      const income = historyGroups.find(
+        (group) =>
+          group.referenceYear === period.referenceYear
+          && group.referenceMonth === period.referenceMonth
+          && group.kind === "INCOME",
+      );
+      const expenses = historyGroups.find(
+        (group) =>
+          group.referenceYear === period.referenceYear
+          && group.referenceMonth === period.referenceMonth
+          && group.kind === "EXPENSE",
+      );
+      const grossIncome = Number(income?._sum.reportingAmountBrl ?? 0);
+      const spent = Math.abs(Number(expenses?._sum.reportingAmountBrl ?? 0));
+      return {
+        year: period.referenceYear,
+        month: period.referenceMonth,
+        grossIncome,
+        spent,
+        balance: grossIncome - spent,
+      };
+    });
   return {
     year,
     month,
@@ -206,6 +479,7 @@ export async function getFinanceData(userId: string, year: number, month: number
     profile: {
       monthlyIncome: profile.monthlyIncome.toString(),
       financialMonthStart: profile.financialMonthStart,
+      timeZone: preference?.timeZone ?? "America/Sao_Paulo",
       objectives: profile.objectives,
     },
     goals: Object.fromEntries(
@@ -238,6 +512,10 @@ export async function getFinanceData(userId: string, year: number, month: number
       bankCode: account.bankCode,
       brand: account.brand,
       balance: account.balance.toString(),
+      balanceBrl: account.balanceBrl?.toString() ?? null,
+      balanceFxRateToBrl: account.balanceFxRateToBrl?.toString() ?? null,
+      balanceFxRateDate: account.balanceFxRateDate?.toISOString() ?? null,
+      balanceFxSource: account.balanceFxSource,
       creditLimit: account.creditLimit?.toString() ?? null,
       availableCredit: account.availableCredit?.toString() ?? null,
       dueDay: account.dueDay,
@@ -249,8 +527,13 @@ export async function getFinanceData(userId: string, year: number, month: number
     transactions: mappedTransactions.filter(
       (transaction) => transaction.referenceYear === year && transaction.referenceMonth === month,
     ),
-    recentTransactions: mappedTransactions.slice(0, 8),
-    historyTransactions: mappedTransactions,
+    recentTransactions: mappedTransactions
+      .filter(
+        (transaction) => transaction.referenceYear === year && transaction.referenceMonth === month,
+      )
+      .slice(0, 8),
+    historyTransactions: transactionScope === "INVOICE_HISTORY" ? mappedTransactions : [],
+    history,
     tags,
     classificationRules: classificationRules.map((rule) => ({
       id: rule.id,
@@ -267,7 +550,9 @@ export async function getFinanceData(userId: string, year: number, month: number
       tags: rule.tags.map((item) => item.tag),
       appliedCount: rule._count.appliedTransactions,
     })),
-    unclassifiedTransactionCount: mappedTransactions.filter(needsFinanceClassification).length,
+    unclassifiedTransactionCount,
+    pendingFxTransactionCount,
+    pendingDeletionCount,
     pluggy: {
       configured: pluggyCredential.configured,
       itemCount: pluggyItems.length,

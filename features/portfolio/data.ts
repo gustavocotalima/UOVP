@@ -3,6 +3,7 @@ import Decimal from "decimal.js";
 import { INVESTMENT_CLASSES, type InvestmentClassKey } from "./constants";
 import { aggregateHoldingValue, holdingCurrentValue, holdingUnitPriceBrl } from "./asset-groups";
 import { aggregateAveragePrices, calculateHoldingAveragePrice } from "./average-price";
+import { DEFAULT_QUESTIONS, defaultQuestionTemplateKey } from "./questions";
 
 export async function ensurePortfolio(userId: string) {
   return prisma.portfolio.upsert({
@@ -14,7 +15,7 @@ export async function ensurePortfolio(userId: string) {
 
 export async function getPortfolioData(userId: string) {
   const portfolio = await ensurePortfolio(userId);
-  const [assets, storedTargets, fixedIncomeFamilies, catalog, integrationReview] = await Promise.all([
+  const [assets, storedTargets, fixedIncomeFamilies, catalog, integrationReview, preference] = await Promise.all([
     prisma.asset.findMany({
       where: { portfolioId: portfolio.id },
       orderBy: [{ investmentClass: "asc" }, { ticker: "asc" }],
@@ -26,24 +27,7 @@ export async function getPortfolioData(userId: string) {
             pluggyDiagramLink: {
               include: {
                 investment: {
-                  include: {
-                    transactions: {
-                      orderBy: [{ date: "desc" }, { createdAt: "desc" }],
-                      select: {
-                        id: true,
-                        description: true,
-                        type: true,
-                        movementType: true,
-                        quantity: true,
-                        value: true,
-                        amount: true,
-                        netAmount: true,
-                        agreedRate: true,
-                        date: true,
-                        tradeDate: true,
-                      },
-                    },
-                  },
+                  include: { _count: { select: { transactions: true } } },
                 },
               },
             },
@@ -68,10 +52,15 @@ export async function getPortfolioData(userId: string) {
             item: { select: { institutionName: true, connectorName: true } },
             transactions: {
               orderBy: [{ date: "desc" }, { createdAt: "desc" }],
+              take: 25,
             },
           },
         },
       },
+    }),
+    prisma.userPreference.findUnique({
+      where: { userId },
+      select: { timeZone: true },
     }),
   ]);
   const targets = Object.fromEntries(
@@ -84,6 +73,7 @@ export async function getPortfolioData(userId: string) {
   return {
     id: portfolio.id,
     version: portfolio.version,
+    timeZone: preference?.timeZone ?? "America/Sao_Paulo",
     targets,
     assets: assets.filter((asset) => {
       const activeHoldings = asset.holdings.filter((holding) => holding.includedInTotals);
@@ -99,13 +89,7 @@ export async function getPortfolioData(userId: string) {
               quantity: holding.quantity.toString(),
               investedValue: holding.investedValue?.toString(),
               amountOriginal: holding.pluggyDiagramLink?.investment.amountOriginal?.toString(),
-              transactions: holding.pluggyDiagramLink?.investment.transactions.map((transaction) => ({
-                type: transaction.type,
-                quantity: transaction.quantity?.toString(),
-                value: transaction.value?.toString(),
-                amount: transaction.amount?.toString(),
-                netAmount: transaction.netAmount?.toString(),
-              })),
+              transactions: [],
             })
           : { price: null, coverage: 0 },
       );
@@ -188,19 +172,8 @@ export async function getPortfolioData(userId: string) {
           providerCurrentValue: holding.providerCurrentValue?.toString() ?? null,
           providerStatus: holding.pluggyDiagramLink?.investment.status ?? null,
           providerAvailable: holding.pluggyDiagramLink?.investment.providerAvailable ?? true,
-          transactions: holding.pluggyDiagramLink?.investment.transactions.map((transaction) => ({
-            id: transaction.id,
-            description: transaction.description,
-            type: transaction.type,
-            movementType: transaction.movementType,
-            quantity: transaction.quantity?.toString() ?? null,
-            value: transaction.value?.toString() ?? null,
-            amount: transaction.amount?.toString() ?? null,
-            netAmount: transaction.netAmount?.toString() ?? null,
-            agreedRate: transaction.agreedRate?.toString() ?? null,
-            date: transaction.date.toISOString(),
-            tradeDate: transaction.tradeDate?.toISOString() ?? null,
-          })) ?? [],
+          transactionCount: holding.pluggyDiagramLink?.investment._count.transactions ?? 0,
+          transactions: [],
           updatedAt: holding.updatedAt.toISOString(),
         })),
       };
@@ -280,33 +253,61 @@ export async function getPortfolioData(userId: string) {
 
 async function ensureUserDiagramQuestions(userId: string) {
   await prisma.$transaction(async (tx) => {
-    const existing = await tx.diagramQuestion.count({ where: { userId } });
-    if (existing > 0) return;
     const defaults = await tx.diagramQuestion.findMany({
       where: { userId: null, isDefault: true },
       orderBy: [{ type: "asc" }, { sortOrder: "asc" }],
     });
-    for (const question of defaults) {
-      const copy = await tx.diagramQuestion.create({
-        data: {
-          userId,
+    const sourceQuestions = defaults.length
+      ? defaults
+      : DEFAULT_QUESTIONS.map((question, sortOrder) => ({
+          id: "",
           type: question.type,
           criterion: question.criterion,
           text: question.text,
-          sortOrder: question.sortOrder,
-          active: question.active,
-        },
+          sortOrder,
+          active: true,
+          templateKey: defaultQuestionTemplateKey(question),
+        }));
+    await tx.diagramQuestion.createMany({
+      data: sourceQuestions.map((question) => ({
+        userId,
+        type: question.type,
+        criterion: question.criterion,
+        text: question.text,
+        sortOrder: question.sortOrder,
+        active: question.active,
+        templateKey: question.templateKey
+          ?? `${question.type}:${question.criterion}`.toUpperCase(),
+      })),
+      skipDuplicates: true,
+    });
+    const copies = await tx.diagramQuestion.findMany({
+      where: {
+        userId,
+        templateKey: { in: sourceQuestions.flatMap((question) => question.templateKey ? [question.templateKey] : []) },
+      },
+      select: { id: true, templateKey: true },
+    });
+    const copyByTemplate = new Map(copies.map((copy) => [copy.templateKey, copy.id]));
+    const defaultById = new Map(defaults.map((question) => [question.id, question.templateKey]));
+    const existingAnswers = defaults.length
+      ? await tx.assetQuestionAnswer.findMany({
+          where: {
+            questionId: { in: defaults.map((question) => question.id) },
+            asset: { portfolio: { userId } },
+          },
+          select: { assetId: true, questionId: true, answer: true },
+        })
+      : [];
+    if (existingAnswers.length) {
+      await tx.assetQuestionAnswer.createMany({
+        data: existingAnswers.flatMap((answer) => {
+          const templateKey = defaultById.get(answer.questionId);
+          const copyId = templateKey ? copyByTemplate.get(templateKey) : undefined;
+          return copyId ? [{ assetId: answer.assetId, answer: answer.answer, questionId: copyId }] : [];
+        }),
+        skipDuplicates: true,
       });
-      const existingAnswers = await tx.assetQuestionAnswer.findMany({
-        where: { questionId: question.id, asset: { portfolio: { userId } } },
-        select: { assetId: true, answer: true },
-      });
-      if (existingAnswers.length) {
-        await tx.assetQuestionAnswer.createMany({
-          data: existingAnswers.map((answer) => ({ ...answer, questionId: copy.id })),
-          skipDuplicates: true,
-        });
-      }
     }
   });
 }

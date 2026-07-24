@@ -31,6 +31,10 @@ export type UserOperationLeaseContext = {
   signal: AbortSignal;
   renew(): Promise<void>;
   assertOwned(): Promise<void>;
+  runFencedTransaction<T>(
+    action: (tx: Prisma.TransactionClient) => Promise<T>,
+    options?: { timeout?: number },
+  ): Promise<T>;
 };
 
 export async function assertUserOperationRateLimit({
@@ -153,6 +157,27 @@ export async function withUserOperationLease<T>({
     signal: controller.signal,
     renew,
     assertOwned,
+    runFencedTransaction: async (transactionAction, options) => {
+      if (controller.signal.aborted) throw lostError;
+      return prisma.$transaction(async (tx) => {
+        const owned = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+          SELECT "id"
+          FROM "UserOperationLease"
+          WHERE "userId" = ${userId}
+            AND "operation" = ${operation}
+            AND "id" = ${id}
+            AND "lockedUntil" > CURRENT_TIMESTAMP
+          FOR UPDATE
+        `);
+        if (!owned.length) {
+          markLost();
+          throw lostError;
+        }
+        return transactionAction(tx);
+      }, {
+        timeout: options?.timeout ?? 30_000,
+      });
+    },
   };
   const heartbeatMs = Math.max(250, Math.min(Math.floor(leaseMs / 3), 30_000));
   const scheduleHeartbeat = () => {

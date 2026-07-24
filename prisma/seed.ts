@@ -1,6 +1,6 @@
 import { PrismaClient, DiagramType } from "@prisma/client";
 import { INVESTMENT_PRESETS } from "../features/portfolio/constants";
-import { DEFAULT_QUESTIONS } from "../features/portfolio/questions";
+import { DEFAULT_QUESTIONS, defaultQuestionTemplateKey } from "../features/portfolio/questions";
 import { ASSET_CATALOG, CATALOG_FAMILY_BY_ID, FIXED_INCOME_FAMILIES } from "../features/portfolio/catalog";
 
 const prisma = new PrismaClient();
@@ -40,6 +40,7 @@ async function main() {
       sortOrder: index,
       active: true,
       isDefault: true,
+      templateKey: defaultQuestionTemplateKey(question),
     })),
   });
 }

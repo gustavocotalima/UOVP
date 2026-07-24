@@ -114,6 +114,20 @@ enum FinanceAssignmentSource {
   MANUAL
 }
 
+enum FinancialFxSource {
+  NATIVE
+  PLUGGY
+  YAHOO
+  MANUAL
+}
+
+enum PluggyRecordLifecycle {
+  ACTIVE
+  DELETION_PENDING
+  KEPT_MANUAL
+  REMOVED
+}
+
 enum FinanceClassificationMatchType {
   MERCHANT_CNPJ
   MERCHANT_NAME
@@ -169,6 +183,8 @@ model User {
   pluggyDiagramLinks         PluggyInvestmentDiagramLink[]
   pluggyWebhookEvents        PluggyWebhookEvent[]
   operationLeases            UserOperationLease[]
+  createdRegistrationInvites RegistrationInvite[]           @relation("CreatedRegistrationInvites")
+  usedRegistrationInvite     RegistrationInvite?             @relation("UsedRegistrationInvite")
 }
 
 model Account {
@@ -226,9 +242,42 @@ model UserPreference {
   pluggyWebhookSecretUpdatedAt DateTime?
   pluggyCredentialUpdatedAt    DateTime?
   showSoldInvestments          Boolean   @default(false)
+  timeZone                     String    @default("America/Sao_Paulo")
   createdAt                    DateTime  @default(now())
   updatedAt                    DateTime  @updatedAt
   user                         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model RegistrationInvite {
+  id              String    @id @default(cuid())
+  email           String
+  tokenHash       String    @unique
+  expiresAt       DateTime
+  usedAt          DateTime?
+  revokedAt       DateTime?
+  createdByUserId String
+  usedByUserId    String?   @unique
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  createdBy       User      @relation("CreatedRegistrationInvites", fields: [createdByUserId], references: [id], onDelete: Cascade)
+  usedBy          User?     @relation("UsedRegistrationInvite", fields: [usedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([email, expiresAt])
+  @@index([createdByUserId, createdAt])
+}
+
+model HistoricalFxRate {
+  id          String            @id @default(cuid())
+  currency    String
+  rateDate    DateTime          @db.Date
+  rateToBrl   Decimal           @db.Decimal(20, 10)
+  source      FinancialFxSource
+  fetchedAt   DateTime          @default(now())
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@unique([currency, rateDate, source])
+  @@index([currency, rateDate])
 }
 
 model Portfolio {
@@ -340,6 +389,7 @@ model AssetHolding {
   asset                Asset                        @relation(fields: [assetId], references: [id], onDelete: Cascade)
   catalogItem          AssetCatalogItem?            @relation(fields: [catalogItemId], references: [id], onDelete: SetNull)
   pluggyDiagramLink    PluggyInvestmentDiagramLink?
+  contributionBaselines ContributionExternalBaseline[]
 
   @@index([assetId])
   @@index([pricingSource, ticker])
@@ -379,12 +429,14 @@ model DiagramQuestion {
   sortOrder Int                   @default(0)
   active    Boolean               @default(true)
   isDefault Boolean               @default(false)
+  templateKey String?
   createdAt DateTime              @default(now())
   updatedAt DateTime              @updatedAt
   user      User?                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   answers   AssetQuestionAnswer[]
 
   @@index([userId, type, sortOrder])
+  @@unique([userId, templateKey])
 }
 
 model AssetQuestionAnswer {
@@ -473,6 +525,10 @@ model FinancialAccount {
   dueDay              Int?
   closingDay          Int?
   currencyCode        String               @default("BRL")
+  balanceBrl          Decimal?             @db.Decimal(30, 2)
+  balanceFxRateToBrl  Decimal?             @db.Decimal(20, 10)
+  balanceFxRateDate   DateTime?            @db.Date
+  balanceFxSource     FinancialFxSource?
   sortOrder           Int                  @default(0)
   active              Boolean              @default(true)
   providerUpdatedAt   DateTime?
@@ -505,6 +561,12 @@ model FinanceTransaction {
   currencyCode           String                     @default("BRL")
   originalAmount         Decimal?                   @db.Decimal(30, 2)
   originalCurrencyCode   String?
+  reportingAmountBrl     Decimal?                   @db.Decimal(30, 2)
+  fxRateToBrl            Decimal?                   @db.Decimal(20, 10)
+  fxRateDate             DateTime?                  @db.Date
+  fxSource               FinancialFxSource?
+  providerLifecycle      PluggyRecordLifecycle?
+  providerDeletedAt      DateTime?
   date                   DateTime
   referenceYear          Int
   referenceMonth         Int
@@ -534,6 +596,8 @@ model FinanceTransaction {
   classificationRule     FinanceClassificationRule? @relation(fields: [classificationRuleId], references: [id], onDelete: SetNull)
 
   @@index([userId, referenceYear, referenceMonth])
+  @@index([userId, deleted, referenceYear, referenceMonth, date])
+  @@index([userId, providerLifecycle, date])
   @@index([userId, date])
   @@index([accountId, date])
   @@index([userId, budgetCategory])
@@ -731,11 +795,14 @@ model PluggyTransaction {
   installmentTotal        Int?
   providerCreatedAt       DateTime?
   providerUpdatedAt       DateTime?
+  providerAvailable       Boolean       @default(true)
+  providerRemovedAt       DateTime?
   createdAt               DateTime      @default(now())
   updatedAt               DateTime      @updatedAt
   account                 PluggyAccount @relation(fields: [pluggyAccountDbId], references: [id], onDelete: Cascade)
 
   @@index([pluggyAccountDbId, date])
+  @@index([pluggyAccountDbId, providerAvailable, date])
   @@index([category])
 }
 
@@ -899,9 +966,27 @@ model ContributionSuggestion {
   confirmationReference          String?                   @unique
   simulation                     ContributionSimulation    @relation(fields: [simulationId], references: [id], onDelete: Cascade)
   asset                          Asset                     @relation(fields: [assetId], references: [id], onDelete: Restrict)
+  externalBaselines              ContributionExternalBaseline[]
 
   @@unique([simulationId, assetId])
   @@index([assetId])
+}
+
+model ContributionExternalBaseline {
+  id                          String                 @id @default(cuid())
+  suggestionId                String
+  holdingId                   String
+  quantity                    Decimal                @db.Decimal(30, 10)
+  providerValue               Decimal?               @db.Decimal(30, 2)
+  currency                    String
+  fxRateToBrl                 Decimal?               @db.Decimal(20, 10)
+  providerLatestTransactionAt DateTime?
+  createdAt                   DateTime               @default(now())
+  suggestion                  ContributionSuggestion @relation(fields: [suggestionId], references: [id], onDelete: Cascade)
+  holding                     AssetHolding           @relation(fields: [holdingId], references: [id], onDelete: Cascade)
+
+  @@unique([suggestionId, holdingId])
+  @@index([holdingId])
 }
 
 model FaqCategory {

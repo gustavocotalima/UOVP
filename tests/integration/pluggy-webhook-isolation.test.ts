@@ -163,7 +163,7 @@ suite("webhook Pluggy isolado por usuário", () => {
     expect(await db!.pluggyWebhookEvent.count({ where: { eventId } })).toBe(2);
   });
 
-  it("remove falhas antigas, mas preserva deduplicação de exclusões destrutivas", async () => {
+  it("aplica retenção finita a falhas e eventos processados, inclusive exclusões", async () => {
     const now = Date.now();
     const staleFailureId = randomUUID();
     const retainedDeletionId = randomUUID();
@@ -211,7 +211,7 @@ suite("webhook Pluggy isolado por usuário", () => {
       where: { eventId: { in: [staleFailureId, retainedDeletionId, expiredUpdateId] } },
       select: { eventId: true },
     });
-    expect(retained.map((event) => event.eventId)).toEqual([retainedDeletionId]);
+    expect(retained.map((event) => event.eventId)).toEqual([]);
   });
 
   it("limita a quantidade de eventos pendentes de um usuário", async () => {

@@ -21,12 +21,3 @@ export function formatCurrency(value: Decimal.Value, currencyCode: string) {
 export function formatPercent(value: Decimal.Value, digits = 2) {
   return `${new Decimal(value).toDecimalPlaces(digits).toString().replace(".", ",")}%`;
 }
-
-export function parseMoney(value: string | number) {
-  if (typeof value === "number") return new Decimal(value);
-  const normalized = value
-    .replace(/R\$|\s/g, "")
-    .replace(/\.(?=\d{3}(?:\D|$))/g, "")
-    .replace(",", ".");
-  return new Decimal(normalized || 0);
-}
