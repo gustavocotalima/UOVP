@@ -5,6 +5,7 @@ describe("classificação automática de transações Pluggy", () => {
       cy.task("seedFinanceClassification", { email });
     });
     cy.visit("/transacoes");
+    cy.waitForHydration();
   });
 
   it("exibe classificações, pendências e explicações do provedor", () => {

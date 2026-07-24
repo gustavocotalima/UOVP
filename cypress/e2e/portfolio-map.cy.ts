@@ -2,6 +2,7 @@ describe("mapa da carteira", () => {
   beforeEach(() => {
     cy.registerAndLogin();
     cy.visit("/carteira");
+    cy.waitForHydration();
     cy.contains("button", "Mapa").click();
   });
 

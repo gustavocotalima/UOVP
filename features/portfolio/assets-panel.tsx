@@ -25,6 +25,7 @@ import {
   searchBrapiTickersAction,
   searchYahooTickersAction,
 } from "./actions";
+import { notifyPortfolioSimulationInvalidated } from "./client-events";
 import { parseXlsxFile } from "./xlsx-parser";
 import type { BrapiTickerSearchResult } from "./brapi";
 import type { BinanceAssetSearchResult } from "./binance";
@@ -431,6 +432,7 @@ export function AssetsPanel({
   const [activeTickerIndex, setActiveTickerIndex] = useState(-1);
   const [message, setMessage] = useState<string>();
   const [pending, startTransition] = useTransition();
+  const panelRef = useRef<HTMLDivElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const tickerRequestId = useRef(0);
   const tickerInputFocused = useRef(false);
@@ -453,6 +455,14 @@ export function AssetsPanel({
       transform: opensBelow ? undefined : "translateY(-100%)",
     });
   }, []);
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+    panel.dataset.assetsPanelHydrated = "true";
+    return () => {
+      delete panel.dataset.assetsPanelHydrated;
+    };
+  }, []);
   const filtered = useMemo(
     () => assets.filter((asset) => {
       const query = search.trim().toLowerCase();
@@ -467,13 +477,17 @@ export function AssetsPanel({
     [assets, filter, instrumentFilter, search],
   );
   const showAssetAveragePrice = filtered.some((asset) => asset.averagePricePaid !== null);
-
-  useEffect(() => {
+  const searchExpandedAssets = useMemo(() => {
     const query = search.trim().toLowerCase();
-    if (!query) return;
-    const matchingParents = assets.filter((asset) => asset.holdings.some((holding) => [holding.typeName, holding.issuer, holding.productName, holding.ticker ?? ""].some((value) => value.toLowerCase().includes(query)))).map((asset) => asset.id);
-    if (!matchingParents.length) return;
-    setExpandedAssets((current) => new Set([...current, ...matchingParents]));
+    if (!query) return new Set<string>();
+    return new Set(
+      assets
+        .filter((asset) => asset.holdings.some((holding) =>
+          [holding.typeName, holding.issuer, holding.productName, holding.ticker ?? ""]
+            .some((value) => value.toLowerCase().includes(query)),
+        ))
+        .map((asset) => asset.id),
+    );
   }, [assets, search]);
   const total = assets.reduce((sum, asset) => sum + currentValue(asset), 0);
   const chartData = INVESTMENT_CLASSES.map((investmentClass) => ({
@@ -511,18 +525,7 @@ export function AssetsPanel({
 
   useEffect(() => {
     const requestId = ++tickerRequestId.current;
-    if (selectedMarketTicker === tickerQuery) {
-      setTickerSearchPending(false);
-      setTickerListOpen(false);
-      return;
-    }
-    if (tickerQuery.length < 2) {
-      setTickerOptions([]);
-      setTickerSearchError(undefined);
-      setTickerSearchPending(false);
-      setActiveTickerIndex(-1);
-      return;
-    }
+    if (selectedMarketTicker === tickerQuery || tickerQuery.length < 2) return;
 
     const timer = window.setTimeout(async () => {
       setTickerSearchPending(true);
@@ -659,8 +662,16 @@ export function AssetsPanel({
         yahooReitConfirmed: false,
       });
       updateTickerListPosition();
-      setTickerListOpen(true);
-      setActiveTickerIndex(-1);
+      if (ticker.length < 2) {
+        setTickerOptions([]);
+        setTickerSearchError(undefined);
+        setTickerSearchPending(false);
+        setTickerListOpen(false);
+        setActiveTickerIndex(-1);
+      } else {
+        setTickerListOpen(true);
+        setActiveTickerIndex(-1);
+      }
       return;
     }
     const catalogAsset = MOCK_ASSET_CATALOG.find((asset) => asset.ticker === ticker && asset.investmentClass === form.investmentClass);
@@ -690,6 +701,7 @@ export function AssetsPanel({
         ? false
         : form.yahooReitConfirmed,
     });
+    setTickerSearchPending(false);
     setTickerListOpen(false);
     setActiveTickerIndex(-1);
   }
@@ -721,6 +733,7 @@ export function AssetsPanel({
       try {
         await saveAssetAction(form);
         if (form.id && formQuestionType) await saveAssetAnswersAction(form.id, formAnswers);
+        notifyPortfolioSimulationInvalidated();
         setForm(null);
         setMessage(form.id ? "Ativo atualizado." : "Ativo adicionado.");
       } catch (error) {
@@ -736,6 +749,7 @@ export function AssetsPanel({
     startTransition(async () => {
       try {
         await saveFixedIncomeGroupAction(fixedGroupForm);
+        notifyPortfolioSimulationInvalidated();
         setFixedGroupForm(null);
         setMessage(fixedGroupForm.id ? "Grupo de renda fixa atualizado." : "Grupo de renda fixa adicionado.");
       } catch (error) {
@@ -757,6 +771,7 @@ export function AssetsPanel({
           purchaseDate: holdingForm.purchaseDate || null,
           maturityDate: holdingForm.maturityDate || null,
         });
+        notifyPortfolioSimulationInvalidated();
         setExpandedAssets((current) => new Set([...current, holdingForm.assetId]));
         setHoldingForm(null);
         setMessage(holdingForm.id ? "Aplicação atualizada." : "Aplicação adicionada.");
@@ -773,6 +788,7 @@ export function AssetsPanel({
         if (deleteTarget.kind === "asset") await deleteAssetAction(deleteTarget.id);
         else if (deleteTarget.kind === "holding") await deleteAssetHoldingAction(deleteTarget.id);
         else await deleteAssetClassAction(deleteTarget.investmentClass);
+        notifyPortfolioSimulationInvalidated();
         setForm(null);
         setDeleteTarget(undefined);
         setMessage("Remoção concluída.");
@@ -809,6 +825,9 @@ export function AssetsPanel({
         if (result.yahoo.missingFx.length) parts.push(`Sem câmbio: ${result.yahoo.missingFx.join(", ")}`);
         if (result.binance.missingConversion.length) {
           parts.push(`Sem conversão Binance para BRL: ${result.binance.missingConversion.join(", ")}`);
+        }
+        if (result.brapi.updated + result.yahoo.updated + result.binance.updated > 0) {
+          notifyPortfolioSimulationInvalidated();
         }
         setMessage(parts.length ? `${parts.join(" · ")}.` : "Não há cotações para atualizar.");
       } catch (error) {
@@ -856,6 +875,7 @@ export function AssetsPanel({
           indexation: review.indexation || null,
           score: review.score,
         });
+        notifyPortfolioSimulationInvalidated();
         setReviewForm(null);
         setMessage("Investimento integrado ao diagrama.");
       } catch (error) {
@@ -869,6 +889,7 @@ export function AssetsPanel({
     startTransition(async () => {
       try {
         await excludePluggyDiagramLinkAction(reviewForm.id);
+        notifyPortfolioSimulationInvalidated();
         setReviewForm(null);
         setMessage("Investimento mantido apenas no Open Finance.");
       } catch (error) {
@@ -998,7 +1019,7 @@ export function AssetsPanel({
     : [];
 
   return (
-    <div className="space-y-6">
+    <div ref={panelRef} className="space-y-6">
       {integrationReview.length > 0 && (
         <div className="flex flex-col gap-4 rounded-2xl border border-[var(--primary)]/45 bg-[var(--primary)]/10 p-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-3">
@@ -1085,7 +1106,7 @@ export function AssetsPanel({
                   {filtered.map((asset) => {
                     const expandable = asset.instrumentType === "FIXED_INCOME" || asset.pluggyControlled || asset.holdings.length > 1;
                     const showsApplicationCount = ["FIXED_INCOME", "MUTUAL_FUND"].includes(asset.instrumentType);
-                    const expanded = expandedAssets.has(asset.id);
+                    const expanded = expandedAssets.has(asset.id) || searchExpandedAssets.has(asset.id);
                     const holdingColumns = {
                       invested: asset.holdings.some((holding) => holding.investedValue !== null),
                       quantity: ["STOCK", "ETF", "REAL_ESTATE_FUND", "REIT", "CRYPTO"].includes(asset.instrumentType),
@@ -1235,6 +1256,7 @@ export function AssetsPanel({
       <Dialog
         open={reviewForm !== null}
         onOpenChange={(open) => !open && setReviewForm(null)}
+        dismissible={!pending}
         title="Revisar integração Pluggy"
         className="max-w-5xl"
         footer={reviewForm && (
@@ -1299,6 +1321,7 @@ export function AssetsPanel({
       <Dialog
         open={form !== null}
         onOpenChange={(open) => !open && setForm(null)}
+        dismissible={!pending}
         title={form?.id ? "Editar ativo" : "Adicionar ativo"}
         className="max-w-4xl"
         footer={form && (
@@ -1582,6 +1605,7 @@ export function AssetsPanel({
       <Dialog
         open={fixedGroupForm !== null}
         onOpenChange={(open) => !open && setFixedGroupForm(null)}
+        dismissible={!pending}
         title={fixedGroupForm?.id ? "Editar grupo de renda fixa" : "Adicionar grupo de renda fixa"}
         className="max-w-2xl"
         footer={fixedGroupForm && (
@@ -1625,6 +1649,7 @@ export function AssetsPanel({
       <Dialog
         open={holdingForm !== null && Boolean(holdingAsset)}
         onOpenChange={(open) => !open && setHoldingForm(null)}
+        dismissible={!pending}
         title={holdingForm?.id ? "Editar aplicação" : "Adicionar aplicação"}
         className="max-w-3xl"
         footer={holdingForm && <Button type="submit" form="fixed-income-holding-form" disabled={pending || (!holdingForm.catalogItemId && holdingForm.customTypeName.trim().length < 2)}>{pending ? "Salvando…" : "Salvar aplicação"}</Button>}

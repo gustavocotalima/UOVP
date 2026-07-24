@@ -11,10 +11,11 @@
   --muted: #e9e9e3;
   --muted-foreground: #6f7069;
   --border: #deded6;
-  --primary: #b99642;
-  --primary-foreground: #11110f;
-  --danger: #d94b45;
-  --success: #4f9b6b;
+  --primary: #806117;
+  --primary-foreground: #ffffff;
+  --danger: #b92f2a;
+  --danger-foreground: #ffffff;
+  --success: #257044;
   --radius: 0.85rem;
 }
 
@@ -29,6 +30,7 @@
   --primary: #d2ad50;
   --primary-foreground: #151511;
   --danger: #f16b62;
+  --danger-foreground: #151511;
   --success: #76bc8e;
 }
 

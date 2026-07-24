@@ -12,7 +12,7 @@ const buttonVariants = cva(
         secondary: "bg-[var(--muted)] text-[var(--foreground)] hover:brightness-95 dark:hover:brightness-110",
         outline: "border bg-transparent hover:bg-[var(--muted)]",
         ghost: "bg-transparent hover:bg-[var(--muted)]",
-        danger: "bg-[var(--danger)] text-white hover:brightness-110",
+        danger: "bg-[var(--danger)] text-[var(--danger-foreground)] hover:brightness-110",
       },
       size: {
         default: "h-10",
@@ -35,5 +35,3 @@ export function Button({ className, variant, size, asChild = false, ...props }: 
   const Comp = asChild ? Slot : "button";
   return <Comp className={cn(buttonVariants({ variant, size, className }))} {...props} />;
 }
-
-export { buttonVariants };

@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { format } from "date-fns";
 import { ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
@@ -70,47 +71,52 @@ function TagPicker({
   );
 }
 
-export function TransactionEditorDialog({
-  transaction,
-  accounts,
-  tags,
-  open,
-  onOpenChange,
-}: {
+type TransactionEditorDialogProps = {
   transaction: FinanceTransactionDto | null;
   accounts: FinancialAccountDto[];
   tags: FinanceTagDto[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
+};
+
+export function TransactionEditorDialog(props: TransactionEditorDialogProps) {
+  if (!props.open || !props.transaction) return null;
+
+  return (
+    <TransactionEditorDialogContent
+      key={props.transaction.id}
+      {...props}
+      transaction={props.transaction}
+    />
+  );
+}
+
+function TransactionEditorDialogContent({
+  transaction,
+  accounts,
+  tags,
+  open,
+  onOpenChange,
+}: Omit<TransactionEditorDialogProps, "transaction"> & {
+  transaction: FinanceTransactionDto;
 }) {
   const router = useRouter();
-  const [description, setDescription] = useState("");
-  const [accountId, setAccountId] = useState("");
-  const [amount, setAmount] = useState("");
-  const [kind, setKind] = useState<"INCOME" | "EXPENSE">("EXPENSE");
-  const [date, setDate] = useState("");
-  const [reference, setReference] = useState("");
-  const [category, setCategory] = useState<BudgetCategoryKey | "">("");
-  const [tagIds, setTagIds] = useState<string[]>([]);
-  const [note, setNote] = useState("");
+  const [description, setDescription] = useState(transaction.description);
+  const [accountId, setAccountId] = useState(transaction.accountId);
+  const [amount, setAmount] = useState(String(Math.abs(Number(transaction.amount))));
+  const [kind, setKind] = useState<"INCOME" | "EXPENSE">(transaction.kind);
+  const [date, setDate] = useState(transaction.date.slice(0, 10));
+  const [reference, setReference] = useState(
+    monthValue(transaction.referenceYear, transaction.referenceMonth),
+  );
+  const [category, setCategory] = useState<BudgetCategoryKey | "">(
+    transaction.budgetCategory ?? "",
+  );
+  const [tagIds, setTagIds] = useState<string[]>(transaction.tags.map((tag) => tag.id));
+  const [note, setNote] = useState(transaction.note ?? "");
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
-  useEffect(() => {
-    if (!transaction) return;
-    setDescription(transaction.description);
-    setAccountId(transaction.accountId);
-    setAmount(String(Math.abs(Number(transaction.amount))));
-    setKind(transaction.kind);
-    setDate(transaction.date.slice(0, 10));
-    setReference(monthValue(transaction.referenceYear, transaction.referenceMonth));
-    setCategory(transaction.budgetCategory ?? "");
-    setTagIds(transaction.tags.map((tag) => tag.id));
-    setNote(transaction.note ?? "");
-    setNotice(null);
-  }, [transaction]);
-
-  if (!transaction) return null;
   const providerOwned = transaction.source === "PLUGGY";
   const hasOriginalCurrency = Boolean(
     transaction.originalAmount
@@ -118,7 +124,6 @@ export function TransactionEditorDialog({
     && transaction.originalCurrencyCode !== transaction.currencyCode,
   );
   async function save() {
-    if (!transaction) return;
     const parsedReference = parseMonth(reference);
     const ok = await runFinanceAction(
       () =>
@@ -153,6 +158,7 @@ export function TransactionEditorDialog({
     <Dialog
       open={open}
       onOpenChange={onOpenChange}
+      dismissible={!pending}
       title={formatCurrency(transaction.amount, transaction.currencyCode)}
       description={new Intl.DateTimeFormat("pt-BR", { dateStyle: "long" }).format(new Date(transaction.date))}
       footer={<Button onClick={save} disabled={pending}>{pending ? "Salvando…" : "Salvar alterações"}</Button>}
@@ -242,27 +248,35 @@ function ProviderDetail({ label, value }: { label: string; value: string | null 
   );
 }
 
-export function NewTransactionDialog({
-  accounts,
-  tags,
-  year,
-  month,
-  open,
-  onOpenChange,
-}: {
+type NewTransactionDialogProps = {
   accounts: FinancialAccountDto[];
   tags: FinanceTagDto[];
   year: number;
   month: number;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-}) {
+};
+
+export function NewTransactionDialog(props: NewTransactionDialogProps) {
+  if (!props.open) return null;
+
+  return <NewTransactionDialogContent {...props} />;
+}
+
+function NewTransactionDialogContent({
+  accounts,
+  tags,
+  year,
+  month,
+  open,
+  onOpenChange,
+}: NewTransactionDialogProps) {
   const router = useRouter();
   const [kind, setKind] = useState<"INCOME" | "EXPENSE">("EXPENSE");
   const [description, setDescription] = useState("");
   const [accountId, setAccountId] = useState(accounts[0]?.id ?? "");
   const [amount, setAmount] = useState("");
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(format(new Date(), "yyyy-MM-dd"));
   const [reference, setReference] = useState(monthValue(year, month));
   const [category, setCategory] = useState<BudgetCategoryKey | "">("");
   const [tagIds, setTagIds] = useState<string[]>([]);
@@ -270,20 +284,6 @@ export function NewTransactionDialog({
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const valid = useMemo(() => description.trim().length >= 2 && accountId && Number(amount) > 0 && date && reference, [description, accountId, amount, date, reference]);
-
-  useEffect(() => {
-    if (!open) return;
-    setKind("EXPENSE");
-    setDescription("");
-    setAccountId(accounts[0]?.id ?? "");
-    setAmount("");
-    setDate(new Date().toISOString().slice(0, 10));
-    setReference(monthValue(year, month));
-    setCategory("");
-    setTagIds([]);
-    setNote("");
-    setNotice(null);
-  }, [open, accounts, year, month]);
 
   async function save() {
     const parsedReference = parseMonth(reference);
@@ -319,6 +319,7 @@ export function NewTransactionDialog({
     <Dialog
       open={open}
       onOpenChange={onOpenChange}
+      dismissible={!pending}
       title="Nova transação"
       className="max-w-2xl"
       footer={<Button onClick={save} disabled={pending || !valid}>{pending ? "Adicionando…" : "Adicionar transação"}</Button>}

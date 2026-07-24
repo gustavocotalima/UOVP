@@ -272,7 +272,7 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
       <Card>
         <CardHeader><CardTitle>Filtros e Busca</CardTitle></CardHeader>
         <CardContent className="flex flex-col gap-3 sm:flex-row">
-          <div className="relative flex-1"><Search className="absolute left-3 top-3.5 size-4 text-[var(--muted-foreground)]" /><Input className="pl-9" placeholder="Pesquisar transação" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} /></div>
+          <div className="relative flex-1"><Search className="absolute left-3 top-3.5 size-4 text-[var(--muted-foreground)]" aria-hidden="true" /><Input className="pl-9" aria-label="Pesquisar transação" placeholder="Pesquisar transação" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} /></div>
           <Button variant="outline" onClick={() => { setDraftFilters(filters); setFiltersOpen(true); }}><Filter className="size-4" /> Mais filtros {activeFilterCount > 0 && <span className="rounded-full bg-[var(--primary)] px-1.5 text-[10px] text-[var(--primary-foreground)]">{activeFilterCount}</span>}</Button>
         </CardContent>
       </Card>
@@ -384,9 +384,9 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
                         {transaction.source === "PLUGGY" && (
                           <MenuButton icon={CopyCheck} label="Aplicar às semelhantes" onClick={() => { setApplyingSimilar(transaction); setMenu(null); }} />
                         )}
-                        <div className="my-1 border-t" />
+                        <div role="separator" className="my-1 border-t" />
                         <MenuButton icon={ArrowDown} label={transaction.internalTransfer ? "Remover transferência interna" : "Marcar como transferência interna"} onClick={() => toggleInternal(transaction)} />
-                        <div className="my-1 border-t" />
+                        <div role="separator" className="my-1 border-t" />
                         <MenuButton icon={Trash2} label="Deletar" danger onClick={() => { setDeleting(transaction); setMenu(null); }} />
                       </ActionMenu>
                     </td>
@@ -399,14 +399,14 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
 
           <div className="mt-5 flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-xs text-[var(--muted-foreground)]">Mostrando {filtered.length ? (safePage - 1) * pageSize + 1 : 0}-{Math.min(safePage * pageSize, filtered.length)} de {filtered.length}</p>
-            <div className="flex items-center gap-2"><span className="text-xs text-[var(--muted-foreground)]">Itens por página:</span><Select className="h-9" value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }}><option value={10}>10</option><option value={25}>25</option><option value={50}>50</option></Select><Button variant="ghost" size="icon" disabled={safePage <= 1} onClick={() => setPage(safePage - 1)}><ChevronLeft className="size-4" /></Button><span className="text-xs">Página {safePage} de {totalPages}</span><Button variant="ghost" size="icon" disabled={safePage >= totalPages} onClick={() => setPage(safePage + 1)}><ChevronRight className="size-4" /></Button></div>
+            <div className="flex items-center gap-2"><Label htmlFor="transactions-page-size" className="text-xs text-[var(--muted-foreground)]">Itens por página:</Label><Select id="transactions-page-size" className="h-9" value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }}><option value={10}>10</option><option value={25}>25</option><option value={50}>50</option></Select><Button variant="ghost" size="icon" aria-label="Página anterior" disabled={safePage <= 1} onClick={() => setPage(safePage - 1)}><ChevronLeft className="size-4" /></Button><span className="text-xs" aria-live="polite">Página {safePage} de {totalPages}</span><Button variant="ghost" size="icon" aria-label="Próxima página" disabled={safePage >= totalPages} onClick={() => setPage(safePage + 1)}><ChevronRight className="size-4" /></Button></div>
           </div>
         </CardContent>
       </Card>
 
       <Dialog open={filtersOpen} onOpenChange={setFiltersOpen} title="Filtros Avançados" description="Personalize a visualização das suas transações" footer={<><Button variant="outline" onClick={() => setDraftFilters(EMPTY_FILTERS)}>Limpar Tudo</Button><Button onClick={() => { setFilters(draftFilters); setFiltersOpen(false); setPage(1); }}>Aplicar Filtros</Button></>}>
         <div className="grid gap-5 sm:grid-cols-2">
-          <div className="sm:col-span-2"><Label>Faixa de Valor</Label><div className="mt-2 grid grid-cols-2 gap-3"><Input type="number" min="0" placeholder="Valor mínimo" value={draftFilters.min} onChange={(event) => setDraftFilters({ ...draftFilters, min: event.target.value })} /><Input type="number" min="0" placeholder="Valor máximo" value={draftFilters.max} onChange={(event) => setDraftFilters({ ...draftFilters, max: event.target.value })} /></div></div>
+          <fieldset className="sm:col-span-2"><legend className="text-sm font-medium">Faixa de Valor</legend><div className="mt-2 grid grid-cols-2 gap-3"><Input type="number" min="0" aria-label="Valor mínimo" placeholder="Valor mínimo" value={draftFilters.min} onChange={(event) => setDraftFilters({ ...draftFilters, min: event.target.value })} /><Input type="number" min="0" aria-label="Valor máximo" placeholder="Valor máximo" value={draftFilters.max} onChange={(event) => setDraftFilters({ ...draftFilters, max: event.target.value })} /></div></fieldset>
           <FilterSelect label="Tipo de Transação" value={draftFilters.kind} onChange={(value) => setDraftFilters({ ...draftFilters, kind: value as Filters["kind"] })} options={[["", "Todos"], ["INCOME", "Receitas"], ["EXPENSE", "Despesas"]]} />
           <FilterSelect label="Metas" value={draftFilters.category} onChange={(value) => setDraftFilters({ ...draftFilters, category: value as Filters["category"] })} options={[["", "Todas"], ["NONE", "Sem meta"], ...BUDGET_CATEGORIES.map((category) => [category, BUDGET_CATEGORY_META[category].label] as [string, string])]} />
           <FilterSelect label="Tags" value={draftFilters.tagId} onChange={(value) => setDraftFilters({ ...draftFilters, tagId: value })} options={[["", "Todas"], ["NONE", "Sem tag"], ...data.tags.map((tag) => [tag.id, tag.name] as [string, string])]} />
@@ -425,7 +425,7 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
       </Dialog>
 
       <Dialog open={Boolean(noting)} onOpenChange={(open) => !open && setNoting(null)} title="Observação" description={noting?.description} footer={<Button onClick={saveNote} disabled={pending}>Salvar</Button>}>
-        <textarea className="min-h-40 w-full rounded-xl border bg-transparent p-3 text-sm" value={note} maxLength={2000} onChange={(event) => setNote(event.target.value)} placeholder="Digite uma observação" />
+        <textarea aria-label="Observação da transação" className="min-h-40 w-full rounded-xl border bg-transparent p-3 text-sm" value={note} maxLength={2000} onChange={(event) => setNote(event.target.value)} placeholder="Digite uma observação" />
       </Dialog>
 
       <Dialog open={importOpen} onOpenChange={setImportOpen} title="Importar Transações" description="Importe e atualize as transações das instituições conectadas." footer={<><Button variant="outline" onClick={() => setImportOpen(false)}>Cancelar</Button><Button onClick={syncImport} disabled={pending || !data.pluggy.itemCount}>{pending ? <LoaderCircle className="size-4 animate-spin" /> : <Download className="size-4" />} Iniciar Importação</Button></>}>
@@ -461,11 +461,11 @@ function MiniTotal({ label, value, tone }: { label: string; value: number; tone:
 }
 
 function SortHeader({ label, active, direction, onClick }: { label: string; active: boolean; direction: "asc" | "desc"; onClick: () => void }) {
-  return <th className="pb-3 pr-4"><button type="button" onClick={onClick} className="flex items-center gap-1">{label}{active && (direction === "asc" ? <ArrowUp className="size-3" /> : <ArrowDown className="size-3" />)}</button></th>;
+  return <th className="pb-3 pr-4" aria-sort={active ? (direction === "asc" ? "ascending" : "descending") : "none"}><button type="button" onClick={onClick} className="flex items-center gap-1">{label}{active && (direction === "asc" ? <ArrowUp className="size-3" aria-hidden="true" /> : <ArrowDown className="size-3" aria-hidden="true" />)}</button></th>;
 }
 
 function MenuButton({ icon: Icon, label, onClick, danger = false }: { icon: typeof Pencil; label: string; onClick: () => void; danger?: boolean }) {
-  return <button type="button" role="menuitem" onClick={onClick} className={cn("flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-[var(--muted)]", danger && "text-[var(--danger)]")}><Icon className="size-4" />{label}</button>;
+  return <button type="button" role="menuitem" tabIndex={-1} onClick={onClick} className={cn("flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-[var(--muted)]", danger && "text-[var(--danger)]")}><Icon className="size-4" aria-hidden="true" />{label}</button>;
 }
 
 function FilterSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: [string, string][] }) {

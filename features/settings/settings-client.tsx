@@ -12,6 +12,7 @@ import type { BrapiCredentialStatus } from "@/features/portfolio/brapi-credentia
 import {
   removePluggyCredentialsAction,
   savePluggyCredentialsAction,
+  savePluggyWebhookSecretAction,
 } from "@/features/open-finance/pluggy-credential-actions";
 import type { PluggyCredentialStatus } from "@/features/open-finance/pluggy-credentials";
 
@@ -26,9 +27,11 @@ function updatedAtLabel(value: string | null) {
 export function SettingsClient({
   initialCredential,
   initialPluggyCredential,
+  pluggyWebhookUrl,
 }: {
   initialCredential: BrapiCredentialStatus;
   initialPluggyCredential: PluggyCredentialStatus;
+  pluggyWebhookUrl: string | null;
 }) {
   const [credential, setCredential] = useState(initialCredential);
   const [apiKey, setApiKey] = useState("");
@@ -37,14 +40,18 @@ export function SettingsClient({
   const [pluggyCredential, setPluggyCredential] = useState(initialPluggyCredential);
   const [pluggyClientId, setPluggyClientId] = useState("");
   const [pluggyClientSecret, setPluggyClientSecret] = useState("");
+  const [pluggyWebhookSecret, setPluggyWebhookSecret] = useState("");
   const [pluggyMessage, setPluggyMessage] = useState<{ kind: "success" | "error"; text: string }>();
+  const [pluggyWebhookMessage, setPluggyWebhookMessage] = useState<{ kind: "success" | "error"; text: string }>();
   const [confirmPluggyRemove, setConfirmPluggyRemove] = useState(false);
-  const [pending, startTransition] = useTransition();
+  const [brapiPending, startBrapiTransition] = useTransition();
+  const [pluggyPending, startPluggyTransition] = useTransition();
+  const [webhookPending, startWebhookTransition] = useTransition();
 
   function saveCredential(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setMessage(undefined);
-    startTransition(async () => {
+    startBrapiTransition(async () => {
       try {
         const status = await saveBrapiApiKeyAction(apiKey);
         setCredential({ configured: true, lastFour: status.lastFour, updatedAt: status.updatedAt });
@@ -61,7 +68,7 @@ export function SettingsClient({
 
   function removeCredential() {
     setMessage(undefined);
-    startTransition(async () => {
+    startBrapiTransition(async () => {
       try {
         await removeBrapiApiKeyAction();
         setCredential({ configured: false, lastFour: null, updatedAt: null });
@@ -81,18 +88,19 @@ export function SettingsClient({
   function savePluggyCredential(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setPluggyMessage(undefined);
-    startTransition(async () => {
+    startPluggyTransition(async () => {
       try {
         const status = await savePluggyCredentialsAction({
           clientId: pluggyClientId,
           clientSecret: pluggyClientSecret,
         });
-        setPluggyCredential({
+        setPluggyCredential((current) => ({
+          ...current,
           configured: true,
           clientIdLastFour: status.clientIdLastFour,
           clientSecretLastFour: status.clientSecretLastFour,
           updatedAt: status.updatedAt,
-        });
+        }));
         setPluggyClientId("");
         setPluggyClientSecret("");
         setPluggyMessage({ kind: "success", text: "Credenciais da Pluggy validadas e salvas." });
@@ -105,19 +113,49 @@ export function SettingsClient({
     });
   }
 
+  function savePluggyWebhookSecret(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPluggyWebhookMessage(undefined);
+    startWebhookTransition(async () => {
+      try {
+        const status = await savePluggyWebhookSecretAction(pluggyWebhookSecret);
+        setPluggyCredential((current) => ({
+          ...current,
+          webhookConfigured: true,
+          webhookSecretLastFour: status.webhookSecretLastFour,
+          webhookUpdatedAt: status.webhookUpdatedAt,
+        }));
+        setPluggyWebhookSecret("");
+        setPluggyWebhookMessage({
+          kind: "success",
+          text: "Segredo individual do webhook salvo.",
+        });
+      } catch (error) {
+        setPluggyWebhookMessage({
+          kind: "error",
+          text: error instanceof Error ? error.message : "Não foi possível salvar o segredo do webhook.",
+        });
+      }
+    });
+  }
+
   function removePluggyCredential() {
     setPluggyMessage(undefined);
-    startTransition(async () => {
+    startPluggyTransition(async () => {
       try {
         await removePluggyCredentialsAction();
         setPluggyCredential({
           configured: false,
           clientIdLastFour: null,
           clientSecretLastFour: null,
+          webhookConfigured: false,
+          webhookSecretLastFour: null,
+          webhookUpdatedAt: null,
           updatedAt: null,
         });
         setPluggyClientId("");
         setPluggyClientSecret("");
+        setPluggyWebhookSecret("");
         setConfirmPluggyRemove(false);
         setPluggyMessage({ kind: "success", text: "Credenciais da Pluggy removidas." });
       } catch (error) {
@@ -210,12 +248,12 @@ export function SettingsClient({
                 </a>
                 <div className="flex gap-3">
                   {credential.configured && (
-                    <Button type="button" variant="danger" onClick={() => setConfirmRemove(true)} disabled={pending}>
+                    <Button type="button" variant="danger" onClick={() => setConfirmRemove(true)} disabled={brapiPending}>
                       Remover
                     </Button>
                   )}
-                  <Button type="submit" disabled={pending || apiKey.trim().length < 8}>
-                    {pending ? "Validando…" : credential.configured ? "Validar e substituir" : "Validar e conectar"}
+                  <Button type="submit" disabled={brapiPending || apiKey.trim().length < 8}>
+                    {brapiPending ? "Validando…" : credential.configured ? "Validar e substituir" : "Validar e conectar"}
                   </Button>
                 </div>
               </div>
@@ -365,7 +403,7 @@ export function SettingsClient({
                       type="button"
                       variant="danger"
                       onClick={() => setConfirmPluggyRemove(true)}
-                      disabled={pending}
+                      disabled={pluggyPending || webhookPending}
                     >
                       Remover
                     </Button>
@@ -373,12 +411,12 @@ export function SettingsClient({
                   <Button
                     type="submit"
                     disabled={
-                      pending ||
+                      pluggyPending ||
                       pluggyClientId.trim().length < 8 ||
                       pluggyClientSecret.trim().length < 8
                     }
                   >
-                    {pending
+                    {pluggyPending
                       ? "Validando…"
                       : pluggyCredential.configured
                         ? "Validar e substituir"
@@ -387,6 +425,104 @@ export function SettingsClient({
                 </div>
               </div>
             </form>
+
+            <div className="mt-6 border-t pt-6">
+              <div className="mb-4">
+                <h3 className="font-semibold">Webhook individual</h3>
+                <p className="mt-1 text-sm leading-6 text-[var(--muted-foreground)]">
+                  Configure esta URL na sua aplicação Pluggy e envie o mesmo segredo no header{" "}
+                  <code>x-pluggy-webhook-secret</code>.
+                </p>
+              </div>
+
+              {pluggyWebhookMessage && (
+                <p
+                  role={pluggyWebhookMessage.kind === "error" ? "alert" : "status"}
+                  className={`mb-4 rounded-xl p-3 text-sm ${
+                    pluggyWebhookMessage.kind === "error"
+                      ? "bg-[color-mix(in_srgb,var(--danger)_14%,transparent)] text-[var(--danger)]"
+                      : "bg-[color-mix(in_srgb,var(--success)_14%,transparent)] text-[var(--success)]"
+                  }`}
+                >
+                  {pluggyWebhookMessage.text}
+                </p>
+              )}
+
+              {pluggyCredential.webhookConfigured && (
+                <div className="mb-4 flex items-start gap-3 rounded-xl border bg-[var(--muted)]/35 p-4">
+                  <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-[var(--success)]" />
+                  <div>
+                    <p className="text-sm font-semibold">Webhook configurado para este usuário</p>
+                    <p className="mt-1 text-sm text-[var(--muted-foreground)]">
+                      Segredo ••••{pluggyCredential.webhookSecretLastFour}
+                      {pluggyCredential.webhookUpdatedAt
+                        ? ` · Atualizado em ${updatedAtLabel(pluggyCredential.webhookUpdatedAt)}`
+                        : ""}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              <form onSubmit={savePluggyWebhookSecret} className="space-y-4">
+                {pluggyWebhookUrl ? (
+                  <div className="space-y-2">
+                    <Label htmlFor="settings-pluggy-webhook-url">URL do webhook</Label>
+                    <Input
+                      id="settings-pluggy-webhook-url"
+                      value={pluggyWebhookUrl}
+                      readOnly
+                      aria-describedby="settings-pluggy-webhook-url-help"
+                    />
+                    <p id="settings-pluggy-webhook-url-help" className="text-xs text-[var(--muted-foreground)]">
+                      Copie a URL completa para a configuração do webhook no painel da Pluggy.
+                    </p>
+                  </div>
+                ) : (
+                  <p
+                    role="alert"
+                    className="rounded-xl border border-[var(--danger)]/45 bg-[var(--danger)]/10 p-3 text-sm text-[var(--danger)]"
+                  >
+                    A URL pública do webhook não está configurada. Defina uma AUTH_URL absoluta e válida no ambiente da aplicação.
+                  </p>
+                )}
+                <div className="space-y-2">
+                  <Label htmlFor="settings-pluggy-webhook-secret">
+                    {pluggyCredential.webhookConfigured ? "Novo segredo do webhook" : "Segredo do webhook"}
+                  </Label>
+                  <Input
+                    id="settings-pluggy-webhook-secret"
+                    type="password"
+                    value={pluggyWebhookSecret}
+                    onChange={(event) => setPluggyWebhookSecret(event.target.value)}
+                    placeholder="Use ao menos 32 caracteres aleatórios"
+                    autoComplete="new-password"
+                    minLength={32}
+                    maxLength={1000}
+                    required
+                    aria-describedby="settings-pluggy-webhook-secret-help"
+                  />
+                  <p id="settings-pluggy-webhook-secret-help" className="text-xs text-[var(--muted-foreground)]">
+                    O valor é criptografado e nunca é devolvido ao navegador após o salvamento.
+                  </p>
+                </div>
+                <div className="flex justify-end">
+                  <Button
+                    type="submit"
+                    disabled={
+                      webhookPending
+                      || !pluggyWebhookUrl
+                      || pluggyWebhookSecret.trim().length < 32
+                    }
+                  >
+                    {webhookPending
+                      ? "Salvando…"
+                      : pluggyCredential.webhookConfigured
+                        ? "Substituir segredo"
+                        : "Salvar segredo"}
+                  </Button>
+                </div>
+              </form>
+            </div>
           </CardContent>
         </Card>
 
@@ -412,7 +548,7 @@ export function SettingsClient({
         description="As cotações existentes serão mantidas, mas novas consultas autenticadas e atualizações da B3 ficarão indisponíveis até que outra chave seja conectada."
         confirmLabel="Remover chave"
         danger
-        pending={pending}
+        pending={brapiPending}
         onConfirm={removeCredential}
       />
       <ConfirmDialog
@@ -422,7 +558,7 @@ export function SettingsClient({
         description="Os dados já sincronizados serão mantidos, mas novas conexões e sincronizações ficarão indisponíveis para este usuário até que outras credenciais sejam configuradas."
         confirmLabel="Remover credenciais"
         danger
-        pending={pending}
+        pending={pluggyPending}
         onConfirm={removePluggyCredential}
       />
     </>

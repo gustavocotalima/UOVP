@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+} from "react";
 import { createPortal } from "react-dom";
 import { Ellipsis } from "lucide-react";
 import { Button } from "./button";
@@ -19,15 +26,58 @@ export function ActionMenu({
   children: ReactNode;
   label?: string;
 }) {
+  const menuId = useId();
   const triggerRef = useRef<HTMLSpanElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const focusOnOpenRef = useRef<"first" | "last">("first");
   const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
 
-  useEffect(() => {
-    if (!open) {
+  function menuItems() {
+    return Array.from(
+      menuRef.current?.querySelectorAll<HTMLElement>("[role='menuitem']:not([disabled])") ?? [],
+    );
+  }
+
+  function focusMenuItem(positionToFocus: "first" | "last") {
+    const items = menuItems();
+    const item = positionToFocus === "first" ? items[0] : items.at(-1);
+    item?.focus();
+  }
+
+  function handleTriggerKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>) {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    event.preventDefault();
+    focusOnOpenRef.current = event.key === "ArrowDown" ? "first" : "last";
+    if (open) focusMenuItem(focusOnOpenRef.current);
+    else {
       setPosition(null);
+      onOpenChange(true);
+    }
+  }
+
+  function handleMenuKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    const items = menuItems();
+    if (!items.length) return;
+    const currentIndex = items.indexOf(document.activeElement as HTMLElement);
+    let nextIndex: number | undefined;
+    if (event.key === "ArrowDown") nextIndex = currentIndex < items.length - 1 ? currentIndex + 1 : 0;
+    else if (event.key === "ArrowUp") nextIndex = currentIndex > 0 ? currentIndex - 1 : items.length - 1;
+    else if (event.key === "Home") nextIndex = 0;
+    else if (event.key === "End") nextIndex = items.length - 1;
+    else if (event.key === "Tab") {
+      event.preventDefault();
+      onOpenChange(false);
+      triggerRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
+      return;
+    } else {
       return;
     }
+    event.preventDefault();
+    items[nextIndex].focus();
+  }
+
+  useEffect(() => {
+    if (!open) return;
 
     function updatePosition() {
       const trigger = triggerRef.current?.getBoundingClientRect();
@@ -62,11 +112,19 @@ export function ActionMenu({
     }
 
     updatePosition();
+    const focusTimer = window.setTimeout(() => {
+      const items = Array.from(
+        menuRef.current?.querySelectorAll<HTMLElement>("[role='menuitem']:not([disabled])") ?? [],
+      );
+      const item = focusOnOpenRef.current === "first" ? items[0] : items.at(-1);
+      item?.focus();
+    });
     window.addEventListener("resize", updatePosition);
     window.addEventListener("scroll", updatePosition, true);
     document.addEventListener("pointerdown", handlePointerDown);
     document.addEventListener("keydown", handleKeyDown);
     return () => {
+      window.clearTimeout(focusTimer);
       window.removeEventListener("resize", updatePosition);
       window.removeEventListener("scroll", updatePosition, true);
       document.removeEventListener("pointerdown", handlePointerDown);
@@ -84,7 +142,13 @@ export function ActionMenu({
           aria-label={label}
           aria-haspopup="menu"
           aria-expanded={open}
-          onClick={() => onOpenChange(!open)}
+          aria-controls={open ? menuId : undefined}
+          onClick={() => {
+            focusOnOpenRef.current = "first";
+            if (!open) setPosition(null);
+            onOpenChange(!open);
+          }}
+          onKeyDown={handleTriggerKeyDown}
         >
           <Ellipsis className="size-4" />
         </Button>
@@ -92,8 +156,10 @@ export function ActionMenu({
       {open && typeof document !== "undefined" && createPortal(
         <div
           ref={menuRef}
+          id={menuId}
           role="menu"
           aria-label={label}
+          onKeyDown={handleMenuKeyDown}
           className="fixed z-[80] w-56 rounded-xl border bg-[var(--card)] p-1 text-left text-[var(--card-foreground)] opacity-100 shadow-2xl"
           style={{
             left: position?.left ?? 0,

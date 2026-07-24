@@ -2,10 +2,19 @@ import { timingSafeEqual } from "node:crypto";
 
 export function isSameOriginRequest(request: Request) {
   const origin = request.headers.get("origin");
-  const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
-  if (!origin || !host) return false;
+  if (!origin) return false;
   try {
-    return new URL(origin).host === host;
+    const requestUrl = new URL(request.url);
+    const configuredOrigin = process.env.AUTH_URL ? new URL(process.env.AUTH_URL).origin : null;
+    let expectedOrigin = configuredOrigin ?? requestUrl.origin;
+    if (!configuredOrigin && process.env.AUTH_TRUST_PROXY === "true") {
+      const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
+      const forwardedProtocol = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
+      if (forwardedHost && (forwardedProtocol === "http" || forwardedProtocol === "https")) {
+        expectedOrigin = `${forwardedProtocol}://${forwardedHost}`;
+      }
+    }
+    return new URL(origin).origin === expectedOrigin;
   } catch {
     return false;
   }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { Calculator, CheckCircle2, Clock3, DollarSign } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,6 +11,7 @@ import { Select } from "@/components/ui/select";
 import { DonutChart } from "@/components/charts/donut-chart";
 import { formatMoney, formatPercent } from "@/lib/money";
 import { executeContributionAction, simulateContributionAction } from "./actions";
+import { PORTFOLIO_SIMULATION_INVALIDATED_EVENT } from "./client-events";
 import { INVESTMENT_CLASSES, INVESTMENT_CLASS_META, RATE_CONVENTIONS, RATE_CONVENTION_META, type RateConventionKey } from "./constants";
 import type { AssetDto, PortfolioDto, SimulationDto } from "./types";
 
@@ -74,6 +75,20 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
   const selectedCatalog = selectedAsset?.fixedIncomeFamilyCode
     ? catalog.filter((item) => item.familyCode === selectedAsset.fixedIncomeFamilyCode)
     : [];
+
+  useEffect(() => {
+    const invalidate = () => {
+      setSimulation((current) => {
+        if (current) {
+          setMessage("A carteira, as metas ou as notas mudaram. Calcule o aporte novamente.");
+        }
+        return undefined;
+      });
+      setContributionModal(undefined);
+    };
+    window.addEventListener(PORTFOLIO_SIMULATION_INVALIDATED_EVENT, invalidate);
+    return () => window.removeEventListener(PORTFOLIO_SIMULATION_INVALIDATED_EVENT, invalidate);
+  }, []);
 
   function openContribution(suggestionId: string, quantity: string) {
     const suggestion = simulation?.suggestions.find((item) => item.id === suggestionId);
@@ -233,6 +248,7 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
         title="Novo aporte"
         titleAlign="center"
         className="max-w-xl border-white/10 bg-[#555] text-white"
+        dismissible={!pending}
       >
         {selectedSuggestion && selectedAsset && contributionModal && (
           <div className="space-y-6 px-4 pb-3 sm:px-10">

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   BadgeDollarSign,
   ChartNoAxesCombined,
@@ -50,12 +50,12 @@ const navigation = [
   },
 ];
 
+const subscribeToHydration = () => () => undefined;
+
 function Sidebar({ user, onNavigate }: { user: { name?: string | null; email?: string | null }; onNavigate?: () => void }) {
   const pathname = usePathname();
   const { resolvedTheme, setTheme } = useTheme();
-  const [themeMounted, setThemeMounted] = useState(false);
-
-  useEffect(() => setThemeMounted(true), []);
+  const themeMounted = useSyncExternalStore(subscribeToHydration, () => true, () => false);
 
   return (
     <aside className="flex h-full w-64 flex-col border-r bg-[#11120f] p-4 text-[#f4f3ed]">
@@ -156,32 +156,99 @@ function Sidebar({ user, onNavigate }: { user: { name?: string | null; email?: s
 
 export function AppShell({ user, children }: { user: { name?: string | null; email?: string | null }; children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const backgroundRef = useRef<HTMLDivElement>(null);
+  const drawerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const previousFocus = document.activeElement as HTMLElement | null;
+    const background = backgroundRef.current;
+    const originalBackgroundInert = background?.inert ?? false;
+    const originalOverflow = document.body.style.overflow;
+    if (background) background.inert = true;
+    document.body.style.overflow = "hidden";
+
+    const focusTimer = window.setTimeout(() => {
+      drawerRef.current?.querySelector<HTMLElement>("[data-mobile-menu-close]")?.focus();
+    });
+    const desktopMedia = window.matchMedia("(min-width: 1024px)");
+    const closeOnDesktop = (event: MediaQueryListEvent) => {
+      if (event.matches) setMobileOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setMobileOpen(false);
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = Array.from(
+        drawerRef.current?.querySelectorAll<HTMLElement>(
+          "a[href], button:not([disabled]), [tabindex]:not([tabindex='-1'])",
+        ) ?? [],
+      );
+      if (!focusable.length) {
+        event.preventDefault();
+        drawerRef.current?.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && (document.activeElement === first || !drawerRef.current?.contains(document.activeElement))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || !drawerRef.current?.contains(document.activeElement))) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    desktopMedia.addEventListener("change", closeOnDesktop);
+    return () => {
+      window.clearTimeout(focusTimer);
+      document.removeEventListener("keydown", onKeyDown);
+      desktopMedia.removeEventListener("change", closeOnDesktop);
+      if (background) background.inert = originalBackgroundInert;
+      document.body.style.overflow = originalOverflow;
+      if (previousFocus?.isConnected) previousFocus.focus();
+    };
+  }, [mobileOpen]);
+
   return (
     <div className="min-h-screen">
-      <div className="fixed inset-y-0 left-0 z-40 hidden lg:block">
-        <Sidebar user={user} />
+      <div ref={backgroundRef}>
+        <div className="fixed inset-y-0 left-0 z-40 hidden lg:block">
+          <Sidebar user={user} />
+        </div>
+        <div className="lg:pl-64">
+          <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b bg-[color-mix(in_srgb,var(--background)_88%,transparent)] px-4 backdrop-blur lg:hidden">
+            <Button variant="ghost" size="icon" onClick={() => setMobileOpen(true)} aria-label="Abrir menu" aria-expanded={mobileOpen} aria-controls="mobile-navigation">
+              <Menu className="size-5" />
+            </Button>
+            <span className="font-semibold tracking-[0.16em]">UOVP</span>
+            <span className="size-10" aria-hidden="true" />
+          </header>
+          <main className="mx-auto min-h-screen max-w-[1480px] p-4 sm:p-6 lg:p-8">{children}</main>
+        </div>
       </div>
       {mobileOpen && (
-        <div className="fixed inset-0 z-50 lg:hidden">
-          <button className="absolute inset-0 bg-black/65" aria-label="Fechar menu" onClick={() => setMobileOpen(false)} />
-          <div className="relative h-full w-64">
+        <div
+          className="fixed inset-0 z-50 bg-black/65 lg:hidden"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Menu de navegação"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setMobileOpen(false);
+          }}
+        >
+          <div id="mobile-navigation" ref={drawerRef} tabIndex={-1} className="relative h-full w-64">
             <Sidebar user={user} onNavigate={() => setMobileOpen(false)} />
-            <Button variant="ghost" size="icon" className="absolute right-2 top-2 text-white" onClick={() => setMobileOpen(false)} aria-label="Fechar menu">
+            <Button data-mobile-menu-close variant="ghost" size="icon" className="absolute right-2 top-2 text-white" onClick={() => setMobileOpen(false)} aria-label="Fechar menu">
               <X className="size-5" />
             </Button>
           </div>
         </div>
       )}
-      <div className="lg:pl-64">
-        <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b bg-[color-mix(in_srgb,var(--background)_88%,transparent)] px-4 backdrop-blur lg:hidden">
-          <Button variant="ghost" size="icon" onClick={() => setMobileOpen(true)} aria-label="Abrir menu">
-            <Menu className="size-5" />
-          </Button>
-          <span className="font-semibold tracking-[0.16em]">UOVP</span>
-          <span className="size-10" aria-hidden="true" />
-        </header>
-        <main className="mx-auto min-h-screen max-w-[1480px] p-4 sm:p-6 lg:p-8">{children}</main>
-      </div>
     </div>
   );
 }

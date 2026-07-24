@@ -2,7 +2,7 @@
 
 Uma Outra Verdade Possível.
 
-Aplicação financeira multiusuário em Next.js que reúne carteira de investimentos, orçamento doméstico, simuladores, mapa de risco e FAQ. A interface replica o escopo funcional verificado no menu lateral do aplicativo de referência, sem o cabeçalho de produtos externos.
+Aplicação financeira multiusuário em Next.js que reúne carteira de investimentos, orçamento doméstico, simuladores, mapa de risco e integrações Open Finance.
 
 ## Stack
 
@@ -30,6 +30,11 @@ Gere segredos independentes. Por exemplo, `openssl rand -base64 48` para `AUTH_S
 entrada de `CREDENTIAL_ENCRYPTION_KEYS`. Ao rotacionar a chave de credenciais, mantenha a chave
 anterior no keyring, adicione uma nova versão e altere `CREDENTIAL_ENCRYPTION_ACTIVE_KEY`; as
 credenciais são recriptografadas no próximo uso.
+
+Cada usuário configura em **Configurações** o próprio segredo de webhook e registra o mesmo valor no header
+`x-pluggy-webhook-secret` da sua aplicação Pluggy. O segredo é criptografado e isolado por usuário.
+Sem esse segredo, o endpoint recusa eventos e nenhuma exclusão de conexão é reconciliada
+automaticamente.
 
 Em produção atrás de um proxy confiável, configure `AUTH_TRUST_HOST=true` e
 `AUTH_TRUST_PROXY=true`, garantindo que o proxy remova cabeçalhos `Forwarded` e

@@ -9,7 +9,9 @@ import {
   INSTRUMENT_TYPES,
   INVESTMENT_CLASSES,
 } from "@/features/portfolio/constants";
+import { bumpPortfolioAndInvalidateDrafts } from "@/features/portfolio/invalidation";
 import { reconcilePluggyInvestmentsForUser } from "./diagram-sync";
+import { resolvePluggyItemDisconnection } from "./disconnection";
 
 const reviewSchema = z.object({
   linkId: z.string().cuid(),
@@ -74,18 +76,7 @@ export async function reviewPluggyDiagramLinkAction(input: PluggyDiagramReviewIn
       },
       select: { portfolioId: true },
     });
-    await tx.portfolio.update({
-      where: { id: asset.portfolioId },
-      data: { version: { increment: 1 } },
-    });
-    await tx.contributionSimulation.updateMany({
-      where: {
-        userId,
-        status: "DRAFT",
-        suggestions: { none: { executionStatus: "AWAITING_SYNC" } },
-      },
-      data: { status: "STALE" },
-    });
+    await bumpPortfolioAndInvalidateDrafts(tx, asset.portfolioId, userId);
   });
   revalidatePath("/carteira");
   revalidatePath("/open-finance");
@@ -113,14 +104,7 @@ export async function excludePluggyDiagramLinkAction(linkId: string) {
         where: { id: link.holding.id },
         data: { includedInTotals: false },
       });
-      await tx.portfolio.update({
-        where: { id: link.holding.asset.portfolioId },
-        data: { version: { increment: 1 } },
-      });
-      await tx.contributionSimulation.updateMany({
-        where: { userId, status: "DRAFT" },
-        data: { status: "STALE" },
-      });
+      await bumpPortfolioAndInvalidateDrafts(tx, link.holding.asset.portfolioId, userId);
     }
   });
   revalidatePath("/carteira");
@@ -136,4 +120,19 @@ export async function setShowSoldInvestmentsAction(show: boolean) {
     create: { userId, showSoldInvestments: parsed },
   });
   revalidatePath("/open-finance");
+}
+
+export async function resolvePluggyItemDisconnectionAction(
+  itemId: string,
+  resolution: "KEEP_MANUAL" | "REMOVE",
+) {
+  const userId = await requireUserId();
+  const parsed = z.object({
+    itemId: z.string().cuid(),
+    resolution: z.enum(["KEEP_MANUAL", "REMOVE"]),
+  }).parse({ itemId, resolution });
+  await resolvePluggyItemDisconnection(userId, parsed.itemId, parsed.resolution);
+  revalidatePath("/open-finance");
+  revalidatePath("/carteira");
+  revalidatePath("/home");
 }

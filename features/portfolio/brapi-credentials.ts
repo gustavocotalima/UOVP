@@ -29,8 +29,11 @@ export async function requireBrapiApiKey(userId: string) {
   }
   const decrypted = decryptCredential(preference.brapiApiKeyCiphertext, { userId, type: "brapi" });
   if (decrypted.needsRotation) {
-    await prisma.userPreference.update({
-      where: { userId },
+    await prisma.userPreference.updateMany({
+      where: {
+        userId,
+        brapiApiKeyCiphertext: preference.brapiApiKeyCiphertext,
+      },
       data: {
         brapiApiKeyCiphertext: encryptCredential(decrypted.value, { userId, type: "brapi" }),
         brapiApiKeyUpdatedAt: new Date(),

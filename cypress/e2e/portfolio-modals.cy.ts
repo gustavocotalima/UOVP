@@ -2,6 +2,8 @@ describe("modais da carteira", () => {
   beforeEach(() => {
     cy.registerAndLogin();
     cy.visit("/carteira");
+    cy.waitForHydration();
+    cy.get("[data-assets-panel-hydrated='true']", { timeout: 15_000 });
   });
 
   it("exibe o logo do Yahoo Finance na tabela da carteira", () => {
@@ -39,6 +41,7 @@ describe("modais da carteira", () => {
 
   it("permite configurar uma chave brapi individual sem expor seu valor", () => {
     cy.visit("/configuracoes");
+    cy.waitForHydration();
     cy.contains("h1", "Configurações").should("be.visible");
     cy.get("#settings-brapi-api-key").should("have.attr", "type", "password").and("have.attr", "autocomplete", "off");
     cy.contains("a", "Obter chave na brapi").should("have.attr", "href", "https://brapi.dev/dashboard");
@@ -158,6 +161,7 @@ describe("modais da carteira", () => {
     cy.contains("CDB Exemplo 2029").should("not.exist");
     cy.get('input[placeholder="Buscar nome ou ticker"]').clear();
     cy.contains("Depósitos bancários com FGC · Pré-fixado").should("exist");
+    cy.get('button[aria-label^="Expandir Depósitos bancários com FGC"]').click();
     cy.contains("Nenhuma aplicação cadastrada. O grupo continua elegível para receber aportes.").should("be.visible");
   });
 

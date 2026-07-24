@@ -226,16 +226,17 @@ export function TagsClient({
         </CardContent>
       </Card>
 
-      <Dialog open={formOpen} onOpenChange={setFormOpen} title={editing ? "Editar Tag" : "Criar Tag"} footer={<Button onClick={save} disabled={pending || !name.trim()}>{pending ? "Salvando…" : "Salvar"}</Button>}>
+      <Dialog open={formOpen} onOpenChange={setFormOpen} dismissible={!pending} title={editing ? "Editar Tag" : "Criar Tag"} footer={<Button onClick={save} disabled={pending || !name.trim()}>{pending ? "Salvando…" : "Salvar"}</Button>}>
         <div className="space-y-5">
           <Label>Nome<Input className="mt-2" value={name} onChange={(event) => setName(event.target.value)} placeholder="Digite o nome da tag" /></Label>
-          <div><Label>Cor da Tag</Label><div className="mt-2 flex items-center gap-3"><input type="color" value={color} onChange={(event) => setColor(event.target.value)} className="size-11 cursor-pointer rounded-lg border bg-transparent p-1" /><Input value={color} onChange={(event) => setColor(event.target.value)} pattern="^#[0-9a-fA-F]{6}$" /></div></div>
+          <fieldset><legend className="text-sm font-medium">Cor da Tag</legend><div className="mt-2 flex items-center gap-3"><input type="color" aria-label="Selecionar cor da tag" value={color} onChange={(event) => setColor(event.target.value)} className="size-11 cursor-pointer rounded-lg border bg-transparent p-1" /><Input aria-label="Código hexadecimal da cor da tag" value={color} onChange={(event) => setColor(event.target.value)} pattern="^#[0-9a-fA-F]{6}$" /></div></fieldset>
           <div className="rounded-xl border p-3"><span className="rounded-full px-3 py-1.5 text-sm font-medium text-white" style={{ background: color }}>{name || "Nome"}</span></div>
         </div>
       </Dialog>
       <Dialog
         open={prefixRuleOpen}
         onOpenChange={setPrefixRuleOpen}
+        dismissible={!pending}
         title="Nova regra automática"
         description="Classifique transações cuja descrição começa sempre com o mesmo texto."
         footer={
@@ -293,7 +294,7 @@ export function TagsClient({
           </div>
         </div>
       </Dialog>
-      <Dialog open={Boolean(editingRule)} onOpenChange={(open) => !open && setEditingRule(null)} title="Editar regra automática" description={editingRule?.matchLabel} footer={<Button onClick={saveRule} disabled={pending}>{pending ? "Salvando…" : "Salvar regra"}</Button>}>
+      <Dialog open={Boolean(editingRule)} onOpenChange={(open) => !open && setEditingRule(null)} dismissible={!pending} title="Editar regra automática" description={editingRule?.matchLabel} footer={<Button onClick={saveRule} disabled={pending}>{pending ? "Salvando…" : "Salvar regra"}</Button>}>
         <div className="space-y-5">
           <label className="flex items-center gap-3 rounded-xl border p-3 text-sm"><input type="checkbox" checked={ruleEnabled} onChange={(event) => setRuleEnabled(event.target.checked)} /> Regra ativa</label>
           <Label>Meta<Select className="mt-2 w-full" value={ruleMetaMode} onChange={(event) => setRuleMetaMode(event.target.value as RuleMetaMode)}><option value="KEEP">Não alterar</option><option value="CLEAR">Sem meta</option>{BUDGET_CATEGORIES.map((category) => <option key={category} value={category}>{BUDGET_CATEGORY_META[category].label}</option>)}</Select></Label>

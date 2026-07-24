@@ -10,13 +10,47 @@ export type HoldingAmount = {
   currency?: string | null;
 };
 
+export function fixedIncomeHoldingFingerprint(holding: {
+  catalogItemId?: number | null;
+  customTypeName?: string | null;
+  issuer: string;
+  productName: string;
+  purchaseDate?: Date | null;
+  maturityDate?: Date | null;
+}) {
+  const normalize = (value: string | null | undefined) =>
+    (value ?? "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toUpperCase();
+  return [
+    holding.catalogItemId ?? "",
+    normalize(holding.customTypeName),
+    normalize(holding.issuer),
+    normalize(holding.productName),
+    holding.purchaseDate?.toISOString() ?? "",
+    holding.maturityDate?.toISOString() ?? "",
+  ].join("|");
+}
+
+function requiresFxConversion(holding: HoldingAmount) {
+  const currency = holding.currency?.trim().toUpperCase();
+  if (currency) return currency !== "BRL";
+  return holding.pricingSource === "YAHOO" || holding.pricingSource === "BINANCE";
+}
+
+function holdingFxRate(holding: HoldingAmount) {
+  const fxRate = new Decimal(holding.fxRateToBrl ?? 0);
+  return fxRate.isFinite() && fxRate.gt(0) ? fxRate : null;
+}
+
 export function holdingUnitPriceBrl(holding: HoldingAmount) {
   const unitPrice = new Decimal(holding.unitPrice);
-  if (!["YAHOO", "BINANCE"].includes(holding.pricingSource ?? "") || holding.currency === "BRL") {
-    return unitPrice;
-  }
-  const fxRate = new Decimal(holding.fxRateToBrl ?? 0);
-  return fxRate.gt(0) ? unitPrice.mul(fxRate) : new Decimal(0);
+  if (!requiresFxConversion(holding)) return unitPrice;
+  const fxRate = holdingFxRate(holding);
+  return fxRate ? unitPrice.mul(fxRate) : new Decimal(0);
 }
 
 export function holdingCurrentValue(holding: HoldingAmount) {
@@ -25,6 +59,15 @@ export function holdingCurrentValue(holding: HoldingAmount) {
       holding.pricingSource === "BRAPI" ? holding.unitPrice : holdingUnitPriceBrl(holding),
     );
     if (marketValue.gt(0)) return marketValue;
+  }
+  if (requiresFxConversion(holding)) {
+    const fxRate = holdingFxRate(holding);
+    if (!fxRate) return new Decimal(0);
+    if (holding.currentValue != null) return new Decimal(holding.currentValue).mul(fxRate);
+    if (holding.providerCurrentValue != null) return new Decimal(holding.providerCurrentValue).mul(fxRate);
+    return new Decimal(holding.quantity).mul(holding.unitPrice).mul(fxRate);
+  }
+  if (holding.pricingSource === "BRAPI" || holding.pricingSource === "YAHOO" || holding.pricingSource === "BINANCE") {
     if (holding.providerCurrentValue != null) return new Decimal(holding.providerCurrentValue);
     if (holding.currentValue != null) return new Decimal(holding.currentValue);
   }
