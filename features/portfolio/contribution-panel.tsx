@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { Calculator, CheckCircle2, Clock3, DollarSign } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -30,6 +31,7 @@ type NewFixedIncomeHolding = {
 type ContributionModalState = {
   suggestionId: string;
   quantity: string;
+  unitPricePaid: string;
   destination: "EXISTING" | "NEW";
   holdingId: string;
   newHolding: NewFixedIncomeHolding;
@@ -52,6 +54,7 @@ function formatQuantity(value: string | number, maximumFractionDigits = 8) {
 }
 
 export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; catalog: PortfolioDto["catalog"] }) {
+  const router = useRouter();
   const [value, setValue] = useState(1000);
   const [simulation, setSimulation] = useState<SimulationDto>();
   const [contributionModal, setContributionModal] = useState<ContributionModalState>();
@@ -66,8 +69,10 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
   const selectedSuggestion = simulation?.suggestions.find((item) => item.id === contributionModal?.suggestionId);
   const selectedAsset = assets.find((asset) => asset.id === selectedSuggestion?.assetId);
   const selectedQuantity = Number(contributionModal?.quantity ?? 0);
-  const selectedEquivalent = selectedQuantity * Number(selectedAsset?.unitPrice ?? 0);
+  const selectedUnitPricePaid = Number(contributionModal?.unitPricePaid ?? 0);
   const isFixedIncome = selectedAsset?.instrumentType === "FIXED_INCOME";
+  const paidUnitPriceValid = isFixedIncome || (Number.isFinite(selectedUnitPricePaid) && selectedUnitPricePaid > 0);
+  const selectedEquivalent = isFixedIncome ? selectedQuantity : selectedQuantity * selectedUnitPricePaid;
   const selectedHolding = selectedAsset?.holdings.find((holding) => holding.id === contributionModal?.holdingId);
   const pluggyControlled = Boolean(
     selectedAsset?.pluggyControlled
@@ -99,6 +104,7 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
     setContributionModal({
       suggestionId,
       quantity,
+      unitPricePaid: "",
       destination: firstHolding ? "EXISTING" : "NEW",
       holdingId: firstHolding?.id ?? "",
       newHolding: { ...emptyNewHolding },
@@ -122,7 +128,14 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
   }
 
   function executeContribution() {
-    if (!simulation || !contributionModal || !selectedSuggestion || !Number.isFinite(selectedQuantity) || selectedQuantity <= 0) return;
+    if (
+      !simulation
+      || !contributionModal
+      || !selectedSuggestion
+      || !Number.isFinite(selectedQuantity)
+      || selectedQuantity <= 0
+      || !paidUnitPriceValid
+    ) return;
     setMessage(undefined);
     startTransition(async () => {
       try {
@@ -145,7 +158,13 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
                 },
               }
           : undefined;
-        const result = await executeContributionAction(simulation.id, selectedSuggestion.id, selectedQuantity, destination);
+        const result = await executeContributionAction(
+          simulation.id,
+          selectedSuggestion.id,
+          selectedQuantity,
+          isFixedIncome ? undefined : selectedUnitPricePaid,
+          destination,
+        );
         setSimulation({
           ...simulation,
           suggestions: simulation.suggestions.map((item) => item.id === selectedSuggestion.id
@@ -162,6 +181,7 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
           ? "Aporte planejado. Faça o investimento na instituição e sincronize a Pluggy para confirmar."
           : "Aporte registrado.");
         setContributionModal(undefined);
+        router.refresh();
       } catch (error) {
         setMessage(error instanceof Error ? error.message : "Não foi possível registrar o aporte.");
       }
@@ -276,7 +296,21 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
                 onChange={(event) => setContributionModal({ ...contributionModal, quantity: event.target.value })}
                 className="border-white/60 bg-transparent text-white"
               />
-              <p className="text-xs font-semibold">{isFixedIncome ? `Valor sugerido: ${formatMoney(selectedSuggestion.value)}` : `Quantidade sugerida: ${formatQuantity(selectedSuggestion.quantity)}, equivale a: ${formatMoney(selectedEquivalent)}`}</p>
+              {!isFixedIncome && (
+                <div className="space-y-2">
+                  <Label htmlFor="contribution-unit-price" className="text-xs font-semibold text-[var(--primary)]">Preço unitário pago (R$):</Label>
+                  <Input
+                    id="contribution-unit-price"
+                    type="number"
+                    min="0.00000001"
+                    step="any"
+                    value={contributionModal.unitPricePaid}
+                    onChange={(event) => setContributionModal({ ...contributionModal, unitPricePaid: event.target.value })}
+                    className="border-white/60 bg-transparent text-white"
+                  />
+                </div>
+              )}
+              <p className="text-xs font-semibold">{isFixedIncome ? `Valor sugerido: ${formatMoney(selectedSuggestion.value)}` : `Quantidade sugerida: ${formatQuantity(selectedSuggestion.quantity)} · Valor informado: ${formatMoney(selectedEquivalent)}`}</p>
             </div>
             {isFixedIncome && (
               <div className="space-y-4 rounded-xl border border-white/25 p-4">
@@ -321,7 +355,7 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
               </div>
             )}
             <div className="flex justify-center pt-5">
-              <Button className="min-w-40" onClick={executeContribution} disabled={pending || !Number.isFinite(selectedQuantity) || selectedQuantity <= 0 || Boolean(isFixedIncome && contributionModal.destination === "EXISTING" && !contributionModal.holdingId) || Boolean(isFixedIncome && contributionModal.destination === "NEW" && ((!contributionModal.newHolding.catalogItemId && contributionModal.newHolding.customTypeName.trim().length < 2) || contributionModal.newHolding.issuer.trim().length < 2 || contributionModal.newHolding.productName.trim().length < 2))}>
+              <Button className="min-w-40" onClick={executeContribution} disabled={pending || !Number.isFinite(selectedQuantity) || selectedQuantity <= 0 || !paidUnitPriceValid || Boolean(isFixedIncome && contributionModal.destination === "EXISTING" && !contributionModal.holdingId) || Boolean(isFixedIncome && contributionModal.destination === "NEW" && ((!contributionModal.newHolding.catalogItemId && contributionModal.newHolding.customTypeName.trim().length < 2) || contributionModal.newHolding.issuer.trim().length < 2 || contributionModal.newHolding.productName.trim().length < 2))}>
                 {pending ? "Salvando…" : pluggyControlled ? "Planejar aporte" : "Aportar"}
               </Button>
             </div>

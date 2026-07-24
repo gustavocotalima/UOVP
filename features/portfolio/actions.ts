@@ -14,7 +14,6 @@ import { allocateContribution, questionChangeAffectsAllocation } from "./allocat
 import {
   applyManualFixedIncomeContribution,
   fixedIncomeHoldingFingerprint,
-  holdingUnitPriceBrl,
 } from "./asset-groups";
 import { bumpPortfolioAndInvalidateDrafts } from "./invalidation";
 import {
@@ -1309,6 +1308,7 @@ export async function executeContributionAction(
   simulationId: string,
   suggestionId?: string,
   customQuantity?: number,
+  paidUnitPrice?: number,
   destination?: { holdingId?: string; newHolding?: FixedIncomeHoldingInput },
 ) {
   const userId = await requireUserId();
@@ -1317,6 +1317,9 @@ export async function executeContributionAction(
   const parsedQuantity = customQuantity == null
     ? undefined
     : z.number().positive().max(1_000_000_000).parse(customQuantity);
+  const parsedPaidUnitPrice = paidUnitPrice == null
+    ? undefined
+    : z.number().positive().max(1_000_000_000).parse(paidUnitPrice);
   if (parsedQuantity !== undefined && !parsedSuggestionId) throw new Error("Selecione um ativo para informar a quantidade.");
   try {
     await prisma.$transaction(async (tx) => {
@@ -1334,6 +1337,9 @@ export async function executeContributionAction(
           && (!parsedSuggestionId || suggestion.id === parsedSuggestionId),
       );
       if (!selected.length) throw new Error("Nenhuma sugestão disponível para executar.");
+      if (selected.some((suggestion) => suggestion.asset.instrumentType !== "FIXED_INCOME") && parsedPaidUnitPrice === undefined) {
+        throw new Error("Informe o preço unitário pago para registrar o aporte.");
+      }
 
       const externalSuggestion = selected.find((suggestion) => {
         if (suggestion.asset.instrumentType !== "FIXED_INCOME") {
@@ -1360,18 +1366,9 @@ export async function executeContributionAction(
         const quantity = parsedQuantity === undefined
           ? externalSuggestion.quantity
           : new Prisma.Decimal(parsedQuantity.toString());
-        const marketHolding = externalSuggestion.asset.holdings.find((holding) =>
-          holding.positionSource === "PLUGGY" && holding.unitPrice.gt(0),
-        );
-        const value = parsedQuantity === undefined
-          ? externalSuggestion.value
-          : externalSuggestion.asset.instrumentType === "FIXED_INCOME"
-            ? quantity
-            : quantity.mul(
-                marketHolding
-                  ? new Prisma.Decimal(holdingUnitPriceBrl(marketHolding).toString())
-                  : 0,
-              );
+        const value = externalSuggestion.asset.instrumentType === "FIXED_INCOME"
+          ? parsedQuantity === undefined ? externalSuggestion.value : quantity
+          : quantity.mul(parsedPaidUnitPrice!);
         const baselineQuantity = externalSuggestion.asset.holdings
           .filter((holding) => holding.positionSource === "PLUGGY" && holding.includedInTotals)
           .reduce((total, holding) => total.add(holding.quantity), new Prisma.Decimal(0));
@@ -1418,6 +1415,7 @@ export async function executeContributionAction(
           data: {
             quantity,
             value,
+            paidUnitPrice: parsedPaidUnitPrice === undefined ? null : new Prisma.Decimal(parsedPaidUnitPrice.toString()),
             executionStatus: "AWAITING_SYNC",
             awaitingSyncAt: new Date(),
             baselineQuantity,
@@ -1497,8 +1495,7 @@ export async function executeContributionAction(
           ) ?? suggestion.asset.holdings.find((candidate) => candidate.includedInTotals);
           if (!holding) throw new Error("A posição de mercado não foi encontrada.");
           quantity = parsedQuantity === undefined ? suggestion.quantity : new Prisma.Decimal(parsedQuantity.toString());
-          const unitPriceBrl = new Prisma.Decimal(holdingUnitPriceBrl(holding).toString());
-          value = parsedQuantity === undefined ? suggestion.value : quantity.mul(unitPriceBrl);
+          value = quantity.mul(parsedPaidUnitPrice!);
           await tx.assetHolding.update({
             where: { id: holding.id },
             data: {
@@ -1509,7 +1506,14 @@ export async function executeContributionAction(
           });
         }
         await tx.asset.update({ where: { id: suggestion.assetId }, data: { updatedAt: new Date() } });
-        await tx.contributionSuggestion.update({ where: { id: suggestion.id }, data: { quantity, value } });
+        await tx.contributionSuggestion.update({
+          where: { id: suggestion.id },
+          data: {
+            quantity,
+            value,
+            paidUnitPrice: suggestion.asset.instrumentType === "FIXED_INCOME" ? null : new Prisma.Decimal(parsedPaidUnitPrice!.toString()),
+          },
+        });
       }
       const remainingCount = await tx.contributionSuggestion.count({
         where: { simulationId: simulation.id, executed: false },
@@ -1542,6 +1546,45 @@ export async function executeContributionAction(
     },
   })) };
 }
+export async function saveAwaitingContributionPriceAction(assetId: string, paidUnitPrice: number) {
+  const userId = await requireUserId();
+  const parsedAssetId = z.string().cuid().parse(assetId);
+  const parsedPaidUnitPrice = z.number().positive().max(1_000_000_000).parse(paidUnitPrice);
+
+  await prisma.$transaction(async (tx) => {
+    const suggestion = await tx.contributionSuggestion.findFirst({
+      where: {
+        assetId: parsedAssetId,
+        executionStatus: "AWAITING_SYNC",
+        simulation: { userId },
+      },
+      select: {
+        id: true,
+        quantity: true,
+      },
+    });
+    if (!suggestion) {
+      throw new Error("Este aporte não está mais aguardando sincronização.");
+    }
+
+    const updated = await tx.contributionSuggestion.updateMany({
+      where: {
+        id: suggestion.id,
+        executionStatus: "AWAITING_SYNC",
+      },
+      data: {
+        paidUnitPrice: new Prisma.Decimal(parsedPaidUnitPrice.toString()),
+        value: suggestion.quantity.mul(parsedPaidUnitPrice),
+      },
+    });
+    if (updated.count !== 1) {
+      throw new Error("O aporte mudou durante a edição. Recarregue e tente novamente.");
+    }
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+
+  revalidatePath("/carteira");
+}
+
 
 async function recomputeScoresForQuestionType(
   tx: Prisma.TransactionClient,

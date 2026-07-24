@@ -956,6 +956,7 @@ model ContributionSuggestion {
   assetId                        String
   quantity                       Decimal                   @db.Decimal(30, 10)
   value                          Decimal                   @db.Decimal(30, 10)
+  paidUnitPrice                  Decimal?                  @db.Decimal(30, 10)
   suggestionPercentage           Decimal                   @db.Decimal(12, 8)
   totalAfterSuggestionPercentage Decimal                   @db.Decimal(12, 8)
   executed                       Boolean                   @default(false)
