@@ -82,6 +82,21 @@ function parseEnvelope(raw: string | null): SharedCacheEnvelope | null {
   }
 }
 
+function destroyCacheClient(client: RedisClient) {
+  try {
+    client.destroy();
+  } catch {
+    // node-redis throws ClientClosedError when a disconnected client is destroyed again.
+  }
+}
+
+function markCacheClientUnavailable(client: RedisClient) {
+  if (redisGlobal.client !== client) return;
+  redisGlobal.client = null;
+  redisGlobal.retryAt = Date.now() + RETRY_COOLDOWN_MS;
+  destroyCacheClient(client);
+}
+
 async function redisClient(): Promise<RedisClient | null> {
   const url = redisUrl();
   if (!url) return null;
@@ -90,28 +105,42 @@ async function redisClient(): Promise<RedisClient | null> {
   if (Date.now() < redisGlobal.retryAt) return null;
 
   if (redisGlobal.client && (redisGlobal.url !== url || !redisGlobal.client.isReady)) {
-    redisGlobal.client.destroy();
+    const staleClient = redisGlobal.client;
     redisGlobal.client = null;
+    destroyCacheClient(staleClient);
   }
 
   redisGlobal.url = url;
-  const client = createCacheClient(url);
+  let client: RedisClient;
+  try {
+    client = createCacheClient(url);
+  } catch {
+    redisGlobal.retryAt = Date.now() + RETRY_COOLDOWN_MS;
+    return null;
+  }
   client.on("error", () => {
     // Cache failures are intentionally non-fatal. Provider requests remain the source of truth.
   });
+  client.on("end", () => {
+    if (redisGlobal.client === client) {
+      redisGlobal.client = null;
+      redisGlobal.retryAt = Date.now() + RETRY_COOLDOWN_MS;
+    }
+  });
   redisGlobal.client = client;
-  redisGlobal.connection = client.connect()
+  const connection = client.connect()
     .then(() => client)
     .catch(() => {
-      client.destroy();
+      destroyCacheClient(client);
       if (redisGlobal.client === client) redisGlobal.client = null;
       redisGlobal.retryAt = Date.now() + RETRY_COOLDOWN_MS;
       return null;
     })
     .finally(() => {
-      redisGlobal.connection = null;
+      if (redisGlobal.connection === connection) redisGlobal.connection = null;
     });
-  return redisGlobal.connection;
+  redisGlobal.connection = connection;
+  return connection;
 }
 
 export function isSharedCacheConfigured() {
@@ -143,6 +172,7 @@ export async function getSharedCache<T>(
       value,
     };
   } catch {
+    markCacheClientUnavailable(client);
     return null;
   }
 }
@@ -169,6 +199,7 @@ export async function getSharedCacheMany<T>(
       }] as const];
     }));
   } catch {
+    markCacheClientUnavailable(client);
     return new Map();
   }
 }
@@ -192,6 +223,7 @@ export async function setSharedCache(
       );
     }
   } catch {
+    markCacheClientUnavailable(client);
     // A cache write must never fail the provider operation that produced the value.
   }
 }
@@ -220,6 +252,7 @@ export async function setSharedCacheMany(
     }
     await multi.exec();
   } catch {
+    markCacheClientUnavailable(client);
     // A cache write must never fail the provider operation that produced the value.
   }
 }
@@ -235,6 +268,7 @@ async function releaseLock(client: RedisClient, key: string, token: string) {
       { keys: [key], arguments: [token] },
     );
   } catch {
+    markCacheClientUnavailable(client);
     // The lock expires automatically and cache availability must remain non-fatal.
   }
 }
@@ -265,6 +299,7 @@ export async function withSharedCacheCoalescing<T>({
     try {
       acquired = Boolean(await client.set(lockKey, token, { NX: true, PX: lockMs }));
     } catch {
+      markCacheClientUnavailable(client);
       return operation();
     }
 
@@ -276,6 +311,7 @@ export async function withSharedCacheCoalescing<T>({
         const parsed = separator > 0 ? Number(currentToken?.slice(0, separator)) : 0;
         if (Number.isFinite(parsed) && parsed > 0) observedStartedAt = parsed;
       } catch {
+        markCacheClientUnavailable(client);
         observedStartedAt = 0;
       }
       for (let attempt = 0; attempt < 40; attempt += 1) {
@@ -302,7 +338,7 @@ export async function withSharedCacheCoalescing<T>({
 }
 
 export function resetSharedCacheForTests() {
-  redisGlobal.client?.destroy();
+  if (redisGlobal.client) destroyCacheClient(redisGlobal.client);
   redisGlobal.client = null;
   redisGlobal.connection = null;
   redisGlobal.flights.clear();
