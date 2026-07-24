@@ -376,6 +376,9 @@ export function SettingsClient({
                   <span className="rounded-full bg-[var(--primary)]/12 px-2 py-1 text-[10px] font-semibold uppercase text-[var(--primary)]">
                     Internacional
                   </span>
+                  <span className="rounded-full bg-[var(--success)]/12 px-2 py-1 text-[10px] font-semibold uppercase text-[var(--success)]">
+                    Sem chave
+                  </span>
                 </div>
                 <p className="mt-1 text-sm leading-6 text-[var(--muted-foreground)]">
                   Ativado automaticamente e sem chave. Usado para ações, REITs, ETFs e câmbio para BRL.
