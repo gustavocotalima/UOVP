@@ -39,6 +39,7 @@ import { accountSubtypeLabel } from "./account-labels";
 import { calculateAccountTotals } from "./calculations";
 import { FinanceNotice, runFinanceAction } from "./shared";
 import type { FinanceData, FinancialAccountDto } from "./types";
+import { duplicatePluggyItemIds, pluggyConnectErrorMessage } from "@/features/open-finance/pluggy-connect-error";
 
 type AccountForm = {
   type: "BANK_ACCOUNT" | "CREDIT_CARD";
@@ -152,7 +153,42 @@ export function AccountsClient({ data }: { data: FinanceData }) {
             setBusy(false);
           }
         },
-        onError: (error) => setNotice({ type: "error", text: error.message || "A Pluggy não concluiu a conexão." }),
+        onError: async (error) => {
+          const duplicateItemIds = duplicatePluggyItemIds(error);
+          if (!duplicateItemIds.length) {
+            setNotice({ type: "error", text: pluggyConnectErrorMessage(error) });
+            setBusy(false);
+            return;
+          }
+
+          let recovered = 0;
+          let recoveryError: unknown;
+          for (const duplicateItemId of duplicateItemIds) {
+            try {
+              await requestJson("/api/pluggy/items", { itemId: duplicateItemId });
+              recovered += 1;
+            } catch (error) {
+              recoveryError = error;
+            }
+          }
+          setBusy(false);
+          if (recovered) {
+            setNotice({
+              type: "success",
+              text: recovered === 1
+                ? "A conexão existente foi recuperada e sincronizada."
+                : `${recovered} conexões existentes foram recuperadas e sincronizadas.`,
+            });
+            router.refresh();
+            return;
+          }
+          setNotice({
+            type: "error",
+            text: recoveryError instanceof Error
+              ? recoveryError.message
+              : "A conexão já existe na Pluggy, mas não foi possível recuperá-la.",
+          });
+        },
         onClose: () => setBusy(false),
       });
       widget.init();
