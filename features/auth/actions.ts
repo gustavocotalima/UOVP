@@ -46,7 +46,10 @@ export async function registerAction(_: AuthFormState, formData: FormData): Prom
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
         await prisma.$transaction(async (tx) => {
-          await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext('uovp:registration-bootstrap'))`;
+          await tx.$queryRaw<Array<{ locked: number }>>`
+            SELECT 1::int AS "locked"
+            FROM pg_advisory_xact_lock(hashtext('uovp:registration-bootstrap'))
+          `;
           const isFirstUser = !await tx.user.findFirst({ select: { id: true } });
           if (!isFirstUser && !parsed.data.inviteToken) {
             throw new Error("Cadastro somente por convite.");
