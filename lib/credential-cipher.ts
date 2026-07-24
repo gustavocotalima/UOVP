@@ -1,16 +1,16 @@
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
-import { requireSecureSecret } from "@/lib/security-config";
+import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 
 const ALGORITHM = "aes-256-gcm";
-const ENVELOPE_VERSION = "v2";
+const ENVELOPE_VERSION = "v3";
+const PROJECT_NAMESPACE = "uovp";
 
 export type CredentialContext = {
   userId: string;
   type: "brapi" | "pluggy-client-id" | "pluggy-client-secret" | "pluggy-webhook-secret";
 };
 
-function associatedData(context: CredentialContext) {
-  return Buffer.from(`aurum:${context.type}:${context.userId}:${ENVELOPE_VERSION}`, "utf8");
+function associatedData(context: CredentialContext, namespace = PROJECT_NAMESPACE, version = ENVELOPE_VERSION) {
+  return Buffer.from(`${namespace}:${context.type}:${context.userId}:${version}`, "utf8");
 }
 
 function parseKeyring() {
@@ -36,11 +36,6 @@ function parseKeyring() {
   return { keys, activeKeyId, activeKey };
 }
 
-function legacyEncryptionKey() {
-  const secret = requireSecureSecret("AUTH_SECRET");
-  return createHash("sha256").update(`aurum:user-credentials:${secret}`).digest();
-}
-
 export function encryptCredential(value: string, context: CredentialContext) {
   const { activeKeyId, activeKey } = parseKeyring();
   const iv = randomBytes(12);
@@ -59,34 +54,19 @@ export function encryptCredential(value: string, context: CredentialContext) {
 
 export function decryptCredential(payload: string, context: CredentialContext) {
   const values = payload.split(".");
-
-  if (values[0] === ENVELOPE_VERSION) {
-    const [version, keyId, ivValue, authTagValue, ciphertextValue] = values;
-    if (version !== ENVELOPE_VERSION || !keyId || !ivValue || !authTagValue || !ciphertextValue) {
-      throw new Error("Credencial armazenada em formato inválido.");
-    }
-    const { keys, activeKeyId } = parseKeyring();
-    const key = keys.get(keyId);
-    if (!key) throw new Error(`A chave ${keyId} necessária para descriptografar a credencial não está disponível.`);
-    const decipher = createDecipheriv(ALGORITHM, key, Buffer.from(ivValue, "base64url"));
-    decipher.setAAD(associatedData(context));
-    decipher.setAuthTag(Buffer.from(authTagValue, "base64url"));
-    const value = Buffer.concat([
-      decipher.update(Buffer.from(ciphertextValue, "base64url")),
-      decipher.final(),
-    ]).toString("utf8");
-    return { value, needsRotation: keyId !== activeKeyId };
-  }
-
-  const [version, ivValue, authTagValue, ciphertextValue] = values;
-  if (version !== "v1" || !ivValue || !authTagValue || !ciphertextValue) {
+  const [version, keyId, ivValue, authTagValue, ciphertextValue] = values;
+  if (version !== ENVELOPE_VERSION || !keyId || !ivValue || !authTagValue || !ciphertextValue) {
     throw new Error("Credencial armazenada em formato inválido.");
   }
-  const decipher = createDecipheriv(ALGORITHM, legacyEncryptionKey(), Buffer.from(ivValue, "base64url"));
+  const { keys, activeKeyId } = parseKeyring();
+  const key = keys.get(keyId);
+  if (!key) throw new Error(`A chave ${keyId} necessária para descriptografar a credencial não está disponível.`);
+  const decipher = createDecipheriv(ALGORITHM, key, Buffer.from(ivValue, "base64url"));
+  decipher.setAAD(associatedData(context));
   decipher.setAuthTag(Buffer.from(authTagValue, "base64url"));
   const value = Buffer.concat([
     decipher.update(Buffer.from(ciphertextValue, "base64url")),
     decipher.final(),
   ]).toString("utf8");
-  return { value, needsRotation: true };
+  return { value, needsRotation: keyId !== activeKeyId };
 }
