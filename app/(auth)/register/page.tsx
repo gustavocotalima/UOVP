@@ -3,6 +3,7 @@ import { AuthForm } from "@/components/layout/auth-form";
 import { registerAction } from "@/features/auth/actions";
 import { getActiveUser } from "@/lib/current-user";
 import { findUsableRegistrationInvite } from "@/features/auth/invitations";
+import { prisma } from "@/lib/prisma";
 
 export const metadata = { title: "Criar conta" };
 
@@ -12,6 +13,18 @@ export default async function RegisterPage({
   searchParams: Promise<{ token?: string }>;
 }) {
   if (await getActiveUser()) redirect("/home");
+  const existingUser = await prisma.user.findFirst({ select: { id: true } });
+  if (!existingUser) {
+    return (
+      <>
+        <h1 className="text-3xl font-semibold">Crie a conta administradora</h1>
+        <p className="mb-6 mt-2 text-sm text-[var(--muted-foreground)]">
+          Esta é a primeira conta da instalação e poderá administrar os próximos convites.
+        </p>
+        <AuthForm mode="register" action={registerAction} />
+      </>
+    );
+  }
   const token = (await searchParams).token ?? "";
   const invite = await findUsableRegistrationInvite(token);
   if (!invite) {

@@ -12,19 +12,6 @@ export function registrationInviteHash(token: string) {
   return createHash("sha256").update(token).digest("base64url");
 }
 
-export function appAdminEmails() {
-  return new Set(
-    (process.env.APP_ADMIN_EMAILS ?? "")
-      .split(",")
-      .map(normalizeInviteEmail)
-      .filter(Boolean),
-  );
-}
-
-export function isAppAdminEmail(email: string | null | undefined) {
-  return Boolean(email && appAdminEmails().has(normalizeInviteEmail(email)));
-}
-
 export async function findUsableRegistrationInvite(token: string) {
   if (token.length < 32 || token.length > 256) return null;
   const invite = await prisma.registrationInvite.findUnique({

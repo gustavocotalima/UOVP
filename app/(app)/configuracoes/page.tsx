@@ -3,7 +3,6 @@ import { getPluggyCredentialStatus } from "@/features/open-finance/pluggy-creden
 import { getBrapiCredentialStatus } from "@/features/portfolio/brapi-credentials";
 import { SettingsClient } from "@/features/settings/settings-client";
 import { requireUser } from "@/lib/current-user";
-import { isAppAdminEmail } from "@/features/auth/invitations";
 import { listRegistrationInvites } from "@/features/auth/invite-actions";
 import { getUserTimeZone } from "@/lib/user-timezone";
 
@@ -27,7 +26,7 @@ export default async function SettingsPage() {
   const [credential, pluggyCredential, invites, timeZone] = await Promise.all([
     getBrapiCredentialStatus(userId),
     getPluggyCredentialStatus(userId),
-    isAppAdminEmail(user.email) ? listRegistrationInvites() : Promise.resolve(null),
+    user.isAdmin ? listRegistrationInvites() : Promise.resolve(null),
     getUserTimeZone(userId),
   ]);
   return (

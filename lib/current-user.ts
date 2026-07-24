@@ -10,7 +10,7 @@ export async function getActiveUser() {
       id: session.user.id,
       sessionVersion: session.user.sessionVersion,
     },
-    select: { id: true, name: true, email: true, image: true },
+    select: { id: true, name: true, email: true, image: true, isAdmin: true },
   });
 }
 

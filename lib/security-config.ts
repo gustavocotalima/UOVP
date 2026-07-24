@@ -37,7 +37,4 @@ export function validateProductionSecurityConfig() {
   ) {
     throw new Error("AUTH_URL precisa usar HTTPS e a origem pública em produção.");
   }
-  if (!(process.env.APP_ADMIN_EMAILS ?? "").split(",").some((email) => email.trim())) {
-    throw new Error("APP_ADMIN_EMAILS precisa conter ao menos um administrador.");
-  }
 }

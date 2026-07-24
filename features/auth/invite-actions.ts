@@ -6,13 +6,12 @@ import { requireUser } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import {
   createRegistrationInvite,
-  isAppAdminEmail,
   normalizeInviteEmail,
 } from "./invitations";
 
 async function requireInviteAdmin() {
   const user = await requireUser();
-  if (!isAppAdminEmail(user.email)) throw new Error("Você não pode administrar convites.");
+  if (!user.isAdmin) throw new Error("Você não pode administrar convites.");
   return user;
 }
 
