@@ -4,6 +4,7 @@ const redisMock = vi.hoisted(() => {
   const values = new Map<string, string>();
   let ready = false;
   let failConnection = false;
+  let throwWhenDestroyingClosed = false;
 
   const multi = {
     operations: [] as Array<[string, string]>,
@@ -28,6 +29,7 @@ const redisMock = vi.hoisted(() => {
       return client;
     }),
     destroy: vi.fn(() => {
+      if (!ready && throwWhenDestroyingClosed) throw new Error("The client is closed");
       ready = false;
     }),
     get: vi.fn(async (key: string) => values.get(key) ?? null),
@@ -54,9 +56,15 @@ const redisMock = vi.hoisted(() => {
       multi.operations = [];
       ready = false;
       failConnection = false;
+      throwWhenDestroyingClosed = false;
       vi.clearAllMocks();
     },
     failConnection() {
+      failConnection = true;
+    },
+    closeUnexpectedly() {
+      ready = false;
+      throwWhenDestroyingClosed = true;
       failConnection = true;
     },
   };
@@ -129,6 +137,18 @@ describe("cache público compartilhado", () => {
     redisMock.failConnection();
     await expect(setSharedCache(key, { price: 1 })).resolves.toBeUndefined();
     await expect(getSharedCache(key, () => ({ ok: true }))).resolves.toBeNull();
+  });
+
+  it("continua sem cache quando o cliente Redis já foi fechado", async () => {
+    await setSharedCache(sharedCacheKey("brapi:quote", "WEGE3"), { price: 42 });
+    redisMock.closeUnexpectedly();
+    const providerOperation = vi.fn(async () => "cotação direta");
+
+    await expect(withSharedCacheCoalescing({
+      key: "quote:WEGE3",
+      operation: providerOperation,
+    })).resolves.toBe("cotação direta");
+    expect(providerOperation).toHaveBeenCalledOnce();
   });
 
   it("coalesce operações concorrentes no mesmo processo", async () => {
