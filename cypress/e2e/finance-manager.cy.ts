@@ -2,7 +2,7 @@ describe("gestor financeiro inspirado no AUVP", () => {
   it("persiste perfil, conta manual, tags, transações, metas e orçamento entre rotas", () => {
     cy.registerAndLogin();
 
-    cy.contains("a", "Perfil").click();
+    cy.get('a[href="/perfil"]').click();
     cy.contains("label", "Renda Mensal").find("input").clear().type("9000");
     cy.contains("button", "Salvar").click();
     cy.contains("Perfil atualizado.").should("be.visible");

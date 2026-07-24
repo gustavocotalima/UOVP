@@ -6,26 +6,27 @@ export type HoldingAmount = {
   quantity: Decimal.Value;
   unitPrice: Decimal.Value;
   fxRateToBrl?: Decimal.Value | null;
-  pricingSource?: "MANUAL" | "BRAPI" | "YAHOO" | "PLUGGY";
+  pricingSource?: "MANUAL" | "BRAPI" | "YAHOO" | "BINANCE" | "PLUGGY";
+  currency?: string | null;
 };
 
 export function holdingUnitPriceBrl(holding: HoldingAmount) {
   const unitPrice = new Decimal(holding.unitPrice);
-  if (holding.pricingSource !== "YAHOO") return unitPrice;
+  if (!["YAHOO", "BINANCE"].includes(holding.pricingSource ?? "") || holding.currency === "BRL") {
+    return unitPrice;
+  }
   const fxRate = new Decimal(holding.fxRateToBrl ?? 0);
   return fxRate.gt(0) ? unitPrice.mul(fxRate) : new Decimal(0);
 }
 
 export function holdingCurrentValue(holding: HoldingAmount) {
-  if (holding.pricingSource === "BRAPI") {
-    const marketValue = new Decimal(holding.quantity).mul(holding.unitPrice);
+  if (holding.pricingSource === "BRAPI" || holding.pricingSource === "YAHOO" || holding.pricingSource === "BINANCE") {
+    const marketValue = new Decimal(holding.quantity).mul(
+      holding.pricingSource === "BRAPI" ? holding.unitPrice : holdingUnitPriceBrl(holding),
+    );
     if (marketValue.gt(0)) return marketValue;
     if (holding.providerCurrentValue != null) return new Decimal(holding.providerCurrentValue);
-  }
-  if (holding.pricingSource === "YAHOO") {
-    const marketValue = new Decimal(holding.quantity).mul(holdingUnitPriceBrl(holding));
-    if (marketValue.gt(0)) return marketValue;
-    if (holding.providerCurrentValue != null) return new Decimal(holding.providerCurrentValue);
+    if (holding.currentValue != null) return new Decimal(holding.currentValue);
   }
   if (holding.currentValue != null) return new Decimal(holding.currentValue);
   if (holding.providerCurrentValue != null) return new Decimal(holding.providerCurrentValue);

@@ -20,8 +20,20 @@ Cypress.Commands.add("registerAndLogin", () => {
   cy.get("#password").type("teste-seguro-123");
   cy.contains("button", "Criar conta").click();
   cy.location("pathname", { timeout: 15_000 }).should("eq", "/login");
-  cy.get("#email").type(email);
-  cy.get("#password").type("teste-seguro-123");
-  cy.contains("button", "Entrar").click();
-  cy.url({ timeout: 15_000 }).should("include", "/home");
+  cy.request("/api/auth/csrf").then(({ body }) => {
+    cy.request({
+      method: "POST",
+      url: "/api/auth/callback/credentials",
+      form: true,
+      followRedirect: false,
+      body: {
+        csrfToken: body.csrfToken,
+        email,
+        password: "teste-seguro-123",
+        callbackUrl: "/home",
+      },
+    }).its("status").should("be.oneOf", [200, 302]);
+  });
+  cy.visit("/home");
+  cy.location("pathname", { timeout: 15_000 }).should("eq", "/home");
 });

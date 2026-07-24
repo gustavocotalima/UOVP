@@ -31,6 +31,7 @@ enum PricingSource {
   MANUAL
   BRAPI
   YAHOO
+  BINANCE
   PLUGGY
 }
 
@@ -298,6 +299,7 @@ model AssetHolding {
   pricingSource        PricingSource
   positionSource       PositionSource               @default(MANUAL)
   ticker               String?
+  providerSymbol       String?
   brapiAssetType       String?
   brapiSubType         String?
   marketExchange       String?
@@ -330,6 +332,7 @@ model AssetHolding {
 
   @@index([assetId])
   @@index([pricingSource, ticker])
+  @@index([pricingSource, providerSymbol])
   @@index([catalogItemId])
 }
 

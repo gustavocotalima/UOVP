@@ -158,6 +158,7 @@ export async function getPortfolioData(userId: string) {
           pricingSource: holding.pricingSource,
           positionSource: holding.positionSource,
           ticker: holding.ticker,
+          providerSymbol: holding.providerSymbol,
           brapiAssetType: holding.brapiAssetType,
           brapiSubType: holding.brapiSubType,
           marketExchange: holding.marketExchange,
