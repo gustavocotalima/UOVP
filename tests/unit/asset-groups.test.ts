@@ -106,4 +106,24 @@ describe("grupos de ativos", () => {
       providerCurrentValue: 900,
     }).toNumber()).toBe(900);
   });
+
+  it("converte pares Binance em USDT para BRL e preserva o valor anterior sem câmbio", () => {
+    expect(holdingCurrentValue({
+      pricingSource: "BINANCE",
+      currency: "USDT",
+      quantity: 40,
+      unitPrice: 0.5,
+      fxRateToBrl: 5.25,
+      currentValue: 80,
+    }).toNumber()).toBe(105);
+
+    expect(holdingCurrentValue({
+      pricingSource: "BINANCE",
+      currency: "USDT",
+      quantity: 40,
+      unitPrice: 0.5,
+      fxRateToBrl: null,
+      currentValue: 80,
+    }).toNumber()).toBe(80);
+  });
 });

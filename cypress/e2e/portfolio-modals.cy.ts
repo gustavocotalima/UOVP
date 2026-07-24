@@ -43,6 +43,25 @@ describe("modais da carteira", () => {
     cy.get("#settings-brapi-api-key").should("have.attr", "type", "password").and("have.attr", "autocomplete", "off");
     cy.contains("a", "Obter chave na brapi").should("have.attr", "href", "https://brapi.dev/dashboard");
     cy.contains("Yahoo Finance").should("be.visible");
+    cy.contains("Binance").should("be.visible");
+    cy.contains("Sem chave").should("be.visible");
+  });
+
+  it("exige seleção do catálogo Spot da Binance para criptomoedas", () => {
+    cy.contains("button", "Adicionar ativo").click();
+    cy.get("#asset-instrument").select("CRYPTO");
+    cy.get("#asset-class").should("have.value", "CRYPTO");
+    cy.get("#asset-ticker").type("BTC");
+    cy.get('button[form="asset-modal-form"]').should("be.disabled");
+
+    cy.get("#market-ticker-options", { timeout: 10000 })
+      .should("be.visible")
+      .and("contain", "BTC")
+      .and("contain", "Cripto · Binance");
+    cy.contains('[role="option"]', "BTC").click();
+    cy.get("#asset-ticker").should("have.value", "BTC");
+    cy.get("#asset-ticker-help").should("contain", "catálogo Spot da Binance");
+    cy.get('button[form="asset-modal-form"]').should("be.enabled");
   });
 
   it("sugere FIIs da brapi sem recortar a lista pelo modal", () => {

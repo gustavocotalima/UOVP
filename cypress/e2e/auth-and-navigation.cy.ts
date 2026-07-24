@@ -12,12 +12,15 @@ describe("autenticação e navegação", () => {
       ["Carteira", "/carteira"],
       ["Open Finance", "/open-finance"],
       ["Ferramentas", "/ferramentas"],
-      ["Perfil", "/perfil"],
-      ["Configurações", "/configuracoes"],
     ];
     routes.forEach(([label, path]) => {
       cy.contains("a", label).click();
       cy.location("pathname").should("eq", path);
     });
+
+    cy.get('a[href="/perfil"]').click();
+    cy.location("pathname").should("eq", "/perfil");
+    cy.get('a[aria-label="Configurações"]').click();
+    cy.location("pathname").should("eq", "/configuracoes");
   });
 });

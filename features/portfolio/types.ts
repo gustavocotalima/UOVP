@@ -7,9 +7,10 @@ export type AssetHoldingDto = {
   customTypeName: string | null;
   issuer: string;
   productName: string;
-  pricingSource: "MANUAL" | "BRAPI" | "YAHOO" | "PLUGGY";
+  pricingSource: "MANUAL" | "BRAPI" | "YAHOO" | "BINANCE" | "PLUGGY";
   positionSource: "MANUAL" | "PLUGGY";
   ticker: string | null;
+  providerSymbol: string | null;
   brapiAssetType: string | null;
   brapiSubType: string | null;
   marketExchange: string | null;

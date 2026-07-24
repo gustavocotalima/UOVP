@@ -2,7 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useTransition, type FormEvent, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
-import { AlertTriangle, Building2, ChevronDown, ChevronRight, FileSpreadsheet, LoaderCircle, Pencil, Plus, RefreshCw, Search, Trash2, Upload } from "lucide-react";
+import { AlertTriangle, Building2, ChevronDown, ChevronRight, Coins, FileSpreadsheet, LoaderCircle, Pencil, Plus, RefreshCw, Search, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
@@ -21,11 +21,13 @@ import {
   saveAssetAnswersAction,
   saveAssetHoldingAction,
   saveFixedIncomeGroupAction,
+  searchBinanceAssetsAction,
   searchBrapiTickersAction,
   searchYahooTickersAction,
 } from "./actions";
 import { parseXlsxFile } from "./xlsx-parser";
 import type { BrapiTickerSearchResult } from "./brapi";
+import type { BinanceAssetSearchResult } from "./binance";
 import type { YahooSearchKind, YahooTickerSearchResult } from "./yahoo-finance";
 import { FIXED_INCOME_INDEXATIONS, FIXED_INCOME_INDEXATION_META, INSTRUMENT_TYPES, INSTRUMENT_TYPE_META, INVESTMENT_CLASSES, INVESTMENT_CLASS_META, MOCK_ASSET_CATALOG, RATE_CONVENTIONS, RATE_CONVENTION_META, type FixedIncomeIndexationKey, type InstrumentTypeKey, type InvestmentClassKey, type RateConventionKey } from "./constants";
 import type { AssetDto, AssetHoldingDto, DiagramQuestionDto, PortfolioDto } from "./types";
@@ -50,11 +52,13 @@ type FormAsset = {
 
 type MarketTickerOption =
   | (BrapiTickerSearchResult & { provider: "BRAPI" })
-  | (YahooTickerSearchResult & { provider: "YAHOO" });
+  | (YahooTickerSearchResult & { provider: "YAHOO" })
+  | (BinanceAssetSearchResult & { provider: "BINANCE" });
 
 type MarketTickerSearch =
   | { provider: "BRAPI"; kind: InvestmentClassKey | "ETF" }
-  | { provider: "YAHOO"; kind: YahooSearchKind };
+  | { provider: "YAHOO"; kind: YahooSearchKind }
+  | { provider: "BINANCE"; kind: "CRYPTO" };
 
 type DeleteTarget =
   | { kind: "asset"; id: string; label: string }
@@ -142,6 +146,9 @@ function marketTickerSearchFor(form: FormAsset | null): MarketTickerSearch | nul
   }
   if (form.instrumentType === "REIT" && form.investmentClass === "REITS") {
     return { provider: "YAHOO", kind: "REITS" };
+  }
+  if (form.instrumentType === "CRYPTO" && form.investmentClass === "CRYPTO") {
+    return { provider: "BINANCE", kind: "CRYPTO" };
   }
   return null;
 }
@@ -362,7 +369,9 @@ function AssetLogo({ asset }: { asset: AssetDto }) {
   }, [logoUrl]);
   return (
     <span data-asset-logo-container className="relative grid size-9 shrink-0 place-items-center overflow-hidden rounded-xl border bg-white/95 text-neutral-500">
-      <Building2 className="size-4" aria-hidden="true" />
+      {asset.instrumentType === "CRYPTO"
+        ? <Coins className="size-4" aria-hidden="true" />
+        : <Building2 className="size-4" aria-hidden="true" />}
       {logoUrl && (
         // eslint-disable-next-line @next/next/no-img-element
         <img
@@ -474,6 +483,7 @@ export function AssetsPanel({
   })).filter((item) => item.value > 0);
   const hasRefreshableQuotes = assets.some((asset) =>
     asset.holdings.some((holding) => holding.pricingSource === "BRAPI")
+    || (asset.instrumentType === "CRYPTO" && asset.investmentClass === "CRYPTO" && asset.holdings.some((holding) => Boolean(holding.ticker)))
     || (
       ["INTERNATIONAL_STOCKS", "REITS", "INTERNATIONAL_FIXED_INCOME"].includes(asset.investmentClass)
       && ["STOCK", "REIT", "ETF"].includes(asset.instrumentType)
@@ -522,8 +532,11 @@ export function AssetsPanel({
         const options: MarketTickerOption[] = marketTickerProvider === "BRAPI"
           ? (await searchBrapiTickersAction(tickerQuery, marketTickerKind as InvestmentClassKey | "ETF"))
               .map((option) => ({ ...option, provider: "BRAPI" as const }))
-          : (await searchYahooTickersAction(tickerQuery, marketTickerKind as YahooSearchKind))
-              .map((option) => ({ ...option, provider: "YAHOO" as const }));
+          : marketTickerProvider === "YAHOO"
+            ? (await searchYahooTickersAction(tickerQuery, marketTickerKind as YahooSearchKind))
+                .map((option) => ({ ...option, provider: "YAHOO" as const }))
+            : (await searchBinanceAssetsAction(tickerQuery))
+                .map((option) => ({ ...option, provider: "BINANCE" as const }));
         if (tickerRequestId.current !== requestId) return;
         setTickerOptions(options);
         setActiveTickerIndex(options.length ? 0 : -1);
@@ -642,7 +655,7 @@ export function AssetsPanel({
         name: ticker,
         unitPrice: 0,
         currency: tickerSearch.provider === "YAHOO" ? "USD" : "BRL",
-        fractional: tickerSearch.provider === "YAHOO",
+        fractional: tickerSearch.provider === "YAHOO" || tickerSearch.provider === "BINANCE",
         yahooReitConfirmed: false,
       });
       updateTickerListPosition();
@@ -669,8 +682,10 @@ export function AssetsPanel({
       ticker: option.symbol,
       name: option.name,
       unitPrice: option.provider === "BRAPI" ? option.lastPrice ?? 0 : 0,
-      currency: option.currency ?? (option.provider === "YAHOO" ? "USD" : "BRL"),
-      fractional: option.provider === "YAHOO",
+      currency: option.provider === "BINANCE"
+        ? option.quoteAsset
+        : option.currency ?? (option.provider === "YAHOO" ? "USD" : "BRL"),
+      fractional: option.provider === "YAHOO" || option.provider === "BINANCE",
       yahooReitConfirmed: option.provider === "YAHOO" && option.requiresReitConfirmation
         ? false
         : form.yahooReitConfirmed,
@@ -783,10 +798,18 @@ export function AssetsPanel({
               ? `Internacionais não atualizados: ${result.yahoo.error}`
               : `Internacionais: ${result.yahoo.updated} atualizada(s)`
             : null,
+          result.binance.requested
+            ? result.binance.error
+              ? `Criptomoedas não atualizadas: ${result.binance.error}`
+              : `Criptomoedas: ${result.binance.updated} atualizada(s)`
+            : null,
         ].filter(Boolean);
-        const missing = [...result.brapi.missing, ...result.yahoo.missing];
+        const missing = [...result.brapi.missing, ...result.yahoo.missing, ...result.binance.missing];
         if (missing.length) parts.push(`Sem cotação: ${[...new Set(missing)].join(", ")}`);
         if (result.yahoo.missingFx.length) parts.push(`Sem câmbio: ${result.yahoo.missingFx.join(", ")}`);
+        if (result.binance.missingConversion.length) {
+          parts.push(`Sem conversão Binance para BRL: ${result.binance.missingConversion.join(", ")}`);
+        }
         setMessage(parts.length ? `${parts.join(" · ")}.` : "Não há cotações para atualizar.");
       } catch (error) {
         setMessage(error instanceof Error ? error.message : "Não foi possível atualizar as cotações.");
@@ -1000,7 +1023,7 @@ export function AssetsPanel({
                 variant="outline"
                 onClick={refreshMarketPrices}
                 disabled={pending || !hasRefreshableQuotes}
-                title="Atualiza ativos da B3 pela brapi e ativos internacionais pelo Yahoo Finance."
+                title="Atualiza ativos da B3 pela brapi, ativos internacionais pelo Yahoo Finance e criptomoedas pela Binance."
               >
                 <RefreshCw className="size-4" /> Atualizar cotações
               </Button>
@@ -1437,11 +1460,13 @@ export function AssetsPanel({
                             const logoUrl = option.logoUrl;
                             const badge = option.provider === "BRAPI"
                               ? option.subType || option.assetType || "B3"
-                              : option.quoteType === "ETF"
-                                ? "ETF · Yahoo"
-                                : option.reitStatus === "CONFIRMED"
-                                  ? "REIT · Yahoo"
-                                  : "Ação · Yahoo";
+                              : option.provider === "BINANCE"
+                                ? "Cripto · Binance"
+                                : option.quoteType === "ETF"
+                                  ? "ETF · Yahoo"
+                                  : option.reitStatus === "CONFIRMED"
+                                    ? "REIT · Yahoo"
+                                    : "Ação · Yahoo";
                             return (
                             <button
                               id={`market-ticker-option-${index}`}
@@ -1455,7 +1480,9 @@ export function AssetsPanel({
                               onClick={() => selectTicker(option)}
                             >
                               <span className="relative grid size-8 shrink-0 place-items-center overflow-hidden rounded-lg border bg-white/95 text-neutral-500">
-                                <Building2 className="size-4" aria-hidden="true" />
+                                {option.provider === "BINANCE"
+                                  ? <Coins className="size-4" aria-hidden="true" />
+                                  : <Building2 className="size-4" aria-hidden="true" />}
                                 {logoUrl && (
                                   // eslint-disable-next-line @next/next/no-img-element
                                   <img
@@ -1467,7 +1494,14 @@ export function AssetsPanel({
                                   />
                                 )}
                               </span>
-                              <span className="min-w-0"><strong className="block">{option.symbol}</strong><span className="block max-w-[190px] truncate text-xs text-[var(--muted-foreground)] sm:max-w-[220px]" title={option.name}>{option.name}</span></span>
+                              <span className="min-w-0">
+                                <strong className="block">{option.symbol}</strong>
+                                <span className="block max-w-[190px] truncate text-xs text-[var(--muted-foreground)] sm:max-w-[220px]" title={option.name}>
+                                  {option.provider === "BINANCE"
+                                    ? `${option.pair.slice(0, -option.quoteAsset.length)}/${option.quoteAsset}`
+                                    : option.name}
+                                </span>
+                              </span>
                               <span className="shrink-0 rounded-full bg-[var(--muted)] px-2 py-1 text-[10px] font-semibold uppercase text-[var(--muted-foreground)]">{badge}</span>
                             </button>
                             );
@@ -1479,7 +1513,13 @@ export function AssetsPanel({
                       )}
                       <p id="asset-ticker-help" className="mt-2 text-xs text-[var(--muted-foreground)]">
                         {hasSelectedMarketTicker
-                          ? `Ativo selecionado no ${marketTickerSearch?.provider === "YAHOO" ? "Yahoo Finance" : "catálogo da brapi"}.`
+                          ? `Ativo selecionado no ${
+                            marketTickerSearch?.provider === "YAHOO"
+                              ? "Yahoo Finance"
+                              : marketTickerSearch?.provider === "BINANCE"
+                                ? "catálogo Spot da Binance"
+                                : "catálogo da brapi"
+                          }.`
                           : "Digite para buscar e selecione uma opção da lista."}
                       </p>
                       {requiresYahooReitConfirmation && (

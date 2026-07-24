@@ -49,7 +49,7 @@ describe("perguntas padrão da carteira", () => {
   it("restaura o modelo imobiliário completo e na ordem original", () => {
     cy.contains('[role="tab"]', "Investimentos imobiliários").click();
     cy.contains("button", "Restaurar padrões").click();
-    cy.get('[role="dialog"]').contains("button", "Sim").click();
+    cy.get('[role="dialog"]').contains("button", "Confirmar").click();
     cy.contains('[role="status"]', "Modelo de perguntas aplicado.").should("be.visible");
 
     expectVisibleQuestions(realEstateQuestions);
