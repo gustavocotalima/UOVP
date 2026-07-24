@@ -2,7 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useTransition, type FormEvent, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
-import { AlertTriangle, Building2, ChevronDown, ChevronRight, Coins, Download, FileSpreadsheet, LoaderCircle, Pencil, Plus, RefreshCw, Search, Trash2, Upload } from "lucide-react";
+import { AlertTriangle, Building2, ChevronDown, ChevronRight, Clock3, Coins, Download, FileSpreadsheet, LoaderCircle, Pencil, Plus, RefreshCw, Search, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
@@ -21,6 +21,7 @@ import {
   saveAssetAnswersAction,
   saveAssetHoldingAction,
   saveFixedIncomeGroupAction,
+  saveAwaitingContributionPriceAction,
   searchBinanceAssetsAction,
   searchBrapiTickersAction,
   searchYahooTickersAction,
@@ -443,6 +444,7 @@ export function AssetsPanel({
   const [selectedMarketTicker, setSelectedMarketTicker] = useState<string>();
   const [activeTickerIndex, setActiveTickerIndex] = useState(-1);
   const [message, setMessage] = useState<string>();
+  const [pendingPriceByAsset, setPendingPriceByAsset] = useState<Record<string, string>>({});
   const [pending, startTransition] = useTransition();
   const panelRef = useRef<HTMLDivElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -964,6 +966,25 @@ export function AssetsPanel({
       }
     });
   }
+  function savePendingContributionPrice(assetId: string) {
+    const paidUnitPrice = Number(pendingPriceByAsset[assetId] ?? 0);
+    if (!Number.isFinite(paidUnitPrice) || paidUnitPrice <= 0) return;
+    setMessage(undefined);
+    startTransition(async () => {
+      try {
+        await saveAwaitingContributionPriceAction(assetId, paidUnitPrice);
+        setPendingPriceByAsset((current) => {
+          const next = { ...current };
+          delete next[assetId];
+          return next;
+        });
+        setMessage("Preço do aporte pendente atualizado.");
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : "Não foi possível salvar o preço do aporte.");
+      }
+    });
+  }
+
 
   async function importFile(file: File) {
     setMessage("Lendo planilha…");
@@ -1173,7 +1194,7 @@ export function AssetsPanel({
                 </thead>
                 <tbody>
                   {filtered.map((asset) => {
-                    const expandable = asset.instrumentType === "FIXED_INCOME" || asset.pluggyControlled || asset.holdings.length > 1;
+                    const expandable = asset.instrumentType === "FIXED_INCOME" || asset.pluggyControlled || asset.holdings.length > 1 || Boolean(asset.awaitingSyncContribution);
                     const showsApplicationCount = ["FIXED_INCOME", "MUTUAL_FUND"].includes(asset.instrumentType);
                     const expanded = expandedAssets.has(asset.id) || searchExpandedAssets.has(asset.id);
                     const holdingColumns = {
@@ -1231,7 +1252,21 @@ export function AssetsPanel({
                                   </>
                                 )}
                           </td>}
-                          <td className="whitespace-nowrap px-3 text-xs text-[var(--muted-foreground)]">{reviewDate(asset.priceUpdatedAt ?? asset.updatedAt, timeZone)}</td>
+                          <td className="whitespace-nowrap px-3 text-xs text-[var(--muted-foreground)]">
+                            <span className="block">{reviewDate(asset.priceUpdatedAt ?? asset.updatedAt, timeZone)}</span>
+                            {asset.awaitingSyncContribution && (
+                              <span
+                                className="mt-1 inline-flex items-center gap-1 text-[10px] text-[var(--primary)]"
+                                title={asset.instrumentType === "FIXED_INCOME" || asset.awaitingSyncContribution.paidUnitPrice
+                                  ? `Aporte de ${formatMoney(asset.awaitingSyncContribution.value)} aguardando confirmação da Pluggy.`
+                                  : `Aporte de ${reviewDecimal(asset.awaitingSyncContribution.quantity)} unidades aguardando confirmação da Pluggy. Preço não informado.`
+                                }
+                              >
+                                <Clock3 className="size-3" aria-hidden="true" />
+                                Aguardando sync
+                              </span>
+                            )}
+                          </td>
                           <td className="px-3"><div className="flex justify-end"><Button variant="outline" size="sm" onClick={() => edit(asset)} aria-label={`Editar ${asset.ticker}`}><Pencil className="size-4" /> Editar</Button></div></td>
                         </tr>
                         {expandable && expanded && (
@@ -1241,6 +1276,43 @@ export function AssetsPanel({
                                 <div><strong className="text-sm">Posições do ativo</strong><p className="text-xs text-[var(--muted-foreground)]">O valor é a soma das posições ativas abaixo.</p></div>
                                 {asset.instrumentType === "FIXED_INCOME" && <Button size="sm" onClick={() => startHolding(asset)}><Plus className="size-4" /> Adicionar aplicação</Button>}
                               </div>
+                              {asset.awaitingSyncContribution && (
+                                <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--primary)]/35 bg-[var(--primary)]/10 px-4 py-3 text-xs">
+                                  <span className="inline-flex items-center gap-1.5 font-semibold text-[var(--primary)]">
+                                    <Clock3 className="size-4" aria-hidden="true" />
+                                    Aguardando sync
+                                  </span>
+                                  {asset.instrumentType === "FIXED_INCOME" ? (
+                                    <span className="text-[var(--foreground)]">{formatMoney(asset.awaitingSyncContribution.value)}</span>
+                                  ) : asset.awaitingSyncContribution.paidUnitPrice ? (
+                                    <span className="text-[var(--foreground)]">
+                                      {reviewDecimal(asset.awaitingSyncContribution.quantity)} un. · {formatMoney(asset.awaitingSyncContribution.paidUnitPrice)} cada · {formatMoney(asset.awaitingSyncContribution.value)}
+                                    </span>
+                                  ) : (
+                                    <div className="flex flex-wrap items-center justify-end gap-2">
+                                      <span className="text-[var(--foreground)]">{reviewDecimal(asset.awaitingSyncContribution.quantity)} un.</span>
+                                      <Input
+                                        type="number"
+                                        min="0.00000001"
+                                        step="any"
+                                        value={pendingPriceByAsset[asset.id] ?? ""}
+                                        onChange={(event) => setPendingPriceByAsset((current) => ({ ...current, [asset.id]: event.target.value }))}
+                                        aria-label={`Preço unitário pago por ${asset.ticker}`}
+                                        placeholder="Preço pago"
+                                        className="h-8 w-32 bg-[var(--card)]"
+                                      />
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        onClick={() => savePendingContributionPrice(asset.id)}
+                                        disabled={pending || !(Number(pendingPriceByAsset[asset.id]) > 0)}
+                                      >
+                                        Salvar preço
+                                      </Button>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                               {asset.holdings.length ? (
                                 <div className="overflow-x-auto rounded-xl border bg-[var(--card)]">
                                   <table className="w-full min-w-[920px] text-left text-xs">

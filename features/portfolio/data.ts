@@ -34,6 +34,20 @@ export async function getPortfolioData(userId: string) {
           },
           orderBy: [{ maturityDate: "asc" }, { productName: "asc" }],
         },
+        suggestions: {
+          where: {
+            executionStatus: "AWAITING_SYNC",
+            simulation: { userId },
+          },
+          orderBy: [{ awaitingSyncAt: "desc" }, { id: "desc" }],
+          take: 1,
+          select: {
+            quantity: true,
+            value: true,
+            paidUnitPrice: true,
+            awaitingSyncAt: true,
+          },
+        },
       },
     }),
     prisma.investmentTarget.findMany({ where: { userId } }),
@@ -77,9 +91,12 @@ export async function getPortfolioData(userId: string) {
     targets,
     assets: assets.filter((asset) => {
       const activeHoldings = asset.holdings.filter((holding) => holding.includedInTotals);
-      return activeHoldings.length > 0 || !asset.holdings.some((holding) => holding.positionSource === "PLUGGY");
+      return activeHoldings.length > 0
+        || asset.suggestions.length > 0
+        || !asset.holdings.some((holding) => holding.positionSource === "PLUGGY");
     }).map((asset) => {
       const holdings = asset.holdings.filter((holding) => holding.includedInTotals);
+      const awaitingSyncContribution = asset.suggestions[0] ?? null;
       const holdingValues = holdings.map(holdingCurrentValue);
       const supportsAveragePrice = ["STOCK", "ETF", "REAL_ESTATE_FUND", "REIT"].includes(asset.instrumentType);
       const holdingAveragePrices = holdings.map((holding) =>
@@ -132,6 +149,14 @@ export async function getPortfolioData(userId: string) {
         updatedAt: asset.updatedAt.toISOString(),
         pluggyControlled: holdings.some((holding) => holding.positionSource === "PLUGGY"),
         needsScore: asset.score === 0,
+        awaitingSyncContribution: awaitingSyncContribution
+          ? {
+              quantity: awaitingSyncContribution.quantity.toString(),
+              value: awaitingSyncContribution.value.toString(),
+              paidUnitPrice: awaitingSyncContribution.paidUnitPrice?.toString() ?? null,
+              awaitingSyncAt: awaitingSyncContribution.awaitingSyncAt?.toISOString() ?? null,
+            }
+          : null,
         holdings: holdings.map((holding, index) => ({
           id: holding.id,
           catalogItemId: holding.catalogItemId,

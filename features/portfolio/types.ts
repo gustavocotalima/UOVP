@@ -83,6 +83,12 @@ export type AssetDto = {
   holdings: AssetHoldingDto[];
   pluggyControlled: boolean;
   needsScore: boolean;
+  awaitingSyncContribution: {
+    quantity: string;
+    value: string;
+    paidUnitPrice: string | null;
+    awaitingSyncAt: string | null;
+  } | null;
 };
 
 export type PortfolioDto = {
