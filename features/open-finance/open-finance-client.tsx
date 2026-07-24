@@ -31,9 +31,16 @@ import {
   resolvePluggyItemDisconnectionAction,
   setShowSoldInvestmentsAction,
 } from "./diagram-actions";
+import { duplicatePluggyItemIds, pluggyConnectErrorMessage } from "./pluggy-connect-error";
 
 type Tab = "connections" | "accounts" | "transactions" | "investments";
 type PluggySuccessPayload = { id?: string; item?: { id?: string } };
+type PluggyConnectError = {
+  message?: string;
+  code?: string | number;
+  codeDescription?: string;
+  data?: { items?: unknown[] };
+};
 
 declare global {
   interface Window {
@@ -44,7 +51,7 @@ declare global {
       theme?: "light" | "dark";
       updateItem?: string;
       onSuccess?: (payload: PluggySuccessPayload) => void | Promise<void>;
-      onError?: (error: { message?: string }) => void;
+      onError?: (error: PluggyConnectError) => void | Promise<void>;
       onClose?: () => void;
     }) => { init: () => void };
   }
@@ -272,8 +279,41 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
             setNotice({ type: "error", text: error instanceof Error ? error.message : "Falha ao salvar a conexão." });
           }
         },
-        onError: (error) => {
-          setNotice({ type: "error", text: error.message || "A Pluggy não concluiu a conexão." });
+        onError: async (error) => {
+          const duplicateItemIds = duplicatePluggyItemIds(error);
+          if (!duplicateItemIds.length) {
+            setNotice({ type: "error", text: pluggyConnectErrorMessage(error) });
+            setBusy(null);
+            return;
+          }
+
+          let recovered = 0;
+          let recoveryError: unknown;
+          for (const duplicateItemId of duplicateItemIds) {
+            try {
+              await requestJson("/api/pluggy/items", { itemId: duplicateItemId });
+              recovered += 1;
+            } catch (error) {
+              recoveryError = error;
+            }
+          }
+          setBusy(null);
+          if (recovered) {
+            setNotice({
+              type: "success",
+              text: recovered === 1
+                ? "A conexão existente foi recuperada e sincronizada."
+                : `${recovered} conexões existentes foram recuperadas e sincronizadas.`,
+            });
+            router.refresh();
+            return;
+          }
+          setNotice({
+            type: "error",
+            text: recoveryError instanceof Error
+              ? recoveryError.message
+              : "A conexão já existe na Pluggy, mas não foi possível recuperá-la.",
+          });
         },
         onClose: () => setBusy(null),
       });
