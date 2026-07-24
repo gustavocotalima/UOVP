@@ -22,7 +22,7 @@ import {
   type BinanceAssetSearchResult,
   type BinanceQuote,
 } from "./binance";
-import { fetchAvailableBrapiQuotes, fetchBrapiQuotes, normalizeBrapiSymbol, searchBrapiEtfTickers, searchBrapiTickers, type BrapiQuote } from "./brapi";
+import { fetchAvailableBrapiQuotes, fetchBrapiQuotes, fetchBrapiTickerMetadata, normalizeBrapiSymbol, searchBrapiEtfTickers, searchBrapiTickers, type BrapiQuote } from "./brapi";
 import { clearBrapiApiKey, requireBrapiApiKey, storeBrapiApiKey } from "./brapi-credentials";
 import { ensurePortfolio, getPortfolioData } from "./data";
 import { FIXED_INCOME_INDEXATIONS, INSTRUMENT_TYPES, INVESTMENT_CLASSES, RATE_CONVENTIONS, FIXED_INCOME_INDEXATION_META, type InvestmentClassKey } from "./constants";
@@ -169,16 +169,20 @@ export async function saveAssetAction(input: AssetInput) {
     const familyExists = await prisma.fixedIncomeFamily.count({ where: { code: parsed.fixedIncomeFamilyCode! } });
     if (!familyExists) throw new Error("Grupo de renda fixa não encontrado.");
   }
-  const existingHolding = parsed.id ? await prisma.assetHolding.findFirst({
+  const existingPositions = parsed.id ? await prisma.assetHolding.findMany({
     where: {
       assetId: parsed.id,
       includedInTotals: true,
-      positionSource: "MANUAL",
+      positionSource: { in: ["MANUAL", "PLUGGY"] },
       asset: { portfolio: { userId } },
     },
     orderBy: { createdAt: "asc" },
-  }) : null;
-  if (parsed.id && !existingHolding) throw new Error("Posição do ativo não encontrada.");
+  }) : [];
+  const existingHolding = existingPositions.find((holding) => holding.positionSource === "MANUAL") ?? null;
+  const hasPluggyControlledPosition = existingPositions.some((holding) => holding.positionSource === "PLUGGY");
+  if (parsed.id && !existingHolding && !hasPluggyControlledPosition) {
+    throw new Error("Posição do ativo não encontrada.");
+  }
   let brapiQuote: BrapiQuote | undefined;
   let brapiMatch: Awaited<ReturnType<typeof searchBrapiTickers>>[number] | undefined;
   let yahooQuote: YahooQuote | undefined;
@@ -1019,14 +1023,25 @@ async function refreshMarketPricesForUser(
 
   const [brapiSettled, yahooSettled, binanceSettled] = await Promise.allSettled([
     (async () => {
-      if (!brapiHoldings.length) return { quotes: [] as BrapiQuote[] };
+      if (!brapiHoldings.length) {
+        return {
+          quotes: [] as BrapiQuote[],
+          metadata: [] as Awaited<ReturnType<typeof fetchBrapiTickerMetadata>>,
+        };
+      }
       const apiKey = await requireBrapiApiKey(userId);
       const quotes = await fetchAvailableBrapiQuotes({
         apiKey,
         tickers: brapiHoldings.flatMap((holding) => holding.ticker ? [holding.ticker] : []),
         signal: lease?.signal,
+        cacheMode: "REFRESH",
       });
-      return { quotes };
+      const metadata = await fetchBrapiTickerMetadata({
+        tickers: brapiHoldings.flatMap((holding) => holding.ticker ? [holding.ticker] : []),
+        signal: lease?.signal,
+        cacheMode: "REFRESH",
+      });
+      return { quotes, metadata };
     })(),
     (async () => {
       if (!yahooHoldings.length) {
@@ -1038,10 +1053,12 @@ async function refreshMarketPricesForUser(
       const quotes = await fetchAvailableYahooQuotes({
         symbols: yahooHoldings.flatMap((holding) => holding.ticker ? [holding.ticker] : []),
         signal: lease?.signal,
+        cacheMode: "REFRESH",
       });
       const fxRates = await fetchYahooFxRates({
         currencies: quotes.map((quote) => quote.currency),
         signal: lease?.signal,
+        cacheMode: "REFRESH",
       });
       return { quotes, fxRates };
     })(),
@@ -1051,6 +1068,7 @@ async function refreshMarketPricesForUser(
       }
       return fetchBinanceQuotes({
         assets: binanceHoldings.flatMap((holding) => holding.ticker ? [holding.ticker] : []),
+        cacheMode: "REFRESH",
       });
     })(),
   ]);
@@ -1066,10 +1084,12 @@ async function refreshMarketPricesForUser(
     : null;
 
   const brapiQuotes = brapiSettled.status === "fulfilled" ? brapiSettled.value.quotes : [];
+  const brapiMetadata = brapiSettled.status === "fulfilled" ? brapiSettled.value.metadata : [];
   const yahooQuotes = yahooSettled.status === "fulfilled" ? yahooSettled.value.quotes : [];
   const yahooFxRates = yahooSettled.status === "fulfilled" ? yahooSettled.value.fxRates : [];
   const binanceQuotes = binanceSettled.status === "fulfilled" ? binanceSettled.value.quotes : [];
   const brapiQuotesBySymbol = new Map(brapiQuotes.map((quote) => [quote.requestedSymbol, quote]));
+  const brapiMetadataBySymbol = new Map(brapiMetadata.map((item) => [item.symbol, item]));
   const yahooQuotesBySymbol = new Map(yahooQuotes.map((quote) => [quote.requestedSymbol, quote]));
   const yahooFxByCurrency = new Map(yahooFxRates.map((rate) => [rate.currency, rate]));
   const binanceQuotesByAsset = new Map(binanceQuotes.map((quote) => [quote.requestedAsset, quote]));
@@ -1091,6 +1111,9 @@ async function refreshMarketPricesForUser(
   if (brapiUpdates.length || yahooUpdates.length || binanceUpdates.length) {
     const updateQuotes = async (tx: Prisma.TransactionClient) => {
       for (const { holding, quote } of brapiUpdates) {
+        const metadata = holding.ticker
+          ? brapiMetadataBySymbol.get(normalizeBrapiSymbol(holding.ticker))
+          : undefined;
         await tx.assetHolding.update({
           where: { id: holding.id },
           data: {
@@ -1107,7 +1130,7 @@ async function refreshMarketPricesForUser(
             currency: quote.currency,
             fxRateToBrl: null,
             fxUpdatedAt: null,
-            logoUrl: quote.logoUrl ?? holding.logoUrl,
+            logoUrl: quote.logoUrl ?? metadata?.logoUrl ?? holding.logoUrl,
             priceUpdatedAt: quote.asOf,
           },
         });

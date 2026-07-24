@@ -1,10 +1,19 @@
 import Decimal from "decimal.js";
 import { z } from "zod";
+import {
+  getSharedCache,
+  getSharedCacheMany,
+  isSharedCacheConfigured,
+  setSharedCache,
+  setSharedCacheMany,
+  sharedCacheKey,
+  withSharedCacheCoalescing,
+  type MarketCacheMode,
+} from "@/lib/shared-cache";
 
 const BINANCE_MARKET_DATA_URL = "https://data-api.binance.vision";
 const CATALOG_FRESH_MS = 60 * 60 * 1000;
 const CATALOG_STALE_MS = 24 * 60 * 60 * 1000;
-const QUOTE_FRESH_MS = 30 * 1000;
 const MAX_BATCH_SIZE = 100;
 
 const exchangeInfoSchema = z.object({
@@ -24,6 +33,13 @@ const priceSchema = z.object({
 }).passthrough();
 
 const priceResponseSchema = z.union([priceSchema, z.array(priceSchema)]);
+const cachedCatalogSchema = z.array(z.object({
+  symbol: z.string(),
+  baseAsset: z.string(),
+  quoteAsset: z.string(),
+  baseAssetPrecision: z.number().int().nonnegative(),
+}));
+const cachedPriceSchema = z.object({ price: z.string() });
 const errorSchema = z.object({
   code: z.number().optional(),
   msg: z.string().optional(),
@@ -171,11 +187,30 @@ export async function getBinanceSpotCatalog({
   if (catalogCache && now - catalogCache.fetchedAt < CATALOG_FRESH_MS) return catalogCache.pairs;
   if (catalogRequest) return catalogRequest;
   catalogRequest = (async () => {
+    const useSharedCache = fetcher === fetch && isSharedCacheConfigured();
+    const cacheKey = sharedCacheKey("binance:catalog", "spot-brl-usdt");
+    const shared = useSharedCache
+      ? await getSharedCache(cacheKey, (value) => {
+          const parsed = cachedCatalogSchema.safeParse(value);
+          return parsed.success ? parsed.data : null;
+        })
+      : null;
+    if (shared && shared.ageMs < CATALOG_FRESH_MS) {
+      catalogCache = { pairs: shared.value, fetchedAt: shared.cachedAt };
+      return shared.value;
+    }
     try {
       const pairs = await fetchCatalog(fetcher);
       catalogCache = { pairs, fetchedAt: now };
+      if (useSharedCache) {
+        await setSharedCache(cacheKey, pairs, CATALOG_STALE_MS / 1000, now);
+      }
       return pairs;
     } catch (error) {
+      if (shared && shared.ageMs < CATALOG_STALE_MS) {
+        catalogCache = { pairs: shared.value, fetchedAt: shared.cachedAt };
+        return shared.value;
+      }
       if (catalogCache && now - catalogCache.fetchedAt < CATALOG_STALE_MS) return catalogCache.pairs;
       throw error;
     } finally {
@@ -267,20 +302,79 @@ async function requestAvailablePrices(symbols: string[], fetcher: typeof fetch, 
   }
 }
 
-async function fetchPairPrices(symbols: string[], fetcher: typeof fetch, now: number) {
+async function fetchPairPrices(
+  symbols: string[],
+  fetcher: typeof fetch,
+  now: number,
+  cacheMode: MarketCacheMode,
+) {
   const normalizedSymbols = [...new Set(symbols.map(normalizedAsset).filter(Boolean))];
   const result = new Map<string, PriceCacheEntry>();
-  const missing = normalizedSymbols.filter((symbol) => {
-    const cached = priceCache.get(symbol);
-    if (!cached || now - cached.fetchedAt >= QUOTE_FRESH_MS) return true;
-    result.set(symbol, cached);
-    return false;
-  });
+  let missing = cacheMode === "REFRESH"
+    ? normalizedSymbols
+    : normalizedSymbols.filter((symbol) => {
+        const cached = priceCache.get(symbol);
+        if (!cached) return true;
+        result.set(symbol, cached);
+        return false;
+      });
+  const useSharedCache = fetcher === fetch && isSharedCacheConfigured();
+  const keysBySymbol = new Map(missing.map((symbol) => [
+    symbol,
+    sharedCacheKey("binance:quote", symbol),
+  ]));
+  const readSharedPrices = async (requested: string[], minimumCachedAt = 0) => {
+    const shared = await getSharedCacheMany(
+      requested.map((symbol) => keysBySymbol.get(symbol)!),
+      (value) => {
+        const parsed = cachedPriceSchema.safeParse(value);
+        return parsed.success ? parsed.data : null;
+      },
+    );
+    return new Map(requested.flatMap((symbol) => {
+      const hit = shared.get(keysBySymbol.get(symbol)!);
+      if (!hit || hit.cachedAt < minimumCachedAt) return [];
+      const price = new Decimal(hit.value.price);
+      return price.isFinite() && price.gt(0)
+        ? [[symbol, { price, fetchedAt: hit.cachedAt }] as const]
+        : [];
+    }));
+  };
+  if (useSharedCache && cacheMode === "USE_CACHE" && missing.length) {
+    const shared = await readSharedPrices(missing);
+    missing = missing.filter((symbol) => {
+      const entry = shared.get(symbol);
+      if (!entry) return true;
+      priceCache.set(symbol, entry);
+      result.set(symbol, entry);
+      return false;
+    });
+  }
   for (const batch of chunked(missing, MAX_BATCH_SIZE)) {
     const key = batch.slice().sort().join(",");
     let request = priceRequests.get(key);
     if (!request) {
-      request = requestAvailablePrices(batch, fetcher, now).finally(() => priceRequests.delete(key));
+      const load = async () => {
+        const prices = await requestAvailablePrices(batch, fetcher, now);
+        if (useSharedCache) {
+          await setSharedCacheMany([...prices].map(([symbol, entry]) => ({
+            key: sharedCacheKey("binance:quote", symbol),
+            value: { price: entry.price.toString() },
+            cachedAt: entry.fetchedAt,
+          })));
+        }
+        return prices;
+      };
+      request = (useSharedCache
+        ? withSharedCacheCoalescing({
+            key: sharedCacheKey("binance:quote-flight", batch.slice().sort()),
+            operation: load,
+            readAfterWait: async (lockStartedAt) => {
+              const waited = await readSharedPrices(batch, cacheMode === "REFRESH" ? lockStartedAt : 0);
+              return waited.size === batch.length ? waited : null;
+            },
+          })
+        : load()).finally(() => priceRequests.delete(key));
       priceRequests.set(key, request);
     }
     const prices = await request;
@@ -296,10 +390,12 @@ export async function fetchBinanceQuotes({
   assets,
   fetcher = fetch,
   now = Date.now(),
+  cacheMode = "USE_CACHE",
 }: {
   assets: string[];
   fetcher?: typeof fetch;
   now?: number;
+  cacheMode?: MarketCacheMode;
 }): Promise<BinanceQuoteResult> {
   const requestedAssets = [...new Set(assets.map(normalizedAsset).filter(Boolean))];
   const pairByAsset = preferredPairs(await getBinanceSpotCatalog({ fetcher, now }));
@@ -312,7 +408,7 @@ export async function fetchBinanceQuotes({
     ...selectedPairs.map((pair) => pair.symbol),
     ...(needsUsdt ? ["USDTBRL"] : []),
   ];
-  const prices = await fetchPairPrices(requestedPairs, fetcher, now);
+  const prices = await fetchPairPrices(requestedPairs, fetcher, now, cacheMode);
   const usdtBrl = prices.get("USDTBRL")?.price;
   const missing: string[] = [];
   const missingConversion: string[] = [];

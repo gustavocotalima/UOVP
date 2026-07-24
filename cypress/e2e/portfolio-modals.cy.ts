@@ -204,6 +204,7 @@ describe("modais da carteira", () => {
     cy.get('[role="dialog"]').should("contain", "Unidades em carteira:").and("contain", "32");
     cy.get('[role="dialog"]').should("contain", "Quantidade a ser aportada:").and("contain", "Quantidade sugerida:");
     cy.get("#contribution-quantity").should("be.visible").type("{selectall}3");
-    cy.get('[role="dialog"]').should("contain", "equivale a: R$");
+    cy.get("#contribution-unit-price").should("be.visible").type("{selectall}100");
+    cy.get('[role="dialog"]').contains(/Valor informado:\s*R\$\s*300,00/);
   });
 });

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireUserId } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
+import { calculateHoldingAveragePrice } from "@/features/portfolio/average-price";
 
 const querySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -30,18 +31,27 @@ export async function GET(
       asset: { portfolio: { userId } },
     },
     select: {
+      quantity: true,
+      investedValue: true,
+      positionSource: true,
       pluggyDiagramLink: {
-        select: { pluggyInvestmentDbId: true },
+        select: {
+          pluggyInvestmentDbId: true,
+          investment: {
+            select: { amountOriginal: true },
+          },
+        },
       },
     },
   });
-  const investmentId = holding?.pluggyDiagramLink?.pluggyInvestmentDbId;
-  if (!holding || !investmentId) {
+  const pluggyDiagramLink = holding?.pluggyDiagramLink;
+  const investmentId = pluggyDiagramLink?.pluggyInvestmentDbId;
+  if (!holding || !pluggyDiagramLink || !investmentId) {
     return NextResponse.json({ error: "Posição Pluggy não encontrada." }, { status: 404 });
   }
 
   const where = { pluggyInvestmentDbId: investmentId };
-  const [rows, total] = await Promise.all([
+  const [rows, total, averagePriceTransactions] = await Promise.all([
     prisma.pluggyInvestmentTransaction.findMany({
       where,
       orderBy: [{ date: "desc" }, { createdAt: "desc" }],
@@ -62,12 +72,31 @@ export async function GET(
       },
     }),
     prisma.pluggyInvestmentTransaction.count({ where }),
+    prisma.pluggyInvestmentTransaction.findMany({
+      where,
+      select: {
+        type: true,
+        quantity: true,
+        value: true,
+        amount: true,
+        netAmount: true,
+      },
+    }),
   ]);
+  const averagePrice = calculateHoldingAveragePrice({
+    positionSource: holding.positionSource,
+    quantity: holding.quantity.toString(),
+    investedValue: holding.investedValue?.toString(),
+    amountOriginal: pluggyDiagramLink.investment.amountOriginal?.toString(),
+    transactions: averagePriceTransactions,
+  });
 
   return NextResponse.json({
     page: parsedQuery.data.page,
     pageSize: parsedQuery.data.pageSize,
     total,
+    averagePricePaid: averagePrice.price?.toString() ?? null,
+    averagePriceCoverage: averagePrice.coverage,
     transactions: rows.map((transaction) => ({
       id: transaction.id,
       description: transaction.description,

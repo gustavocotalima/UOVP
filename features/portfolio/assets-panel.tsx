@@ -112,6 +112,8 @@ type HoldingTransactionsState = {
   transactions: AssetHoldingDto["transactions"];
   page: number;
   total: number;
+  averagePricePaid: string | null;
+  averagePriceCoverage: number;
   loading: boolean;
   error?: string;
 };
@@ -490,7 +492,6 @@ export function AssetsPanel({
     }),
     [assets, filter, instrumentFilter, search],
   );
-  const showAssetAveragePrice = filtered.some((asset) => asset.averagePricePaid !== null);
   const searchExpandedAssets = useMemo(() => {
     const query = search.trim().toLowerCase();
     if (!query) return new Set<string>();
@@ -658,6 +659,8 @@ export function AssetsPanel({
         transactions: append ? current[holdingId]?.transactions ?? [] : [],
         page: append ? current[holdingId]?.page ?? 0 : 0,
         total: current[holdingId]?.total ?? 0,
+        averagePricePaid: current[holdingId]?.averagePricePaid ?? null,
+        averagePriceCoverage: current[holdingId]?.averagePriceCoverage ?? 0,
         loading: true,
       },
     }));
@@ -669,6 +672,8 @@ export function AssetsPanel({
         error?: string;
         page: number;
         total: number;
+        averagePricePaid: string | null;
+        averagePriceCoverage: number;
         transactions: AssetHoldingDto["transactions"];
       };
       if (!response.ok) throw new Error(payload.error || "Não foi possível carregar as movimentações.");
@@ -680,6 +685,8 @@ export function AssetsPanel({
             : payload.transactions,
           page: payload.page,
           total: payload.total,
+          averagePricePaid: payload.averagePricePaid,
+          averagePriceCoverage: payload.averagePriceCoverage,
           loading: false,
         },
       }));
@@ -690,6 +697,8 @@ export function AssetsPanel({
           transactions: current[holdingId]?.transactions ?? [],
           page: current[holdingId]?.page ?? 0,
           total: current[holdingId]?.total ?? 0,
+          averagePricePaid: current[holdingId]?.averagePricePaid ?? null,
+          averagePriceCoverage: current[holdingId]?.averagePriceCoverage ?? 0,
           loading: false,
           error: error instanceof Error ? error.message : "Não foi possível carregar as movimentações.",
         },
@@ -1167,7 +1176,7 @@ export function AssetsPanel({
             </div>
             {message && <p role="status" className="mb-4 rounded-xl bg-[var(--muted)] p-3 text-sm">{message}</p>}
             <div className="overflow-x-auto scrollbar-thin">
-              <table className={`w-full table-fixed text-left text-sm ${showAssetAveragePrice ? "min-w-[1150px]" : "min-w-[1030px]"}`}>
+              <table className="w-full min-w-[1030px] table-fixed text-left text-sm">
                 <colgroup>
                   <col className="w-[300px]" />
                   <col className="w-[100px]" />
@@ -1175,7 +1184,6 @@ export function AssetsPanel({
                   <col className="w-[115px]" />
                   <col className="w-[70px]" />
                   <col className="w-[110px]" />
-                  {showAssetAveragePrice && <col className="w-[120px]" />}
                   <col className="w-[115px]" />
                   <col className="w-[110px]" />
                 </colgroup>
@@ -1187,7 +1195,6 @@ export function AssetsPanel({
                     <th className="whitespace-nowrap px-3 py-3">% da carteira</th>
                     <th className="whitespace-nowrap px-3 py-3">Nota</th>
                     <th className="whitespace-nowrap px-3 py-3">Quantidade</th>
-                    {showAssetAveragePrice && <th className="whitespace-nowrap px-3 py-3">Preço médio</th>}
                     <th className="whitespace-nowrap px-3 py-3">Atualizado</th>
                     <th className="whitespace-nowrap px-3 py-3 text-right">Ações</th>
                   </tr>
@@ -1200,7 +1207,12 @@ export function AssetsPanel({
                     const holdingColumns = {
                       invested: asset.holdings.some((holding) => holding.investedValue !== null),
                       quantity: ["STOCK", "ETF", "REAL_ESTATE_FUND", "REIT", "CRYPTO"].includes(asset.instrumentType),
-                      averagePrice: asset.holdings.some((holding) => holding.averagePricePaid !== null),
+                      averagePrice: asset.holdings.some((holding) => {
+                        const movementState = holdingTransactions[holding.id];
+                        return holding.averagePricePaid !== null
+                          || (movementState?.averagePricePaid ?? null) !== null
+                          || (holding.transactionCount > 0 && (!movementState || movementState.loading));
+                      }),
                       profitability: asset.holdings.some((holding) => holdingProfitability(holding) !== null),
                       purchaseDate: asset.holdings.some((holding) => holding.purchaseDate !== null),
                       maturityDate: asset.holdings.some((holding) => holding.maturityDate !== null),
@@ -1235,23 +1247,6 @@ export function AssetsPanel({
                             {asset.needsScore && <span className="mt-1 block text-[10px] text-[var(--primary)]">Revisar nota</span>}
                           </td>
                           <td className="whitespace-nowrap px-3">{showsApplicationCount ? `${asset.holdings.length} aplic.` : Number(asset.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 8 })}</td>
-                          {showAssetAveragePrice && <td className="whitespace-nowrap px-3">
-                            {asset.averagePricePaid == null
-                              ? "—"
-                              : (
-                                  <>
-                                    <span>{formatMoney(asset.averagePricePaid)}</span>
-                                    {asset.averagePriceCoverage < 0.999 && (
-                                      <span
-                                        className="mt-1 block text-[10px] text-[var(--primary)]"
-                                        title={`O histórico de compras disponível cobre ${(asset.averagePriceCoverage * 100).toLocaleString("pt-BR", { maximumFractionDigits: 0 })}% da posição atual.`}
-                                      >
-                                        Histórico parcial
-                                      </span>
-                                    )}
-                                  </>
-                                )}
-                          </td>}
                           <td className="whitespace-nowrap px-3 text-xs text-[var(--muted-foreground)]">
                             <span className="block">{reviewDate(asset.priceUpdatedAt ?? asset.updatedAt, timeZone)}</span>
                             {asset.awaitingSyncContribution && (
@@ -1271,7 +1266,7 @@ export function AssetsPanel({
                         </tr>
                         {expandable && expanded && (
                           <tr className="border-b bg-[color-mix(in_srgb,var(--muted)_42%,transparent)]">
-                            <td colSpan={showAssetAveragePrice ? 9 : 8} className="px-5 py-4">
+                            <td colSpan={8} className="px-5 py-4">
                               <div className="mb-3 flex items-center justify-between gap-3">
                                 <div><strong className="text-sm">Posições do ativo</strong><p className="text-xs text-[var(--muted-foreground)]">O valor é a soma das posições ativas abaixo.</p></div>
                                 {asset.instrumentType === "FIXED_INCOME" && <Button size="sm" onClick={() => startHolding(asset)}><Plus className="size-4" /> Adicionar aplicação</Button>}
@@ -1320,6 +1315,8 @@ export function AssetsPanel({
                                     <tbody>{asset.holdings.map((holding) => {
                                       const movementState = holdingTransactions[holding.id];
                                       const displayedTransactions = movementState?.transactions ?? holding.transactions;
+                                      const displayedAveragePrice = movementState?.averagePricePaid ?? holding.averagePricePaid;
+                                      const displayedAveragePriceCoverage = movementState?.averagePriceCoverage ?? holding.averagePriceCoverage;
                                       return (
                                       <Fragment key={holding.id}>
                                         <tr className="border-b">
@@ -1335,7 +1332,25 @@ export function AssetsPanel({
                                             )}
                                           </td>
                                           {holdingColumns.quantity && <td className="whitespace-nowrap px-3 py-3">{Number(holding.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 8 })}</td>}
-                                          {holdingColumns.averagePrice && <td className="whitespace-nowrap px-3 py-3">{holding.averagePricePaid == null ? "—" : formatMoney(holding.averagePricePaid)}</td>}
+                                          {holdingColumns.averagePrice && (
+                                            <td className="whitespace-nowrap px-3 py-3">
+                                              {displayedAveragePrice === null
+                                                ? movementState?.loading ? "Calculando…" : "—"
+                                                : (
+                                                    <>
+                                                      <span>{formatMoney(displayedAveragePrice)}</span>
+                                                      {displayedAveragePriceCoverage < 0.999 && (
+                                                        <span
+                                                          className="mt-1 block text-[10px] text-[var(--primary)]"
+                                                          title={`O histórico de compras disponível cobre ${(displayedAveragePriceCoverage * 100).toLocaleString("pt-BR", { maximumFractionDigits: 0 })}% da posição atual.`}
+                                                        >
+                                                          Histórico parcial
+                                                        </span>
+                                                      )}
+                                                    </>
+                                                  )}
+                                            </td>
+                                          )}
                                           {holdingColumns.profitability && <td className="whitespace-nowrap px-3 py-3">{holdingProfitability(holding) ?? "—"}</td>}
                                           {holdingColumns.purchaseDate && <td className="whitespace-nowrap px-3 py-3">{holding.purchaseDate ? reviewDate(holding.purchaseDate, timeZone) : "—"}</td>}
                                           {holdingColumns.maturityDate && <td className="whitespace-nowrap px-3 py-3">{holding.maturityDate ? reviewDate(holding.maturityDate, timeZone) : "—"}</td>}
