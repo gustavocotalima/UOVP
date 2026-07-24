@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { ChevronDown, CreditCard, Info } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { InstitutionLogo } from "@/components/ui/institution-logo";
@@ -16,16 +16,12 @@ export function InvoicesClient({ data }: { data: FinanceData }) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [includeIgnored, setIncludeIgnored] = useState(false);
   const account = cards.find((card) => card.id === accountId) ?? cards[0];
-  const invoices = useMemo(
-    () =>
-      account
-        ? calculateInvoices(
-            account,
-            data.historyTransactions.filter((transaction) => includeIgnored || !transaction.ignored),
-          )
-        : [],
-    [account, data.historyTransactions, includeIgnored],
-  );
+  const invoices = account
+    ? calculateInvoices(
+        account,
+        data.historyTransactions.filter((transaction) => includeIgnored || !transaction.ignored),
+      )
+    : [];
 
   if (!account) {
     return <Card><CardContent className="grid min-h-72 place-items-center text-center"><div><CreditCard className="mx-auto mb-3 size-10 text-[var(--muted-foreground)]" /><p className="font-semibold">Nenhum cartão cadastrado</p><p className="mt-1 text-sm text-[var(--muted-foreground)]">Adicione ou conecte um cartão na seção Contas.</p></div></CardContent></Card>;

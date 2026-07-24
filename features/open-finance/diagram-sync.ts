@@ -6,6 +6,7 @@ import {
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { FIXED_INCOME_INDEXATION_META } from "@/features/portfolio/constants";
+import { fetchYahooFxRates } from "@/features/portfolio/yahoo-finance";
 import {
   classifyPluggyInvestment,
   applyExistingAssetClassification,
@@ -86,6 +87,10 @@ function linkedHoldingData(
     fxUpdatedAt: Date | null;
     priceUpdatedAt: Date | null;
   } | null,
+  providerFx?: {
+    rateToBrl: number;
+    asOf: Date;
+  },
 ) {
   const market = isMarketInstrument(classification.instrumentType);
   const internationalMarket = market
@@ -94,6 +99,17 @@ function linkedHoldingData(
   const quantity = decimal(investment.quantity);
   const providerUnitPrice = investment.value
     ?? (quantity.gt(0) ? investment.balance.div(quantity) : new Prisma.Decimal(0));
+  const currency = (quoteHolding?.currency ?? investment.currencyCode ?? "BRL").toUpperCase();
+  const fxRateToBrl = currency === "BRL"
+    ? null
+    : quoteHolding?.fxRateToBrl?.gt(0)
+      ? quoteHolding.fxRateToBrl
+      : providerFx
+        ? new Prisma.Decimal(providerFx.rateToBrl)
+        : null;
+  const fxUpdatedAt = currency === "BRL"
+    ? null
+    : quoteHolding?.fxUpdatedAt ?? providerFx?.asOf ?? null;
   return {
     catalogItemId: classification.catalogItemId,
     customTypeName: classification.catalogItemId ? null : investment.subtype ?? investment.type,
@@ -108,11 +124,11 @@ function linkedHoldingData(
     marketQuoteType: quoteHolding?.marketQuoteType ?? null,
     marketSector: quoteHolding?.marketSector ?? null,
     marketIndustry: quoteHolding?.marketIndustry ?? null,
-    currency: (quoteHolding?.currency ?? investment.currencyCode) || "BRL",
+    currency,
     quantity,
     unitPrice: market && quoteHolding?.unitPrice.gt(0) ? quoteHolding.unitPrice : providerUnitPrice,
-    fxRateToBrl: internationalMarket ? quoteHolding?.fxRateToBrl ?? null : null,
-    fxUpdatedAt: internationalMarket ? quoteHolding?.fxUpdatedAt ?? null : null,
+    fxRateToBrl,
+    fxUpdatedAt,
     investedValue: market
       ? investment.amountOriginal
       : investment.amountOriginal ?? investment.amount,
@@ -140,6 +156,7 @@ async function confirmAwaitingSuggestions(
       executionStatus: "AWAITING_SYNC",
       simulation: { userId },
     },
+    orderBy: [{ awaitingSyncAt: "asc" }, { id: "asc" }],
     include: {
       simulation: true,
       asset: {
@@ -167,20 +184,43 @@ async function confirmAwaitingSuggestions(
     const currentQuantity = pluggyHoldings.reduce((total, holding) => total.add(holding.quantity), new Prisma.Decimal(0));
     const quantityConfirmed = suggestion.baselineQuantity != null
       && currentQuantity.sub(suggestion.baselineQuantity).gte(suggestion.quantity.mul("0.999999"));
-    const matchingBuy = pluggyHoldings.some((holding) =>
-      holding.pluggyDiagramLink?.investment.transactions.some((transaction) => {
+    const currentValue = pluggyHoldings.reduce(
+      (total, holding) => total.add(
+        holding.providerCurrentValue
+        ?? holding.currentValue
+        ?? holding.quantity.mul(holding.unitPrice),
+      ),
+      new Prisma.Decimal(0),
+    );
+    const valueConfirmed = ["FIXED_INCOME", "MUTUAL_FUND"].includes(suggestion.asset.instrumentType)
+      && suggestion.baselineValue != null
+      && currentValue.sub(suggestion.baselineValue).gte(suggestion.value.mul("0.97"));
+    const matchingBuy = pluggyHoldings.flatMap((holding) =>
+      holding.pluggyDiagramLink?.investment.transactions.filter((transaction) => {
         if (transaction.type !== "BUY" || transaction.date < requestedAt) return false;
         const amount = transaction.netAmount ?? transaction.amount;
         if (!amount) return false;
         const tolerance = Prisma.Decimal.max(new Prisma.Decimal(1), suggestion.value.mul("0.03"));
         return amount.sub(suggestion.value).abs().lte(tolerance);
-      }),
-    );
-    if (!quantityConfirmed && !matchingBuy) continue;
-    await tx.contributionSuggestion.update({
-      where: { id: suggestion.id },
-      data: { executed: true, executionStatus: "EXECUTED" },
+      }) ?? [],
+    )[0];
+    if (!quantityConfirmed && !valueConfirmed && !matchingBuy) continue;
+    const confirmationReference = matchingBuy
+      ? `PLUGGY_TRANSACTION:${matchingBuy.id}`
+      : `PLUGGY_POSITION:${suggestion.assetId}:${requestedAt.toISOString()}:${currentQuantity.toString()}:${currentValue.toString()}`;
+    const alreadyConsumed = await tx.contributionSuggestion.count({
+      where: { confirmationReference },
     });
+    if (alreadyConsumed) continue;
+    const confirmed = await tx.contributionSuggestion.updateMany({
+      where: { id: suggestion.id, executionStatus: "AWAITING_SYNC" },
+      data: {
+        executed: true,
+        executionStatus: "EXECUTED",
+        confirmationReference,
+      },
+    });
+    if (!confirmed.count) continue;
     const remaining = await tx.contributionSuggestion.count({
       where: { simulationId: suggestion.simulationId, executed: false },
     });
@@ -204,9 +244,27 @@ export async function reconcilePluggyInvestmentsForUser(userId: string) {
     include: { item: { select: { connectorName: true, institutionName: true } } },
     orderBy: [{ type: "asc" }, { name: "asc" }],
   });
+  const foreignCurrencies = [...new Set(
+    investments
+      .filter(isPluggyPositionActive)
+      .map((investment) => investment.currencyCode.trim().toUpperCase())
+      .filter((currency) => currency && currency !== "BRL"),
+  )];
+  const fxRates = foreignCurrencies.length
+    ? await fetchYahooFxRates({ currencies: foreignCurrencies })
+    : [];
+  const fxRateByCurrency = new Map(fxRates.map((rate) => [rate.currency, rate]));
+  const missingFx = foreignCurrencies.filter((currency) => !fxRateByCurrency.has(currency));
+  if (missingFx.length) {
+    throw new Error(`Não foi possível converter para BRL: ${missingFx.join(", ")}.`);
+  }
   let mapped = 0;
   let review = 0;
   let changed = false;
+  const reconciliationTimeoutMs = Math.min(
+    10 * 60_000,
+    Math.max(60_000, investments.length * 750),
+  );
 
   await prisma.$transaction(async (tx) => {
     for (const investment of investments) {
@@ -267,7 +325,7 @@ export async function reconcilePluggyInvestmentsForUser(userId: string) {
           })
         : null;
 
-      if (marketCandidate) {
+      if (marketCandidate && existingLink?.classificationSource !== "USER_OVERRIDE") {
         classification = applyExistingAssetClassification(classification, marketCandidate);
       }
 
@@ -391,16 +449,36 @@ export async function reconcilePluggyInvestmentsForUser(userId: string) {
           include: { holdings: true },
         });
         changed = true;
-      } else if (
-        asset.instrumentType !== classification.instrumentType
-        && asset.instrumentSource === "AUTO"
-      ) {
-        asset = await tx.asset.update({
-          where: { id: asset.id },
-          data: { instrumentType: classification.instrumentType },
-          include: { holdings: true },
-        });
-        changed = true;
+      } else {
+        const userOverride = existingLink?.classificationSource === "USER_OVERRIDE";
+        const updateInstrument = asset.instrumentType !== classification.instrumentType
+          && (userOverride || asset.instrumentSource === "AUTO");
+        const updateExposure = asset.investmentClass !== classification.investmentClass
+          && (userOverride || asset.exposureSource === "AUTO");
+        const updateGroup = userOverride || asset.groupSource === "AUTO";
+        const nextFamilyCode = classification.familyCode ?? null;
+        const nextIndexation = classification.indexation ?? null;
+        const groupChanged = updateGroup && (
+          asset.fixedIncomeFamilyCode !== nextFamilyCode
+          || asset.indexation !== nextIndexation
+        );
+        if (updateInstrument || updateExposure || groupChanged) {
+          asset = await tx.asset.update({
+            where: { id: asset.id },
+            data: {
+              ...(updateInstrument ? { instrumentType: classification.instrumentType } : {}),
+              ...(updateExposure ? { investmentClass: classification.investmentClass } : {}),
+              ...(groupChanged
+                ? {
+                    fixedIncomeFamilyCode: nextFamilyCode,
+                    indexation: nextIndexation,
+                  }
+                : {}),
+            },
+            include: { holdings: true },
+          });
+          changed = true;
+        }
       }
 
       if (
@@ -449,7 +527,7 @@ export async function reconcilePluggyInvestmentsForUser(userId: string) {
         }
       }
 
-      let holding = existingLink?.holding && existingLink.holding.assetId === asset.id
+      let holding = existingLink?.holding
         ? await tx.assetHolding.findUnique({ where: { id: existingLink.holding.id } })
         : null;
       const localQuoteHolding = asset.holdings.find((candidate) => candidate.positionSource === "MANUAL") ?? null;
@@ -462,13 +540,24 @@ export async function reconcilePluggyInvestmentsForUser(userId: string) {
           && sameDate(candidate.maturityDate, investment.dueDate),
         ) ?? null;
       }
-      const data = linkedHoldingData(investment, classification, localQuoteHolding ?? existingLink?.holding);
+      const quoteHolding = localQuoteHolding ?? existingLink?.holding;
+      const holdingCurrency = (quoteHolding?.currency ?? investment.currencyCode ?? "BRL").trim().toUpperCase();
+      const data = linkedHoldingData(
+        investment,
+        classification,
+        quoteHolding,
+        fxRateByCurrency.get(holdingCurrency),
+      );
       if (holding) {
-        changed ||= !sameDecimal(holding.quantity, data.quantity)
+        changed ||= holding.assetId !== asset.id
+          || !sameDecimal(holding.quantity, data.quantity)
           || !sameDecimal(holding.providerCurrentValue, data.providerCurrentValue)
           || holding.includedInTotals !== data.includedInTotals
           || holding.positionSource !== "PLUGGY";
-        holding = await tx.assetHolding.update({ where: { id: holding.id }, data });
+        holding = await tx.assetHolding.update({
+          where: { id: holding.id },
+          data: { ...data, assetId: asset.id },
+        });
       } else {
         holding = await tx.assetHolding.create({ data: { ...data, assetId: asset.id } });
         changed = true;
@@ -529,7 +618,7 @@ export async function reconcilePluggyInvestmentsForUser(userId: string) {
         data: { status: "STALE" },
       });
     }
-  }, { timeout: 30_000 });
+  }, { timeout: reconciliationTimeoutMs });
 
   return { mapped, review, changed };
 }

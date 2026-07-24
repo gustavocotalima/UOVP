@@ -5,8 +5,10 @@ import { compare } from "bcryptjs";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { checkLoginRateLimit, clearAuthRateLimit } from "@/lib/auth-security";
+import { requireSecureSecret } from "@/lib/security-config";
 
 const DUMMY_PASSWORD_HASH = "$2b$12$C6UzMDM.H6dfI/f/IKcEe.4YHfnn8vR7eV/XvD7iI8LQ0lVXm6M6a";
+const authSecret = requireSecureSecret("AUTH_SECRET");
 
 const credentialsSchema = z.object({
   email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()),
@@ -17,6 +19,7 @@ const credentialsSchema = z.object({
 });
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
+  secret: authSecret,
   adapter: PrismaAdapter(prisma),
   session: { strategy: "jwt", maxAge: 8 * 60 * 60 },
   pages: { signIn: "/login" },

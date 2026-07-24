@@ -4,7 +4,9 @@ import type { PluggyCredentials } from "./pluggy-credentials";
 
 const PLUGGY_API_URL = "https://api.pluggy.ai";
 const API_KEY_LIFETIME_MS = 110 * 60 * 1_000;
+const PLUGGY_TIMEOUT_MS = 20_000;
 const MAX_TRANSACTION_PAGES = 100;
+const MAX_INVESTMENT_PAGES = 100;
 const MAX_INVESTMENT_TRANSACTION_PAGES = 100;
 
 const nullableString = z.string().nullable().optional();
@@ -235,6 +237,20 @@ export class PluggyApiError extends Error {
   }
 }
 
+async function fetchPluggy(url: string, init: RequestInit) {
+  try {
+    return await fetch(url, init);
+  } catch (error) {
+    if (
+      error instanceof Error
+      && (error.name === "AbortError" || error.name === "TimeoutError")
+    ) {
+      throw new PluggyApiError("A Pluggy demorou demais para responder. Tente novamente.", 504);
+    }
+    throw new PluggyApiError("Não foi possível acessar a Pluggy.", 503);
+  }
+}
+
 const apiKeyCache = new Map<string, { value: string; expiresAt: number }>();
 
 function credentialFingerprint(credentials: PluggyCredentials) {
@@ -253,11 +269,12 @@ async function getApiKey(credentials: PluggyCredentials, forceRefresh = false) {
   if (forceRefresh) apiKeyCache.delete(fingerprint);
   const cached = apiKeyCache.get(fingerprint);
   if (!forceRefresh && cached && cached.expiresAt > Date.now()) return cached.value;
-  const response = await fetch(`${PLUGGY_API_URL}/auth`, {
+  const response = await fetchPluggy(`${PLUGGY_API_URL}/auth`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(credentials),
     cache: "no-store",
+    signal: AbortSignal.timeout(PLUGGY_TIMEOUT_MS),
   });
   const data: unknown = await response.json().catch(() => null);
   const parsed = z.object({ apiKey: z.string().min(1) }).safeParse(data);
@@ -283,7 +300,7 @@ async function pluggyRequest<T>(
   retryAuthentication = true,
 ): Promise<T> {
   const apiKey = await getApiKey(credentials);
-  const response = await fetch(`${PLUGGY_API_URL}${path}`, {
+  const response = await fetchPluggy(`${PLUGGY_API_URL}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
@@ -291,6 +308,9 @@ async function pluggyRequest<T>(
       "X-API-KEY": apiKey,
     },
     cache: "no-store",
+    signal: init.signal
+      ? AbortSignal.any([init.signal, AbortSignal.timeout(PLUGGY_TIMEOUT_MS)])
+      : AbortSignal.timeout(PLUGGY_TIMEOUT_MS),
   });
   if (response.status === 401 && retryAuthentication) {
     apiKeyCache.delete(credentialFingerprint(credentials));
@@ -361,7 +381,10 @@ export async function getPluggyInvestments(credentials: PluggyCredentials, itemI
     results.push(...data.results);
     totalPages = data.totalPages;
     page += 1;
-  } while (page <= totalPages);
+  } while (page <= totalPages && page <= MAX_INVESTMENT_PAGES);
+  if (page <= totalPages) {
+    throw new PluggyApiError("A conexão excedeu o limite seguro de paginação de investimentos.", 422);
+  }
   return results;
 }
 

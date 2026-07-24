@@ -3,7 +3,7 @@
 import Script from "next/script";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   AlertCircle,
   ArrowDownLeft,
@@ -22,11 +22,15 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog } from "@/components/ui/dialog";
 import { InstitutionLogo } from "@/components/ui/institution-logo";
 import { SegmentedTabs } from "@/components/ui/segmented-tabs";
 import { cn } from "@/lib/utils";
 import type { OpenFinanceData } from "./data";
-import { setShowSoldInvestmentsAction } from "./diagram-actions";
+import {
+  resolvePluggyItemDisconnectionAction,
+  setShowSoldInvestmentsAction,
+} from "./diagram-actions";
 
 type Tab = "connections" | "accounts" | "transactions" | "investments";
 type PluggySuccessPayload = { id?: string; item?: { id?: string } };
@@ -47,10 +51,30 @@ declare global {
 }
 
 const tabs = [
-  { value: "connections", label: "Conexões" },
-  { value: "accounts", label: "Contas" },
-  { value: "transactions", label: "Transações" },
-  { value: "investments", label: "Investimentos" },
+  {
+    value: "connections",
+    label: "Conexões",
+    tabId: "open-finance-tab-connections",
+    panelId: "open-finance-panel-connections",
+  },
+  {
+    value: "accounts",
+    label: "Contas",
+    tabId: "open-finance-tab-accounts",
+    panelId: "open-finance-panel-accounts",
+  },
+  {
+    value: "transactions",
+    label: "Transações",
+    tabId: "open-finance-tab-transactions",
+    panelId: "open-finance-panel-transactions",
+  },
+  {
+    value: "investments",
+    label: "Investimentos",
+    tabId: "open-finance-tab-investments",
+    panelId: "open-finance-panel-investments",
+  },
 ] as const;
 
 function money(value: string | number, currency = "BRL") {
@@ -71,9 +95,17 @@ function shortDate(value: string) {
 }
 
 function statusLabel(status: string, executionStatus: string | null) {
+  if (status === "DELETED") return "Desconectado";
   if (status === "UPDATED" && (!executionStatus || executionStatus === "SUCCESS")) return "Conectado";
   if (status.includes("UPDAT") || executionStatus === "PARTIAL_SUCCESS") return "Atualizando";
   return "Atenção";
+}
+
+function nonBrlAmounts(values: Record<string, number>) {
+  return Object.entries(values)
+    .filter(([currency, value]) => currency !== "BRL" && value !== 0)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([currency, value]) => money(value, currency));
 }
 
 export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
@@ -82,8 +114,16 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
   const [expandedInvestment, setExpandedInvestment] = useState<string | null>(null);
   const [showSoldInvestments, setShowSoldInvestments] = useState(data.showSoldInvestments);
   const [scriptReady, setScriptReady] = useState(false);
+  const [scriptFailed, setScriptFailed] = useState(false);
+  const [scriptKey, setScriptKey] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [disconnectionError, setDisconnectionError] = useState<string | null>(null);
+  const [resolvedDisconnections, setResolvedDisconnections] = useState<Set<string>>(() => new Set());
+  const keepManualFocusRef = useRef<HTMLSpanElement>(null);
+  const pendingDisconnection = data.pendingDisconnections.find(
+    (item) => !resolvedDisconnections.has(item.id),
+  );
 
   async function requestJson(url: string, body: object) {
     const response = await fetch(url, {
@@ -167,14 +207,66 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
     }
   }
 
+  async function resolveDisconnection(resolution: "KEEP_MANUAL" | "REMOVE") {
+    const disconnected = pendingDisconnection;
+    if (!disconnected) return;
+    setBusy(`disconnect:${disconnected.id}`);
+    setNotice(null);
+    setDisconnectionError(null);
+    try {
+      await resolvePluggyItemDisconnectionAction(disconnected.id, resolution);
+      setNotice({
+        type: "success",
+        text: resolution === "KEEP_MANUAL"
+          ? "As posições foram mantidas como manuais."
+          : "As posições desconectadas foram removidas do diagrama.",
+      });
+      setResolvedDisconnections((current) => new Set(current).add(disconnected.id));
+      router.refresh();
+    } catch (error) {
+      setDisconnectionError(
+        error instanceof Error ? error.message : "Não foi possível concluir a decisão.",
+      );
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
     <>
       <Script
+        key={scriptKey}
         src="https://cdn.pluggy.ai/pluggy-connect/v2.8.2/pluggy-connect.js"
         strategy="afterInteractive"
-        onLoad={() => setScriptReady(true)}
-        onReady={() => setScriptReady(true)}
+        onLoad={() => {
+          setScriptReady(true);
+          setScriptFailed(false);
+        }}
+        onReady={() => {
+          setScriptReady(true);
+          setScriptFailed(false);
+        }}
+        onError={() => {
+          setScriptReady(false);
+          setScriptFailed(true);
+        }}
       />
+
+      {scriptFailed && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[var(--danger)]/45 bg-[var(--danger)]/10 p-4 text-sm">
+          <p>Não foi possível carregar o conector da Pluggy.</p>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setScriptFailed(false);
+              setScriptKey((current) => current + 1);
+            }}
+          >
+            Tentar novamente
+          </Button>
+        </div>
+      )}
 
       {!data.configured && (
         <div className="flex items-start gap-3 rounded-2xl border border-[var(--danger)]/45 bg-[var(--danger)]/10 p-4 text-sm">
@@ -185,6 +277,19 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
               Configurações
             </a>{" "}
             antes de conectar instituições.
+          </p>
+        </div>
+      )}
+
+      {!data.webhookConfigured && (
+        <div className="flex items-start gap-3 rounded-2xl border border-[var(--primary)]/45 bg-[var(--primary)]/10 p-4 text-sm">
+          <AlertCircle className="mt-0.5 size-5 shrink-0 text-[var(--primary)]" />
+          <p>
+            Configure o seu segredo individual do webhook da Pluggy em{" "}
+            <a className="font-semibold underline" href="/configuracoes">
+              Configurações
+            </a>{" "}
+            para detectar automaticamente conexões removidas.
           </p>
         </div>
       )}
@@ -205,15 +310,34 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
       )}
 
       <section className="grid gap-4 sm:grid-cols-3">
-        <SummaryCard icon={Landmark} label="Saldo em contas" value={money(data.totals.cash)} />
-        <SummaryCard icon={CreditCard} label="Saldo de cartões" value={money(data.totals.credit)} />
-        <SummaryCard icon={TrendingUp} label="Investimentos conectados" value={money(data.totals.investments)} />
+        <SummaryCard
+          icon={Landmark}
+          label="Saldo em contas"
+          value={money(data.totals.cash)}
+          otherCurrencies={nonBrlAmounts(data.totalsByCurrency.cash)}
+        />
+        <SummaryCard
+          icon={CreditCard}
+          label="Saldo de cartões"
+          value={money(data.totals.credit)}
+          otherCurrencies={nonBrlAmounts(data.totalsByCurrency.credit)}
+        />
+        <SummaryCard
+          icon={TrendingUp}
+          label="Investimentos conectados"
+          value={money(data.totals.investments)}
+          otherCurrencies={nonBrlAmounts(data.totalsByCurrency.investments)}
+        />
       </section>
 
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <SegmentedTabs value={tab} onValueChange={setTab} options={tabs} ariaLabel="Dados Open Finance" />
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => sync()} disabled={!data.items.length || busy !== null}>
+          <Button
+            variant="outline"
+            onClick={() => sync()}
+            disabled={!data.items.some((item) => item.status !== "DELETED") || busy !== null}
+          >
             {busy === "all" ? <LoaderCircle className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
             Sincronizar dados
           </Button>
@@ -225,9 +349,15 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
       </div>
 
       {tab === "connections" && (
-        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <section
+          id="open-finance-panel-connections"
+          role="tabpanel"
+          aria-labelledby="open-finance-tab-connections"
+          className="grid gap-4 md:grid-cols-2 xl:grid-cols-3"
+        >
           {data.items.map((item) => {
             const healthy = statusLabel(item.status, item.executionStatus) === "Conectado";
+            const disconnected = item.status === "DELETED";
             return (
               <Card key={item.id}>
                 <CardHeader className="flex-row items-start justify-between gap-4">
@@ -249,15 +379,17 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
                     {item.consentExpiresAt && <p>Consentimento até: {date(item.consentExpiresAt)}</p>}
                   </div>
                   {item.errorMessage && <p className="rounded-xl bg-[var(--danger)]/10 p-3 text-xs text-[var(--danger)]">{item.errorMessage}</p>}
-                  <div className="flex gap-2">
-                    <Button size="sm" variant="outline" className="flex-1" onClick={() => sync(item.pluggyItemId)} disabled={busy !== null}>
-                      {busy === item.pluggyItemId ? <LoaderCircle className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
-                      Ler dados
-                    </Button>
-                    <Button size="sm" variant="secondary" className="flex-1" onClick={() => openPluggy(item.pluggyItemId)} disabled={!scriptReady || busy !== null}>
-                      Atualizar banco
-                    </Button>
-                  </div>
+                  {!disconnected && (
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="outline" className="flex-1" onClick={() => sync(item.pluggyItemId)} disabled={busy !== null}>
+                        {busy === item.pluggyItemId ? <LoaderCircle className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+                        Ler dados
+                      </Button>
+                      <Button size="sm" variant="secondary" className="flex-1" onClick={() => openPluggy(item.pluggyItemId)} disabled={!scriptReady || busy !== null}>
+                        Atualizar banco
+                      </Button>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             );
@@ -267,76 +399,151 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
       )}
 
       {tab === "accounts" && (
-        <DataCard title="Contas e cartões" description={`${data.accounts.length} produto(s) sincronizado(s)`}>
-          <div className="divide-y">
-            {data.accounts.map((account) => (
-              <div key={account.id} className="flex flex-col gap-3 py-4 first:pt-0 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex min-w-0 items-center gap-3">
-                  <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[var(--muted)]">
-                    {account.type === "CREDIT" ? <CreditCard className="size-5" /> : <WalletCards className="size-5" />}
-                  </span>
-                  <div className="min-w-0">
-                    <p className="truncate font-semibold">{account.name}</p>
-                    <p className="truncate text-xs text-[var(--muted-foreground)]">
-                      {account.institution}{account.numberLastFour ? ` · final ${account.numberLastFour}` : ""}
-                    </p>
-                  </div>
-                </div>
-                <div className="text-left sm:text-right">
-                  <p className="font-semibold tabular-nums">{money(account.balance, account.currencyCode)}</p>
-                  <p className="text-xs text-[var(--muted-foreground)]">{date(account.updatedAt)}</p>
-                </div>
-              </div>
-            ))}
-            {!data.accounts.length && <p className="py-8 text-center text-sm text-[var(--muted-foreground)]">Sincronize uma conexão para carregar contas.</p>}
-          </div>
-        </DataCard>
-      )}
-
-      {tab === "transactions" && (
-        <DataCard title="Transações recentes" description="Até 200 lançamentos mais recentes, ainda sem alterar o orçamento.">
-          <div className="divide-y">
-            {data.transactions.map((transaction) => {
-              const incoming = Number(transaction.amount) >= 0;
-              return (
-                <div key={transaction.id} className="grid gap-3 py-4 first:pt-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+        <section
+          id="open-finance-panel-accounts"
+          role="tabpanel"
+          aria-labelledby="open-finance-tab-accounts"
+        >
+          <DataCard title="Contas e cartões" description={`${data.accounts.length} produto(s) sincronizado(s)`}>
+            <div className="divide-y">
+              {data.accounts.map((account) => (
+                <div key={account.id} className="flex flex-col gap-3 py-4 first:pt-0 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex min-w-0 items-center gap-3">
-                    <span className={cn("grid size-9 shrink-0 place-items-center rounded-full", incoming ? "bg-[var(--success)]/12 text-[var(--success)]" : "bg-[var(--danger)]/10 text-[var(--danger)]")}>
-                      {incoming ? <ArrowDownLeft className="size-4" /> : <ArrowUpRight className="size-4" />}
+                    <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[var(--muted)]">
+                      {account.type === "CREDIT" ? <CreditCard className="size-5" /> : <WalletCards className="size-5" />}
                     </span>
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">{transaction.merchantName || transaction.description}</p>
+                      <p className="truncate font-semibold">{account.name}</p>
                       <p className="truncate text-xs text-[var(--muted-foreground)]">
-                        {transaction.institution} · {transaction.accountName}{transaction.category ? ` · ${transaction.category}` : ""}
+                        {account.institution}{account.numberLastFour ? ` · final ${account.numberLastFour}` : ""}
                       </p>
                     </div>
                   </div>
-                  <div className="pl-12 text-left sm:pl-0 sm:text-right">
-                    <p className={cn("text-sm font-semibold tabular-nums", incoming ? "text-[var(--success)]" : "")}>{money(transaction.amount, transaction.currencyCode)}</p>
-                    <p className="text-xs text-[var(--muted-foreground)]">{date(transaction.date)}</p>
+                  <div className="text-left sm:text-right">
+                    <p className="font-semibold tabular-nums">{money(account.balance, account.currencyCode)}</p>
+                    <p className="text-xs text-[var(--muted-foreground)]">{date(account.updatedAt)}</p>
                   </div>
                 </div>
-              );
-            })}
-            {!data.transactions.length && <p className="py-8 text-center text-sm text-[var(--muted-foreground)]">Nenhuma transação sincronizada.</p>}
-          </div>
-        </DataCard>
+              ))}
+              {!data.accounts.length && <p className="py-8 text-center text-sm text-[var(--muted-foreground)]">Sincronize uma conexão para carregar contas.</p>}
+            </div>
+          </DataCard>
+        </section>
+      )}
+
+      {tab === "transactions" && (
+        <section
+          id="open-finance-panel-transactions"
+          role="tabpanel"
+          aria-labelledby="open-finance-tab-transactions"
+        >
+          <DataCard title="Transações recentes" description="Até 200 lançamentos mais recentes, ainda sem alterar o orçamento.">
+            <div className="divide-y">
+              {data.transactions.map((transaction) => {
+                const incoming = Number(transaction.amount) >= 0;
+                return (
+                  <div key={transaction.id} className="grid gap-3 py-4 first:pt-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className={cn("grid size-9 shrink-0 place-items-center rounded-full", incoming ? "bg-[var(--success)]/12 text-[var(--success)]" : "bg-[var(--danger)]/10 text-[var(--danger)]")}>
+                        {incoming ? <ArrowDownLeft className="size-4" /> : <ArrowUpRight className="size-4" />}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">{transaction.merchantName || transaction.description}</p>
+                        <p className="truncate text-xs text-[var(--muted-foreground)]">
+                          {transaction.institution} · {transaction.accountName}{transaction.category ? ` · ${transaction.category}` : ""}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="pl-12 text-left sm:pl-0 sm:text-right">
+                      <p className={cn("text-sm font-semibold tabular-nums", incoming ? "text-[var(--success)]" : "")}>{money(transaction.amount, transaction.currencyCode)}</p>
+                      <p className="text-xs text-[var(--muted-foreground)]">{date(transaction.date)}</p>
+                    </div>
+                  </div>
+                );
+              })}
+              {!data.transactions.length && <p className="py-8 text-center text-sm text-[var(--muted-foreground)]">Nenhuma transação sincronizada.</p>}
+            </div>
+          </DataCard>
+        </section>
       )}
 
       {tab === "investments" && (
-        <InvestmentPortfolio
-          investments={data.investments.filter((investment) =>
-            (investment.status === "ACTIVE" && investment.providerAvailable)
-            || (showSoldInvestments && investment.status === "TOTAL_WITHDRAWAL"),
-          )}
-          total={data.totals.investments}
-          soldCount={data.soldInvestmentCount}
-          showSold={showSoldInvestments}
-          onToggleSold={() => void toggleSoldInvestments()}
-          expandedId={expandedInvestment}
-          onToggle={(id) => setExpandedInvestment((current) => (current === id ? null : id))}
-        />
+        <section
+          id="open-finance-panel-investments"
+          role="tabpanel"
+          aria-labelledby="open-finance-tab-investments"
+        >
+          <InvestmentPortfolio
+            investments={data.investments.filter((investment) =>
+              (investment.status === "ACTIVE" && investment.providerAvailable)
+              || (showSoldInvestments && investment.status === "TOTAL_WITHDRAWAL"),
+            )}
+            total={data.totals.investments}
+            soldCount={data.soldInvestmentCount}
+            showSold={showSoldInvestments}
+            onToggleSold={() => void toggleSoldInvestments()}
+            expandedId={expandedInvestment}
+            onToggle={(id) => setExpandedInvestment((current) => (current === id ? null : id))}
+          />
+        </section>
       )}
+
+      <Dialog
+        open={Boolean(pendingDisconnection)}
+        onOpenChange={() => undefined}
+        dismissible={false}
+        title="Conexão removida"
+        description="Escolha o que fazer com as posições que vieram desta instituição."
+        className="max-w-xl"
+        initialFocusRef={keepManualFocusRef}
+        footer={
+          <>
+            <Button
+              variant="danger"
+              onClick={() => void resolveDisconnection("REMOVE")}
+              disabled={busy !== null}
+            >
+              {busy?.startsWith("disconnect:") ? "Salvando…" : "Remover do diagrama"}
+            </Button>
+            <span ref={keepManualFocusRef} className="inline-flex">
+              <Button
+                className="w-full"
+                onClick={() => void resolveDisconnection("KEEP_MANUAL")}
+                disabled={busy !== null}
+              >
+                {busy?.startsWith("disconnect:") ? "Salvando…" : "Manter como manuais"}
+              </Button>
+            </span>
+          </>
+        }
+      >
+        {pendingDisconnection && (
+          <div className="space-y-4">
+            {disconnectionError && (
+              <p
+                role="alert"
+                className="rounded-xl border border-[var(--danger)]/45 bg-[var(--danger)]/10 p-3 text-sm text-[var(--danger)]"
+              >
+                {disconnectionError}
+              </p>
+            )}
+            <div className="flex items-start gap-4 rounded-2xl border bg-[var(--muted)]/35 p-4">
+              <InstitutionLogo
+                src={pendingDisconnection.connectorImageUrl}
+                name={pendingDisconnection.connectorName}
+              />
+              <div>
+                <p className="font-semibold">{pendingDisconnection.connectorName}</p>
+                <p className="mt-1 text-sm leading-6 text-[var(--muted-foreground)]">
+                  A conexão foi excluída. Suas {pendingDisconnection.investmentCount} posição(ões)
+                  já foram retiradas dos totais. Você pode preservar os últimos valores como posições
+                  manuais ou removê-las do diagrama.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+      </Dialog>
     </>
   );
 }
@@ -659,7 +866,17 @@ function JsonDetails({ title, value, compact = false }: { title: string; value: 
   );
 }
 
-function SummaryCard({ icon: Icon, label, value }: { icon: typeof Landmark; label: string; value: string }) {
+function SummaryCard({
+  icon: Icon,
+  label,
+  value,
+  otherCurrencies = [],
+}: {
+  icon: typeof Landmark;
+  label: string;
+  value: string;
+  otherCurrencies?: string[];
+}) {
   return (
     <Card>
       <CardContent className="flex items-center gap-4 p-5">
@@ -667,6 +884,11 @@ function SummaryCard({ icon: Icon, label, value }: { icon: typeof Landmark; labe
         <div>
           <p className="text-xs text-[var(--muted-foreground)]">{label}</p>
           <p className="mt-1 text-xl font-semibold tabular-nums">{value}</p>
+          {otherCurrencies.length > 0 && (
+            <p className="mt-1 text-xs tabular-nums text-[var(--muted-foreground)]">
+              Outras moedas: {otherCurrencies.join(" · ")}
+            </p>
+          )}
         </div>
       </CardContent>
     </Card>

@@ -1,10 +1,45 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { createPortal } from "react-dom";
 import { AlertTriangle, CircleHelp, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "./button";
+
+const openDialogs: string[] = [];
+let bodyLockCount = 0;
+let originalBodyOverflow = "";
+
+function focusableElements(panel: HTMLElement | null) {
+  if (!panel) return [];
+  return Array.from(panel.querySelectorAll<HTMLElement>(
+    "a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex='-1'])",
+  )).filter((element) => !element.hasAttribute("hidden") && element.getAttribute("aria-hidden") !== "true");
+}
+
+function initialFocusableElement(
+  panel: HTMLElement | null,
+  initialFocusRef?: RefObject<HTMLElement | null>,
+) {
+  const initialTarget = initialFocusRef?.current;
+  if (initialTarget) {
+    if (initialTarget.matches(
+      "a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex='-1'])",
+    )) {
+      return initialTarget;
+    }
+    return focusableElements(initialTarget)[0] ?? panel;
+  }
+  return focusableElements(panel)[0] ?? panel;
+}
 
 export function Dialog({
   open,
@@ -15,6 +50,8 @@ export function Dialog({
   footer,
   className,
   titleAlign = "left",
+  dismissible = true,
+  initialFocusRef,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -24,51 +61,92 @@ export function Dialog({
   footer?: ReactNode;
   className?: string;
   titleAlign?: "left" | "center";
+  dismissible?: boolean;
+  initialFocusRef?: RefObject<HTMLElement | null>;
 }) {
+  const dialogId = useId();
   const titleId = useId();
   const descriptionId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
   const onOpenChangeRef = useRef(onOpenChange);
+  const dismissibleRef = useRef(dismissible);
 
   useEffect(() => {
     onOpenChangeRef.current = onOpenChange;
   }, [onOpenChange]);
+  useEffect(() => {
+    dismissibleRef.current = dismissible;
+  }, [dismissible]);
 
   useEffect(() => {
     if (!open) return;
     const previous = document.activeElement as HTMLElement | null;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    openDialogs.push(dialogId);
+    if (bodyLockCount === 0) {
+      originalBodyOverflow = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+    }
+    bodyLockCount += 1;
+    const backgroundElements = Array.from(document.body.children)
+      .filter((element): element is HTMLElement =>
+        element instanceof HTMLElement && element.dataset.dialogId !== dialogId,
+      )
+      .map((element) => ({ element, inert: element.inert }));
+    for (const { element } of backgroundElements) element.inert = true;
     const timer = window.setTimeout(() => {
-      const focusable = panelRef.current?.querySelector<HTMLElement>(
-        "input:not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled])",
-      );
-      focusable?.focus();
+      initialFocusableElement(panelRef.current, initialFocusRef)?.focus();
     });
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onOpenChangeRef.current(false);
+      if (openDialogs.at(-1) !== dialogId) return;
+      if (event.key === "Escape" && dismissibleRef.current) {
+        event.preventDefault();
+        onOpenChangeRef.current(false);
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = focusableElements(panelRef.current);
+      if (!focusable.length) {
+        event.preventDefault();
+        panelRef.current?.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
     document.addEventListener("keydown", onKeyDown);
     return () => {
       window.clearTimeout(timer);
-      document.body.style.overflow = previousOverflow;
       document.removeEventListener("keydown", onKeyDown);
+      const stackIndex = openDialogs.lastIndexOf(dialogId);
+      if (stackIndex >= 0) openDialogs.splice(stackIndex, 1);
+      for (const { element, inert } of backgroundElements) element.inert = inert;
+      bodyLockCount = Math.max(0, bodyLockCount - 1);
+      if (bodyLockCount === 0) document.body.style.overflow = originalBodyOverflow;
       previous?.focus();
     };
-  }, [open]);
+  }, [dialogId, initialFocusRef, open]);
 
   if (!open || typeof document === "undefined") return null;
 
   return createPortal(
     <div
+      data-dialog-id={dialogId}
       className="fixed inset-0 z-[100] grid place-items-center overflow-y-auto bg-black/70 p-4 backdrop-blur-[2px]"
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onOpenChange(false);
+        if (dismissible && event.target === event.currentTarget) onOpenChange(false);
       }}
     >
       <div
         ref={panelRef}
         role="dialog"
+        tabIndex={-1}
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={description ? descriptionId : undefined}
@@ -82,9 +160,11 @@ export function Dialog({
             <h2 id={titleId} className="text-lg font-semibold">{title}</h2>
             {description && <p id={descriptionId} className="mt-1 text-sm text-[var(--muted-foreground)]">{description}</p>}
           </div>
-          <Button type="button" variant="ghost" size="icon" aria-label="Fechar" onClick={() => onOpenChange(false)} className={cn(titleAlign === "center" && "absolute right-4 top-3")}>
-            <X className="size-5" />
-          </Button>
+          {dismissible && (
+            <Button type="button" variant="ghost" size="icon" aria-label="Fechar" onClick={() => onOpenChange(false)} className={cn(titleAlign === "center" && "absolute right-4 top-3")}>
+              <X className="size-5" />
+            </Button>
+          )}
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto p-6 scrollbar-thin">{children}</div>
         {footer && <footer className="flex flex-col-reverse gap-3 border-t px-6 py-4 sm:flex-row sm:justify-end">{footer}</footer>}
@@ -120,8 +200,11 @@ export function ConfirmDialog({
   return (
     <Dialog
       open={open}
-      onOpenChange={onOpenChange}
+      onOpenChange={(nextOpen) => {
+        if (!pending || nextOpen) onOpenChange(nextOpen);
+      }}
       title={title}
+      dismissible={!pending}
       className="max-w-lg"
       footer={
         <>

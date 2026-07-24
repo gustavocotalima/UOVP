@@ -5,8 +5,17 @@ import { Prisma, type DiagramType, type FixedIncomeIndexation, type InstrumentTy
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireUserId } from "@/lib/current-user";
-import { allocateContribution } from "./allocation";
-import { applyManualFixedIncomeContribution } from "./asset-groups";
+import {
+  assertUserOperationRateLimit,
+  withUserOperationLease,
+} from "@/lib/operation-security";
+import { allocateContribution, questionChangeAffectsAllocation } from "./allocation";
+import {
+  applyManualFixedIncomeContribution,
+  fixedIncomeHoldingFingerprint,
+  holdingUnitPriceBrl,
+} from "./asset-groups";
+import { bumpPortfolioAndInvalidateDrafts } from "./invalidation";
 import {
   fetchBinanceQuotes,
   searchBinanceAssets,
@@ -100,6 +109,15 @@ function inferInstrumentType(investmentClass: InvestmentClassKey): InstrumentTyp
   return "STOCK";
 }
 
+function normalizedText(value: string | null | undefined) {
+  return (value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase();
+}
+
 function usesBrapiQuotes(investmentClass: InvestmentClassKey, instrumentType?: InstrumentType) {
   if (instrumentType === "ETF") {
     return !["INTERNATIONAL_STOCKS", "REITS", "INTERNATIONAL_FIXED_INCOME"].includes(investmentClass);
@@ -131,6 +149,12 @@ async function assertOwnedAsset(userId: string, assetId: string) {
 
 export async function saveAssetAction(input: AssetInput) {
   const userId = await requireUserId();
+  await assertUserOperationRateLimit({
+    userId,
+    operation: "portfolio-save-asset",
+    limit: 30,
+    windowMs: 10 * 60_000,
+  });
   const parsed = assetSchema.parse(input);
   const portfolio = await ensurePortfolio(userId);
   const instrumentType = (parsed.instrumentType ?? inferInstrumentType(parsed.investmentClass)) as InstrumentType;
@@ -146,7 +170,12 @@ export async function saveAssetAction(input: AssetInput) {
     if (!familyExists) throw new Error("Grupo de renda fixa não encontrado.");
   }
   const existingHolding = parsed.id ? await prisma.assetHolding.findFirst({
-    where: { assetId: parsed.id, asset: { portfolio: { userId } } },
+    where: {
+      assetId: parsed.id,
+      includedInTotals: true,
+      positionSource: "MANUAL",
+      asset: { portfolio: { userId } },
+    },
     orderBy: { createdAt: "asc" },
   }) : null;
   if (parsed.id && !existingHolding) throw new Error("Posição do ativo não encontrada.");
@@ -290,13 +319,17 @@ export async function saveAssetAction(input: AssetInput) {
     });
     if (!pluggyControlled) {
       const existingHolding = await tx.assetHolding.findFirst({
-        where: { assetId: parent.id, positionSource: "MANUAL" },
+        where: {
+          assetId: parent.id,
+          positionSource: "MANUAL",
+          includedInTotals: true,
+        },
         orderBy: { createdAt: "asc" },
       });
       if (existingHolding) await tx.assetHolding.update({ where: { id: existingHolding.id }, data: holdingData });
       else await tx.assetHolding.create({ data: { ...holdingData, assetId: parent.id } });
     }
-    await tx.portfolio.update({ where: { id: portfolio.id }, data: { version: { increment: 1 } } });
+    await bumpPortfolioAndInvalidateDrafts(tx, portfolio.id, userId);
   });
   revalidatePath("/carteira");
   revalidatePath("/home");
@@ -401,7 +434,7 @@ export async function saveFixedIncomeGroupAction(input: FixedIncomeGroupInput, i
       });
     }
     if (holding) await tx.assetHolding.create({ data: { ...fixedIncomeHoldingData(holding), assetId: parent.id } });
-    await tx.portfolio.update({ where: { id: portfolio.id }, data: { version: { increment: 1 } } });
+    await bumpPortfolioAndInvalidateDrafts(tx, portfolio.id, userId);
   });
   revalidatePath("/carteira");
   revalidatePath("/home");
@@ -428,7 +461,7 @@ export async function saveAssetHoldingAction(assetId: string, input: FixedIncome
       await tx.assetHolding.create({ data: { ...data, assetId } });
     }
     await tx.asset.update({ where: { id: assetId }, data: { updatedAt: new Date() } });
-    await tx.portfolio.update({ where: { id: asset.portfolioId }, data: { version: { increment: 1 } } });
+    await bumpPortfolioAndInvalidateDrafts(tx, asset.portfolioId, userId);
   });
   revalidatePath("/carteira");
   revalidatePath("/home");
@@ -444,7 +477,7 @@ export async function deleteAssetHoldingAction(holdingId: string) {
   await prisma.$transaction(async (tx) => {
     await tx.assetHolding.delete({ where: { id: holding.id } });
     await tx.asset.update({ where: { id: holding.assetId }, data: { updatedAt: new Date() } });
-    await tx.portfolio.update({ where: { id: holding.asset.portfolioId }, data: { version: { increment: 1 } } });
+    await bumpPortfolioAndInvalidateDrafts(tx, holding.asset.portfolioId, userId);
   });
   revalidatePath("/carteira");
   revalidatePath("/home");
@@ -464,46 +497,57 @@ export async function importPortfolioRowsAction(input: {
   fixedIncomeRows: FixedIncomeImportInput[];
 }) {
   const userId = await requireUserId();
-  const parsed = portfolioImportSchema.parse(input);
-  const portfolio = await ensurePortfolio(userId);
+  await assertUserOperationRateLimit({
+    userId,
+    operation: "portfolio-import",
+    limit: 5,
+    windowMs: 60 * 60_000,
+  });
+  await withUserOperationLease({
+    userId,
+    operation: "portfolio-import",
+    leaseMs: 30 * 60_000,
+    action: async (lease) => {
+      const parsed = portfolioImportSchema.parse(input);
+      const portfolio = await ensurePortfolio(userId);
 
-  if (parsed.marketRows.some((row) => (row.instrumentType ?? inferInstrumentType(row.investmentClass)) === "FIXED_INCOME")) {
-    throw new Error("Renda fixa precisa ser importada com família, indexação e aplicações detalhadas.");
-  }
-  const fixedIncomeEtfs = parsed.marketRows.filter((row) =>
-    row.instrumentType === "ETF"
-    && ["FIXED_INCOME", "INTERNATIONAL_FIXED_INCOME"].includes(row.investmentClass),
-  );
-  if (fixedIncomeEtfs.some((row) => !row.fixedIncomeFamilyCode || !row.indexation)) {
-    throw new Error("ETFs de renda fixa precisam informar família e indexação.");
-  }
+      if (parsed.marketRows.some((row) => (row.instrumentType ?? inferInstrumentType(row.investmentClass)) === "FIXED_INCOME")) {
+        throw new Error("Renda fixa precisa ser importada com família, indexação e aplicações detalhadas.");
+      }
+      const fixedIncomeEtfs = parsed.marketRows.filter((row) =>
+        row.instrumentType === "ETF"
+        && ["FIXED_INCOME", "INTERNATIONAL_FIXED_INCOME"].includes(row.investmentClass),
+      );
+      if (fixedIncomeEtfs.some((row) => !row.fixedIncomeFamilyCode || !row.indexation)) {
+        throw new Error("ETFs de renda fixa precisam informar família e indexação.");
+      }
 
-  const familyCodes = [...new Set([
-    ...parsed.fixedIncomeRows.map((row) => row.familyCode),
-    ...fixedIncomeEtfs.flatMap((row) => row.fixedIncomeFamilyCode ? [row.fixedIncomeFamilyCode] : []),
-  ])];
-  const families = familyCodes.length
-    ? await prisma.fixedIncomeFamily.findMany({ where: { code: { in: familyCodes } } })
-    : [];
-  const familyByCode = new Map(families.map((family) => [family.code, family]));
-  if (families.length !== familyCodes.length) throw new Error("Uma ou mais famílias de renda fixa são inválidas.");
+      const familyCodes = [...new Set([
+        ...parsed.fixedIncomeRows.map((row) => row.familyCode),
+        ...fixedIncomeEtfs.flatMap((row) => row.fixedIncomeFamilyCode ? [row.fixedIncomeFamilyCode] : []),
+      ])];
+      const families = familyCodes.length
+        ? await prisma.fixedIncomeFamily.findMany({ where: { code: { in: familyCodes } } })
+        : [];
+      const familyByCode = new Map(families.map((family) => [family.code, family]));
+      if (families.length !== familyCodes.length) throw new Error("Uma ou mais famílias de renda fixa são inválidas.");
 
-  const catalogIds = [...new Set(parsed.fixedIncomeRows.flatMap((row) =>
-    row.holding.catalogItemId ? [row.holding.catalogItemId] : [],
-  ))];
-  const catalogItems = catalogIds.length
-    ? await prisma.assetCatalogItem.findMany({
-        where: { id: { in: catalogIds } },
-        select: { id: true, familyCode: true },
-      })
-    : [];
-  const catalogFamilyById = new Map(catalogItems.map((item) => [item.id, item.familyCode]));
-  for (const row of parsed.fixedIncomeRows) {
-    if (row.holding.catalogItemId && catalogFamilyById.get(row.holding.catalogItemId) !== row.familyCode) {
-      throw new Error(`O item ${row.holding.catalogItemId} não pertence à família ${row.familyCode}.`);
-    }
-    fixedIncomeHoldingData(row.holding);
-  }
+      const catalogIds = [...new Set(parsed.fixedIncomeRows.flatMap((row) =>
+        row.holding.catalogItemId ? [row.holding.catalogItemId] : [],
+      ))];
+      const catalogItems = catalogIds.length
+        ? await prisma.assetCatalogItem.findMany({
+            where: { id: { in: catalogIds } },
+            select: { id: true, familyCode: true },
+          })
+        : [];
+      const catalogFamilyById = new Map(catalogItems.map((item) => [item.id, item.familyCode]));
+      for (const row of parsed.fixedIncomeRows) {
+        if (row.holding.catalogItemId && catalogFamilyById.get(row.holding.catalogItemId) !== row.familyCode) {
+          throw new Error(`O item ${row.holding.catalogItemId} não pertence à família ${row.familyCode}.`);
+        }
+        fixedIncomeHoldingData(row.holding);
+      }
 
   const brapiRows = parsed.marketRows.filter((row) =>
     usesBrapiQuotes(
@@ -582,7 +626,8 @@ export async function importPortfolioRowsAction(input: {
     if (missing.length) throw new Error(`A Binance não retornou cotação em BRL para: ${missing.join(", ")}.`);
   }
 
-  await prisma.$transaction(async (tx) => {
+      await lease.assertOwned();
+      await prisma.$transaction(async (tx) => {
     for (const row of parsed.marketRows) {
       const investmentClass = row.investmentClass as InvestmentClass;
       const instrumentType = (row.instrumentType ?? inferInstrumentType(row.investmentClass)) as InstrumentType;
@@ -638,9 +683,25 @@ export async function importPortfolioRowsAction(input: {
         priceUpdatedAt: brapiQuote?.asOf ?? yahooQuote?.asOf ?? binanceQuote?.asOf ?? new Date(),
       };
       const existingHolding = await tx.assetHolding.findFirst({
-        where: { assetId: parent.id },
+        where: {
+          assetId: parent.id,
+          positionSource: "MANUAL",
+          includedInTotals: true,
+        },
         orderBy: { createdAt: "asc" },
       });
+      const pluggyControlled = await tx.assetHolding.count({
+        where: {
+          assetId: parent.id,
+          positionSource: "PLUGGY",
+          includedInTotals: true,
+        },
+      });
+      if (pluggyControlled) {
+        throw new Error(
+          `${ticker} é controlado pela Pluggy. Ajuste a posição pela instituição em vez de importá-la manualmente.`,
+        );
+      }
       if (existingHolding) {
         await tx.assetHolding.update({ where: { id: existingHolding.id }, data: holdingData });
       } else {
@@ -679,26 +740,59 @@ export async function importPortfolioRowsAction(input: {
               score: row.score,
             },
           });
-      await tx.assetHolding.create({
-        data: { ...fixedIncomeHoldingData(row.holding), assetId: parent.id },
+      const activeHoldings = await tx.assetHolding.findMany({
+        where: {
+          assetId: parent.id,
+          includedInTotals: true,
+        },
+        select: {
+          id: true,
+          positionSource: true,
+          catalogItemId: true,
+          customTypeName: true,
+          issuer: true,
+          productName: true,
+          purchaseDate: true,
+          maturityDate: true,
+        },
       });
+      const duplicatedProviderHolding = activeHoldings.some((holding) =>
+        holding.positionSource === "PLUGGY"
+        &&
+        normalizedText(holding.issuer) === normalizedText(row.holding.issuer)
+        && normalizedText(holding.productName) === normalizedText(row.holding.productName)
+        && holding.purchaseDate?.getTime() === row.holding.purchaseDate?.getTime()
+        && holding.maturityDate?.getTime() === row.holding.maturityDate?.getTime(),
+      );
+      if (duplicatedProviderHolding) {
+        throw new Error(
+          `${row.holding.productName} já é controlado pela Pluggy e não pode ser duplicado pela importação.`,
+        );
+      }
+      const fingerprint = fixedIncomeHoldingFingerprint(row.holding);
+      const existingManual = activeHoldings.find((holding) =>
+        holding.positionSource === "MANUAL"
+        && fixedIncomeHoldingFingerprint(holding) === fingerprint,
+      );
+      const holdingData = fixedIncomeHoldingData(row.holding);
+      if (existingManual) {
+        await tx.assetHolding.update({
+          where: { id: existingManual.id },
+          data: holdingData,
+        });
+      } else {
+        await tx.assetHolding.create({
+          data: { ...holdingData, assetId: parent.id },
+        });
+      }
     }
 
-    await tx.portfolio.update({
-      where: { id: portfolio.id },
-      data: { version: { increment: 1 } },
-    });
+    await bumpPortfolioAndInvalidateDrafts(tx, portfolio.id, userId);
+      }, { timeout: 120_000 });
+      revalidatePath("/carteira");
+      revalidatePath("/home");
+    },
   });
-  revalidatePath("/carteira");
-  revalidatePath("/home");
-}
-
-export async function importAssetsAction(rows: AssetInput[]) {
-  return importPortfolioRowsAction({ marketRows: rows, fixedIncomeRows: [] });
-}
-
-export async function importFixedIncomeHoldingsAction(rows: FixedIncomeImportInput[]) {
-  return importPortfolioRowsAction({ marketRows: [], fixedIncomeRows: rows });
 }
 
 export async function deleteAssetAction(assetId: string) {
@@ -715,7 +809,7 @@ export async function deleteAssetAction(assetId: string) {
     });
     await tx.contributionSuggestion.deleteMany({ where: { assetId: asset.id } });
     await tx.asset.delete({ where: { id: asset.id } });
-    await tx.portfolio.update({ where: { id: asset.portfolioId }, data: { version: { increment: 1 } } });
+    await bumpPortfolioAndInvalidateDrafts(tx, asset.portfolioId, userId);
   });
   revalidatePath("/carteira");
   revalidatePath("/home");
@@ -727,9 +821,17 @@ export async function deleteAssetClassAction(investmentClass: InvestmentClassKey
   const portfolio = await ensurePortfolio(userId);
   await prisma.$transaction(async (tx) => {
     const assets = await tx.asset.findMany({ where: { portfolioId: portfolio.id, investmentClass: parsedClass }, select: { id: true } });
+    await tx.pluggyInvestmentDiagramLink.updateMany({
+      where: { holding: { assetId: { in: assets.map((asset) => asset.id) } } },
+      data: {
+        status: "EXCLUDED",
+        classificationSource: "USER_OVERRIDE",
+        reviewReason: "Classe removida do diagrama pelo usuário.",
+      },
+    });
     await tx.contributionSuggestion.deleteMany({ where: { assetId: { in: assets.map((asset) => asset.id) } } });
     await tx.asset.deleteMany({ where: { portfolioId: portfolio.id, investmentClass: parsedClass } });
-    await tx.portfolio.update({ where: { id: portfolio.id }, data: { version: { increment: 1 } } });
+    await bumpPortfolioAndInvalidateDrafts(tx, portfolio.id, userId);
   });
   revalidatePath("/carteira");
   revalidatePath("/home");
@@ -737,6 +839,12 @@ export async function deleteAssetClassAction(investmentClass: InvestmentClassKey
 
 export async function saveBrapiApiKeyAction(input: string) {
   const userId = await requireUserId();
+  await assertUserOperationRateLimit({
+    userId,
+    operation: "brapi-credential-validation",
+    limit: 10,
+    windowMs: 60 * 60_000,
+  });
   const apiKey = brapiApiKeySchema.parse(input);
   await fetchBrapiQuotes({ apiKey, tickers: ["WEGE3"] });
   const status = await storeBrapiApiKey(userId, apiKey);
@@ -746,7 +854,13 @@ export async function saveBrapiApiKeyAction(input: string) {
 }
 
 export async function searchBrapiTickersAction(input: string, kind: InvestmentClassKey | "ETF") {
-  await requireUserId();
+  const userId = await requireUserId();
+  await assertUserOperationRateLimit({
+    userId,
+    operation: "market-search",
+    limit: 120,
+    windowMs: 60_000,
+  });
   const query = tickerSearchSchema.parse(input);
   const parsedKind = brapiSearchKindSchema.parse(kind);
   if (parsedKind !== "ETF") {
@@ -756,13 +870,25 @@ export async function searchBrapiTickersAction(input: string, kind: InvestmentCl
 }
 
 export async function searchYahooTickersAction(input: string, kind: YahooSearchKind) {
-  await requireUserId();
+  const userId = await requireUserId();
+  await assertUserOperationRateLimit({
+    userId,
+    operation: "market-search",
+    limit: 120,
+    windowMs: 60_000,
+  });
   const query = tickerSearchSchema.parse(input);
   return searchYahooTickers({ query, kind: yahooSearchKindSchema.parse(kind) });
 }
 
 export async function searchBinanceAssetsAction(input: string) {
-  await requireUserId();
+  const userId = await requireUserId();
+  await assertUserOperationRateLimit({
+    userId,
+    operation: "market-search",
+    limit: 120,
+    windowMs: 60_000,
+  });
   const query = tickerSearchSchema.parse(input);
   return searchBinanceAssets({ query });
 }
@@ -788,8 +914,7 @@ export type MarketRefreshResult = {
   binance: ProviderRefreshResult & { missingConversion: string[] };
 };
 
-export async function refreshMarketPricesAction(): Promise<MarketRefreshResult> {
-  const userId = await requireUserId();
+async function refreshMarketPricesForUser(userId: string): Promise<MarketRefreshResult> {
   const portfolio = await ensurePortfolio(userId);
   const holdings = await prisma.assetHolding.findMany({
     where: {
@@ -957,7 +1082,7 @@ export async function refreshMarketPricesAction(): Promise<MarketRefreshResult> 
           },
         });
       }
-      await tx.portfolio.update({ where: { id: portfolio.id }, data: { version: { increment: 1 } } });
+      await bumpPortfolioAndInvalidateDrafts(tx, portfolio.id, userId);
     });
   }
 
@@ -1004,16 +1129,20 @@ export async function refreshMarketPricesAction(): Promise<MarketRefreshResult> 
   };
 }
 
-/**
- * Kept temporarily for callers outside the portfolio UI. New code should use
- * refreshMarketPricesAction so B3 and international quotes refresh together.
- */
-export async function refreshBrapiMarketPricesAction() {
-  const result = await refreshMarketPricesAction();
-  return {
-    updated: result.brapi.updated,
-    missing: result.brapi.missing,
-  };
+export async function refreshMarketPricesAction(): Promise<MarketRefreshResult> {
+  const userId = await requireUserId();
+  await assertUserOperationRateLimit({
+    userId,
+    operation: "market-refresh",
+    limit: 6,
+    windowMs: 10 * 60_000,
+  });
+  return withUserOperationLease({
+    userId,
+    operation: "market-refresh",
+    leaseMs: 2 * 60_000,
+    action: () => refreshMarketPricesForUser(userId),
+  });
 }
 
 export async function saveInvestmentTargetsAction(values: Record<InvestmentClassKey, number>) {
@@ -1021,15 +1150,17 @@ export async function saveInvestmentTargetsAction(values: Record<InvestmentClass
   const parsed = z.record(investmentClassSchema, z.number().min(0).max(100)).parse(values);
   const total = INVESTMENT_CLASSES.reduce((sum, key) => sum + (parsed[key] ?? 0), 0);
   if (Math.abs(total - 100) > 0.001) throw new Error("As metas precisam totalizar 100%.");
-  await prisma.$transaction(
-    INVESTMENT_CLASSES.map((investmentClass) =>
-      prisma.investmentTarget.upsert({
+  const portfolio = await ensurePortfolio(userId);
+  await prisma.$transaction(async (tx) => {
+    for (const investmentClass of INVESTMENT_CLASSES) {
+      await tx.investmentTarget.upsert({
         where: { userId_investmentClass: { userId, investmentClass: investmentClass as InvestmentClass } },
         update: { percentage: parsed[investmentClass] ?? 0 },
         create: { userId, investmentClass: investmentClass as InvestmentClass, percentage: parsed[investmentClass] ?? 0 },
-      }),
-    ),
-  );
+      });
+    }
+    await bumpPortfolioAndInvalidateDrafts(tx, portfolio.id, userId);
+  });
   revalidatePath("/carteira");
 }
 
@@ -1135,6 +1266,16 @@ export async function executeContributionAction(
       });
       if (externalSuggestion) {
         if (selected.length !== 1) throw new Error("Planeje aportes de posições Pluggy individualmente.");
+        const existingAwaiting = await tx.contributionSuggestion.count({
+          where: {
+            assetId: externalSuggestion.assetId,
+            executionStatus: "AWAITING_SYNC",
+            id: { not: externalSuggestion.id },
+          },
+        });
+        if (existingAwaiting) {
+          throw new Error("Este ativo já possui um aporte aguardando confirmação da Pluggy.");
+        }
         const quantity = parsedQuantity === undefined
           ? externalSuggestion.quantity
           : new Prisma.Decimal(parsedQuantity.toString());
@@ -1145,7 +1286,11 @@ export async function executeContributionAction(
           ? externalSuggestion.value
           : externalSuggestion.asset.instrumentType === "FIXED_INCOME"
             ? quantity
-            : quantity.mul(marketHolding?.unitPrice ?? 0);
+            : quantity.mul(
+                marketHolding
+                  ? new Prisma.Decimal(holdingUnitPriceBrl(marketHolding).toString())
+                  : 0,
+              );
         const baselineQuantity = externalSuggestion.asset.holdings
           .filter((holding) => holding.positionSource === "PLUGGY" && holding.includedInTotals)
           .reduce((total, holding) => total.add(holding.quantity), new Prisma.Decimal(0));
@@ -1223,10 +1368,13 @@ export async function executeContributionAction(
             },
           });
         } else {
-          const holding = suggestion.asset.holdings[0];
+          const holding = suggestion.asset.holdings.find((candidate) =>
+            candidate.includedInTotals && candidate.positionSource === "MANUAL",
+          ) ?? suggestion.asset.holdings.find((candidate) => candidate.includedInTotals);
           if (!holding) throw new Error("A posição de mercado não foi encontrada.");
           quantity = parsedQuantity === undefined ? suggestion.quantity : new Prisma.Decimal(parsedQuantity.toString());
-          value = parsedQuantity === undefined ? suggestion.value : quantity.mul(holding.unitPrice);
+          const unitPriceBrl = new Prisma.Decimal(holdingUnitPriceBrl(holding).toString());
+          value = parsedQuantity === undefined ? suggestion.value : quantity.mul(unitPriceBrl);
           await tx.assetHolding.update({
             where: { id: holding.id },
             data: {
@@ -1255,6 +1403,9 @@ export async function executeContributionAction(
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034") {
       throw new Error("A carteira foi atualizada ao mesmo tempo. Recarregue e tente novamente.");
     }
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      throw new Error("Este ativo já possui um aporte aguardando confirmação da Pluggy.");
+    }
     throw error;
   }
   revalidatePath("/carteira");
@@ -1268,6 +1419,54 @@ export async function executeContributionAction(
   })) };
 }
 
+async function recomputeScoresForQuestionType(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  type: DiagramType,
+) {
+  const portfolio = await tx.portfolio.findUnique({
+    where: { userId },
+    select: { id: true },
+  });
+  if (!portfolio) return;
+  const assets = await tx.asset.findMany({
+    where: {
+      portfolioId: portfolio.id,
+      instrumentType: {
+        in: type === "CERRADO"
+          ? ["STOCK"]
+          : ["REAL_ESTATE_FUND", "REIT"],
+      },
+      investmentClass: {
+        in: type === "CERRADO"
+          ? ["BRAZILIAN_STOCKS", "INTERNATIONAL_STOCKS"]
+          : ["REAL_ESTATE_FUNDS", "REITS"],
+      },
+    },
+    select: {
+      id: true,
+      answers: {
+        where: {
+          question: {
+            userId,
+            type,
+            active: true,
+          },
+        },
+        select: { answer: true },
+      },
+    },
+  });
+  for (const asset of assets) {
+    const score = asset.answers.reduce(
+      (total, answer) => total + (answer.answer ? 1 : -1),
+      0,
+    );
+    await tx.asset.update({ where: { id: asset.id }, data: { score } });
+  }
+  await bumpPortfolioAndInvalidateDrafts(tx, portfolio.id, userId);
+}
+
 export async function createQuestionAction(input: { type: DiagramType; criterion: string; text: string }) {
   const userId = await requireUserId();
   const parsed = z.object({
@@ -1275,15 +1474,30 @@ export async function createQuestionAction(input: { type: DiagramType; criterion
     criterion: z.string().trim().min(2).max(80).transform((value) => value.toUpperCase()),
     text: z.string().trim().min(5).max(240),
   }).parse(input);
-  const sortOrder = await prisma.diagramQuestion.count({ where: { userId, type: parsed.type } });
-  await prisma.diagramQuestion.create({ data: { userId, type: parsed.type, criterion: parsed.criterion, text: parsed.text, sortOrder } });
+  await prisma.$transaction(async (tx) => {
+    const sortOrder = await tx.diagramQuestion.count({ where: { userId, type: parsed.type } });
+    await tx.diagramQuestion.create({
+      data: {
+        userId,
+        type: parsed.type,
+        criterion: parsed.criterion,
+        text: parsed.text,
+        sortOrder,
+      },
+    });
+    await recomputeScoresForQuestionType(tx, userId, parsed.type);
+  });
   revalidatePath("/carteira");
 }
 
 export async function deleteQuestionAction(questionId: string) {
   const userId = await requireUserId();
-  const result = await prisma.diagramQuestion.deleteMany({ where: { id: questionId, userId } });
-  if (!result.count) throw new Error("Pergunta não encontrada.");
+  await prisma.$transaction(async (tx) => {
+    const question = await tx.diagramQuestion.findFirst({ where: { id: questionId, userId } });
+    if (!question) throw new Error("Pergunta não encontrada.");
+    await tx.diagramQuestion.delete({ where: { id: question.id } });
+    await recomputeScoresForQuestionType(tx, userId, question.type);
+  });
   revalidatePath("/carteira");
 }
 
@@ -1294,8 +1508,14 @@ export async function updateQuestionAction(questionId: string, input: { criterio
     text: z.string().trim().min(5).max(240).optional(),
     active: z.boolean().optional(),
   }).refine((value) => value.criterion !== undefined || value.text !== undefined || value.active !== undefined).parse(input);
-  const result = await prisma.diagramQuestion.updateMany({ where: { id: questionId, userId }, data: parsed });
-  if (!result.count) throw new Error("Pergunta não encontrada.");
+  await prisma.$transaction(async (tx) => {
+    const question = await tx.diagramQuestion.findFirst({ where: { id: questionId, userId } });
+    if (!question) throw new Error("Pergunta não encontrada.");
+    await tx.diagramQuestion.update({ where: { id: question.id }, data: parsed });
+    if (questionChangeAffectsAllocation(question.active, parsed)) {
+      await recomputeScoresForQuestionType(tx, userId, question.type);
+    }
+  });
   revalidatePath("/carteira");
 }
 
@@ -1332,20 +1552,7 @@ async function replaceQuestionsWithModel(userId: string, type: DiagramType) {
         sortOrder,
       })),
     });
-    const portfolio = await tx.portfolio.findUnique({ where: { userId }, select: { id: true } });
-    if (portfolio) {
-      await tx.asset.updateMany({
-        where: {
-          portfolioId: portfolio.id,
-          investmentClass: {
-            in: type === "CERRADO"
-              ? ["BRAZILIAN_STOCKS", "INTERNATIONAL_STOCKS"]
-              : ["REAL_ESTATE_FUNDS", "REITS"],
-          },
-        },
-        data: { score: 0 },
-      });
-    }
+    await recomputeScoresForQuestionType(tx, userId, type);
   });
   revalidatePath("/carteira");
 }
@@ -1380,6 +1587,7 @@ export async function saveAssetAnswersAction(assetId: string, answers: Record<st
       });
     }
     await tx.asset.update({ where: { id: asset.id }, data: { score } });
+    await bumpPortfolioAndInvalidateDrafts(tx, asset.portfolioId, userId);
   });
   revalidatePath("/carteira");
 }

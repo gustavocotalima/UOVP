@@ -6,7 +6,23 @@ import { BalanceSheetPanel } from "./balance-sheet-panel";
 import { FirstMillionPanel } from "./first-million-panel";
 import type { BalanceCategoryKey } from "./constants";
 
+const toolOptions = [
+  { value: "first", label: "Primeiro milhão", tabId: "tools-tab-first", panelId: "tools-panel-first" },
+  { value: "balance", label: "Ativos vs Passivos", tabId: "tools-tab-balance", panelId: "tools-panel-balance" },
+] as const;
+
 export function ToolsClient({ entries }: { entries: { id: string; category: BalanceCategoryKey; name: string; value: string }[] }) {
   const [section, setSection] = useState<"first" | "balance">("first");
-  return <div className="space-y-6"><SegmentedTabs value={section} onValueChange={setSection} ariaLabel="Ferramentas" options={[{ value: "first", label: "Primeiro milhão" }, { value: "balance", label: "Ativos vs Passivos" }]} />{section === "first" ? <FirstMillionPanel /> : <BalanceSheetPanel entries={entries} />}</div>;
+  return (
+    <div className="space-y-6">
+      <SegmentedTabs value={section} onValueChange={setSection} ariaLabel="Ferramentas" options={toolOptions} />
+      <section
+        id={section === "first" ? "tools-panel-first" : "tools-panel-balance"}
+        role="tabpanel"
+        aria-labelledby={section === "first" ? "tools-tab-first" : "tools-tab-balance"}
+      >
+        {section === "first" ? <FirstMillionPanel /> : <BalanceSheetPanel entries={entries} />}
+      </section>
+    </div>
+  );
 }

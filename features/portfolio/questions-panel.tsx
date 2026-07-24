@@ -15,11 +15,16 @@ import {
   updateQuestionAction,
   useQuestionModelAction as applyQuestionModelAction,
 } from "./actions";
+import { notifyPortfolioSimulationInvalidated } from "./client-events";
 import type { DiagramQuestionDto } from "./types";
 
 type DiagramType = "CERRADO" | "REAL_ESTATE";
 type QuestionForm = { id?: string; criterion: string; text: string };
 type ModelConfirmation = "restore" | "model";
+const diagramTypeOptions = [
+  { value: "CERRADO", label: "Diagrama do cerrado", tabId: "questions-tab-cerrado", panelId: "questions-panel-cerrado" },
+  { value: "REAL_ESTATE", label: "Investimentos imobiliários", tabId: "questions-tab-real-estate", panelId: "questions-panel-real-estate" },
+] as const;
 
 export function QuestionsPanel({ questions }: { questions: DiagramQuestionDto[] }) {
   const [type, setType] = useState<DiagramType>("CERRADO");
@@ -41,6 +46,7 @@ export function QuestionsPanel({ questions }: { questions: DiagramQuestionDto[] 
       try {
         if (form.id) await updateQuestionAction(form.id, { criterion: form.criterion, text: form.text });
         else await createQuestionAction({ type, criterion: form.criterion, text: form.text });
+        notifyPortfolioSimulationInvalidated();
         setForm(undefined);
         setMessage(form.id ? "Pergunta atualizada." : "Pergunta adicionada.");
       } catch (error) {
@@ -54,6 +60,7 @@ export function QuestionsPanel({ questions }: { questions: DiagramQuestionDto[] 
     startTransition(async () => {
       try {
         await deleteQuestionAction(form.id!);
+        notifyPortfolioSimulationInvalidated();
         setDeleteConfirmation(false);
         setForm(undefined);
         setMessage("Pergunta excluída.");
@@ -69,6 +76,7 @@ export function QuestionsPanel({ questions }: { questions: DiagramQuestionDto[] 
       try {
         if (modelConfirmation === "restore") await resetQuestionsAction(type);
         else await applyQuestionModelAction(type);
+        notifyPortfolioSimulationInvalidated();
         setModelConfirmation(undefined);
         setMessage("Modelo de perguntas aplicado.");
       } catch (error) {
@@ -96,10 +104,14 @@ export function QuestionsPanel({ questions }: { questions: DiagramQuestionDto[] 
             <Search className="pointer-events-none absolute left-3 top-3.5 size-4 text-[var(--muted-foreground)]" />
             <Input className="pl-9" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Pesquisar" />
           </label>
-          <SegmentedTabs value={type} onValueChange={setType} ariaLabel="Tipo de diagrama" options={[{ value: "CERRADO", label: "Diagrama do cerrado" }, { value: "REAL_ESTATE", label: "Investimentos imobiliários" }]} />
+          <SegmentedTabs value={type} onValueChange={setType} ariaLabel="Tipo de diagrama" options={diagramTypeOptions} />
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent
+        id={type === "CERRADO" ? "questions-panel-cerrado" : "questions-panel-real-estate"}
+        role="tabpanel"
+        aria-labelledby={type === "CERRADO" ? "questions-tab-cerrado" : "questions-tab-real-estate"}
+      >
         {message && <p role="status" className="mb-4 rounded-xl bg-[var(--muted)] p-3 text-sm">{message}</p>}
         <div className="mb-4 flex items-center justify-between">
           <h3 className="font-semibold">Perguntas</h3>
@@ -126,6 +138,7 @@ export function QuestionsPanel({ questions }: { questions: DiagramQuestionDto[] 
         <Dialog
           open={Boolean(form)}
           onOpenChange={(open) => !open && setForm(undefined)}
+          dismissible={!pending}
           title={form?.id ? "Editar pergunta" : "Adicionar pergunta"}
           className="max-w-2xl"
           footer={form && (

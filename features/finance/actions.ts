@@ -158,6 +158,7 @@ export async function deleteFinanceTagAction(id: string) {
 export async function saveFinancialAccountAction(input: {
   id?: string;
   type: "BANK_ACCOUNT" | "CREDIT_CARD";
+  subtype?: string;
   name: string;
   institutionName?: string;
   accountNumber?: string;
@@ -175,6 +176,7 @@ export async function saveFinancialAccountAction(input: {
     .object({
       id: idSchema.optional(),
       type: accountTypeSchema,
+      subtype: z.string().trim().max(48).optional(),
       name: z.string().trim().min(2).max(120),
       institutionName: z.string().trim().max(120).optional(),
       accountNumber: z.string().trim().max(64).optional(),
@@ -190,6 +192,7 @@ export async function saveFinancialAccountAction(input: {
     .parse(input);
   const data = {
     type: parsed.type as FinancialAccountType,
+    subtype: parsed.subtype || null,
     name: parsed.name,
     institutionName: parsed.institutionName || null,
     accountNumber: parsed.accountNumber || null,

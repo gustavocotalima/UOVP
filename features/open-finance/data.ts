@@ -1,6 +1,21 @@
 import { prisma } from "@/lib/prisma";
 import { resolvePluggyInstitutionLogo } from "./institution-logo";
 
+type CurrencyAmount = {
+  amount: string | number;
+  currencyCode: string | null | undefined;
+};
+
+export function sumAmountsByCurrency(values: CurrencyAmount[]) {
+  return values.reduce<Record<string, number>>((totals, value) => {
+    const amount = Number(value.amount);
+    if (!Number.isFinite(amount)) return totals;
+    const currency = value.currencyCode?.trim().toUpperCase() || "BRL";
+    totals[currency] = (totals[currency] ?? 0) + amount;
+    return totals;
+  }, {});
+}
+
 export async function getOpenFinanceData(userId: string) {
   const [items, preference, financialAccounts] = await Promise.all([
     prisma.pluggyItem.findMany({
@@ -32,6 +47,7 @@ export async function getOpenFinanceData(userId: string) {
         showSoldInvestments: true,
         pluggyClientIdCiphertext: true,
         pluggyClientSecretCiphertext: true,
+        pluggyWebhookSecretCiphertext: true,
       },
     }),
     prisma.financialAccount.findMany({
@@ -42,6 +58,7 @@ export async function getOpenFinanceData(userId: string) {
         active: true,
       },
       select: {
+        externalId: true,
         providerItemId: true,
         bankCode: true,
       },
@@ -49,6 +66,9 @@ export async function getOpenFinanceData(userId: string) {
   ]);
 
   const bankCodesByItem = new Map<string, Array<string | null>>();
+  const activePluggyAccountIds = new Set(
+    financialAccounts.flatMap((account) => account.externalId ? [account.externalId] : []),
+  );
   for (const account of financialAccounts) {
     if (!account.providerItemId) continue;
     const bankCodes = bankCodesByItem.get(account.providerItemId) ?? [];
@@ -60,9 +80,10 @@ export async function getOpenFinanceData(userId: string) {
       item.connectorImageUrl,
       bankCodesByItem.get(item.pluggyItemId) ?? [],
     );
+  const connectedItems = items.filter((item) => item.status !== "DELETED");
 
-  const accounts = items.flatMap((item) =>
-    item.accounts.map((account) => ({
+  const accounts = connectedItems.flatMap((item) =>
+    item.accounts.filter((account) => activePluggyAccountIds.has(account.pluggyAccountId)).map((account) => ({
       id: account.id,
       pluggyAccountId: account.pluggyAccountId,
       itemId: item.pluggyItemId,
@@ -78,9 +99,9 @@ export async function getOpenFinanceData(userId: string) {
     })),
   );
 
-  const transactions = items
+  const transactions = connectedItems
     .flatMap((item) =>
-      item.accounts.flatMap((account) =>
+      item.accounts.filter((account) => activePluggyAccountIds.has(account.pluggyAccountId)).flatMap((account) =>
         account.transactions.map((transaction) => ({
           id: transaction.id,
           institution: item.institutionName || item.connectorName,
@@ -159,12 +180,28 @@ export async function getOpenFinanceData(userId: string) {
       })),
     })),
   );
+  const cashByCurrency = sumAmountsByCurrency(
+    accounts
+      .filter((account) => account.type !== "CREDIT")
+      .map((account) => ({ amount: account.balance, currencyCode: account.currencyCode })),
+  );
+  const creditByCurrency = sumAmountsByCurrency(
+    accounts
+      .filter((account) => account.type === "CREDIT")
+      .map((account) => ({ amount: account.balance, currencyCode: account.currencyCode })),
+  );
+  const investmentsByCurrency = sumAmountsByCurrency(
+    investments
+      .filter((investment) => investment.status === "ACTIVE" && investment.providerAvailable)
+      .map((investment) => ({ amount: investment.balance, currencyCode: investment.currencyCode })),
+  );
 
   return {
     configured: Boolean(
       preference?.pluggyClientIdCiphertext &&
         preference.pluggyClientSecretCiphertext,
     ),
+    webhookConfigured: Boolean(preference?.pluggyWebhookSecretCiphertext),
     items: items.map((item) => ({
       id: item.id,
       pluggyItemId: item.pluggyItemId,
@@ -182,6 +219,15 @@ export async function getOpenFinanceData(userId: string) {
       accountCount: item.accounts.length,
       investmentCount: item.investments.length,
     })),
+    pendingDisconnections: items
+      .filter((item) => item.status === "DELETED" && item.disconnectionResolution === "PENDING")
+      .map((item) => ({
+        id: item.id,
+        connectorName: item.institutionName || item.connectorName,
+        connectorImageUrl: itemLogo(item),
+        disconnectedAt: item.disconnectedAt?.toISOString() ?? item.updatedAt.toISOString(),
+        investmentCount: item.investments.filter((investment) => investment.status === "ACTIVE").length,
+      })),
     accounts,
     transactions,
     investments,
@@ -190,15 +236,14 @@ export async function getOpenFinanceData(userId: string) {
       investment.status === "TOTAL_WITHDRAWAL",
     ).length,
     totals: {
-      cash: accounts
-        .filter((account) => account.type !== "CREDIT")
-        .reduce((total, account) => total + Number(account.balance), 0),
-      credit: accounts
-        .filter((account) => account.type === "CREDIT")
-        .reduce((total, account) => total + Number(account.balance), 0),
-      investments: investments
-        .filter((investment) => investment.status === "ACTIVE" && investment.providerAvailable)
-        .reduce((total, investment) => total + Number(investment.balance), 0),
+      cash: cashByCurrency.BRL ?? 0,
+      credit: creditByCurrency.BRL ?? 0,
+      investments: investmentsByCurrency.BRL ?? 0,
+    },
+    totalsByCurrency: {
+      cash: cashByCurrency,
+      credit: creditByCurrency,
+      investments: investmentsByCurrency,
     },
   };
 }

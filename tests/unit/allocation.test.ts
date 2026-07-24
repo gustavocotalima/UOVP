@@ -1,8 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { allocateContribution } from "@/features/portfolio/allocation";
+import {
+  allocateContribution,
+  questionChangeAffectsAllocation,
+} from "@/features/portfolio/allocation";
 import { DEFAULT_TARGETS } from "@/features/portfolio/constants";
 
 describe("alocação de aportes", () => {
+  it("não invalida notas por edição textual da pergunta", () => {
+    expect(questionChangeAffectsAllocation(true, {})).toBe(false);
+    expect(questionChangeAffectsAllocation(true, { active: true })).toBe(false);
+    expect(questionChangeAffectsAllocation(true, { active: false })).toBe(true);
+  });
+
   it("ignora classes acima da meta e ativos com nota zero", () => {
     const result = allocateContribution({
       contribution: 1000,

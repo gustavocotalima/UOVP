@@ -153,6 +153,26 @@ describe("integração brapi", () => {
     expect(normalizeBrapiSymbol("wege3.sa")).toBe("WEGE3");
   });
 
+  it("descarta cotação zero para preservar o último preço válido da carteira", async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({
+      results: [{
+        requestedSymbol: "ZERO3",
+        symbol: "ZERO3",
+        data: {
+          longName: "Cotação indisponível",
+          currency: "BRL",
+          regularMarketPrice: 0,
+        },
+      }],
+    }), { status: 200, headers: { "Content-Type": "application/json" } })) as unknown as typeof fetch;
+
+    await expect(fetchBrapiQuotes({
+      apiKey: "token-individual",
+      tickers: ["ZERO3"],
+      fetcher,
+    })).resolves.toEqual([]);
+  });
+
   it("traduz falhas de autenticação sem vazar a chave", async () => {
     const fetcher = vi.fn(async () => new Response(JSON.stringify({
       error: true,

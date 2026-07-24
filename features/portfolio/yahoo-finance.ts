@@ -36,6 +36,7 @@ export type YahooFxRate = {
 };
 
 const yahooFinance = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
+const YAHOO_TIMEOUT_MS = 15_000;
 
 type YahooSearchCandidate = {
   isYahooFinance?: boolean;
@@ -106,6 +107,22 @@ export class YahooFinanceApiError extends Error {
   }
 }
 
+async function withYahooTimeout<T>(operation: Promise<T>) {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => {
+          reject(new YahooFinanceApiError("O Yahoo Finance demorou demais para responder. Tente novamente."));
+        }, YAHOO_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
 function text(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -171,6 +188,7 @@ export function classifyYahooReitMetadata({
 }
 
 function yahooError(error: unknown) {
+  if (error instanceof YahooFinanceApiError) return error;
   const message = error instanceof Error ? error.message : "";
   if (/\b429\b|too many|rate.?limit/i.test(message)) {
     return new YahooFinanceApiError("O limite temporário do Yahoo Finance foi atingido. Tente novamente em alguns minutos.", error);
@@ -192,7 +210,7 @@ export async function searchYahooTickers({
 }): Promise<YahooTickerSearchResult[]> {
   let result: Awaited<ReturnType<YahooClient["search"]>>;
   try {
-    result = await client.search(query.trim(), { quotesCount: 20, newsCount: 0 });
+    result = await withYahooTimeout(client.search(query.trim(), { quotesCount: 20, newsCount: 0 }));
   } catch (error) {
     throw yahooError(error);
   }
@@ -249,7 +267,9 @@ export async function fetchYahooAssetProfile({
   client?: YahooClient;
 }) {
   try {
-    const result = await client.quoteSummary(normalizeYahooSymbol(symbol), { modules: ["assetProfile"] });
+    const result = await withYahooTimeout(
+      client.quoteSummary(normalizeYahooSymbol(symbol), { modules: ["assetProfile"] }),
+    );
     return {
       sector: result.assetProfile?.sector ?? result.assetProfile?.sectorDisp ?? null,
       industry: result.assetProfile?.industry ?? result.assetProfile?.industryDisp ?? null,
@@ -271,10 +291,12 @@ export async function fetchYahooQuotes({
 
   let result: Awaited<ReturnType<YahooClient["quote"]>>;
   try {
-    result = await client.quote(requestedSymbols, {
-      return: "object",
-      fields: [...YAHOO_QUOTE_FIELDS],
-    });
+    result = await withYahooTimeout(
+      client.quote(requestedSymbols, {
+        return: "object",
+        fields: [...YAHOO_QUOTE_FIELDS],
+      }),
+    );
   } catch (error) {
     throw yahooError(error);
   }

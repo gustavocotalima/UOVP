@@ -17,7 +17,3 @@ export const BUDGET_CATEGORY_META: Record<BudgetCategoryKey, { label: string; co
   FINANCIAL_FREEDOM: { label: "Liberdade financeira", color: "#59a14f", defaultPercentage: 25 },
   KNOWLEDGE: { label: "Conhecimento", color: "#4f86f7", defaultPercentage: 5 },
 };
-
-export const DEFAULT_BUDGET_TARGETS = Object.fromEntries(
-  BUDGET_CATEGORIES.map((category) => [category, BUDGET_CATEGORY_META[category].defaultPercentage]),
-) as Record<BudgetCategoryKey, number>;

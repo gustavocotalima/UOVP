@@ -1,6 +1,11 @@
 packages:
   - "."
 
+overrides:
+  "sharp@<0.35.0": "0.35.0"
+  "postcss@<8.5.12": "8.5.12"
+  "@hono/node-server@<2.0.5": "2.0.5"
+
 onlyBuiltDependencies:
   - "@prisma/engines"
   - "cypress"

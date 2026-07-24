@@ -1,5 +1,9 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import {
+  type UserOperationLeaseContext,
+  withUserOperationLease,
+} from "@/lib/operation-security";
 import { resolveFinancialReference } from "@/features/finance/calculations";
 import { resolvePluggyTransactionAmounts } from "@/features/open-finance/transaction-amount";
 import {
@@ -24,10 +28,18 @@ import {
   requirePluggyCredentials,
   type PluggyCredentials,
 } from "./pluggy-credentials";
+import { markPluggyItemDisconnected } from "./disconnection";
 import { resolvePluggyInstitutionLogo } from "./institution-logo";
 
 const WRITE_BATCH_SIZE = 100;
 const INVESTMENT_SYNC_CONCURRENCY = 6;
+
+class RemotePluggyItemDeletedError extends Error {
+  constructor(readonly pluggyItemId: string) {
+    super("A conexão foi removida na Pluggy.");
+    this.name = "RemotePluggyItemDeletedError";
+  }
+}
 
 function asDate(value?: string | null) {
   if (!value) return null;
@@ -427,7 +439,9 @@ async function syncInvestments(
 }
 
 async function ensureOwnedItem(userId: string, pluggyItemId: string) {
-  const item = await prisma.pluggyItem.findFirst({ where: { userId, pluggyItemId } });
+  const item = await prisma.pluggyItem.findFirst({
+    where: { userId, pluggyItemId, status: { not: "DELETED" } },
+  });
   if (!item) throw new Error("Conexão Pluggy não encontrada para este usuário.");
   return item;
 }
@@ -438,9 +452,15 @@ export async function registerPluggyItemForUser(userId: string, pluggyItemId: st
   const existing = await prisma.pluggyItem.findUnique({ where: { pluggyItemId } });
   if (existing && existing.userId !== userId) throw new Error("Esta conexão já pertence a outro usuário.");
   if (!existing && remote.clientUserId !== userId) throw new Error("A conexão não foi criada para este usuário.");
+  const reconnectionData = remote.status === "DELETED"
+    ? {}
+    : { disconnectedAt: null, disconnectionResolution: null };
   return prisma.pluggyItem.upsert({
     where: { pluggyItemId },
-    update: itemData(remote, userId),
+    update: {
+      ...itemData(remote, userId),
+      ...reconnectionData,
+    },
     create: { pluggyItemId, ...itemData(remote, userId) },
   });
 }
@@ -450,18 +470,31 @@ export async function bootstrapLegacyPluggyItem(userId: string, pluggyItemId: st
   const remote = await getPluggyItem(credentials, pluggyItemId);
   const existing = await prisma.pluggyItem.findUnique({ where: { pluggyItemId } });
   if (existing && existing.userId !== userId) throw new Error("Esta conexão já pertence a outro usuário.");
+  const reconnectionData = remote.status === "DELETED"
+    ? {}
+    : { disconnectedAt: null, disconnectionResolution: null };
   return prisma.pluggyItem.upsert({
     where: { pluggyItemId },
-    update: itemData(remote, userId),
+    update: {
+      ...itemData(remote, userId),
+      ...reconnectionData,
+    },
     create: { pluggyItemId, ...itemData(remote, userId) },
   });
 }
 
-export async function syncPluggyItemForUser(userId: string, pluggyItemId: string) {
+async function syncPluggyItemForUserUnlocked(
+  userId: string,
+  pluggyItemId: string,
+  lease: UserOperationLeaseContext,
+) {
   const stored = await ensureOwnedItem(userId, pluggyItemId);
   try {
     const credentials = await requirePluggyCredentials(userId);
     const remote = await getPluggyItem(credentials, pluggyItemId);
+    if (remote.status === "DELETED") {
+      throw new RemotePluggyItemDeletedError(pluggyItemId);
+    }
     const [accounts, investments] = await Promise.all([
       getPluggyAccounts(credentials, pluggyItemId),
       getPluggyInvestments(credentials, pluggyItemId),
@@ -524,6 +557,7 @@ export async function syncPluggyItemForUser(userId: string, pluggyItemId: string
     }
 
     const investmentTransactionCount = await syncInvestments(credentials, stored.id, investments);
+    await lease.assertOwned();
     await prisma.$transaction([
       prisma.financialAccount.updateMany({
         where: {
@@ -552,12 +586,8 @@ export async function syncPluggyItemForUser(userId: string, pluggyItemId: string
       }),
     ]);
 
-    let diagram = { mapped: 0, review: 0, changed: false };
-    try {
-      diagram = await reconcilePluggyInvestmentsForUser(userId);
-    } catch (error) {
-      console.error("Pluggy diagram reconciliation failed", error);
-    }
+    await lease.assertOwned();
+    const diagram = await reconcilePluggyInvestmentsForUser(userId);
 
     return {
       accountCount: accounts.length,
@@ -568,6 +598,7 @@ export async function syncPluggyItemForUser(userId: string, pluggyItemId: string
       classification,
     };
   } catch (error) {
+    if (error instanceof RemotePluggyItemDeletedError) throw error;
     await prisma.pluggyItem.update({
       where: { id: stored.id },
       data: {
@@ -579,8 +610,33 @@ export async function syncPluggyItemForUser(userId: string, pluggyItemId: string
   }
 }
 
+export async function syncPluggyItemForUser(userId: string, pluggyItemId: string) {
+  try {
+    return await withUserOperationLease({
+      userId,
+      operation: "pluggy-sync",
+      leaseMs: 10 * 60_000,
+      action: (lease) => syncPluggyItemForUserUnlocked(userId, pluggyItemId, lease),
+    });
+  } catch (error) {
+    if (!(error instanceof RemotePluggyItemDeletedError)) throw error;
+    await markPluggyItemDisconnected(error.pluggyItemId);
+    return {
+      accountCount: 0,
+      transactionCount: 0,
+      investmentCount: 0,
+      investmentTransactionCount: 0,
+      diagram: { mapped: 0, review: 0, changed: true },
+      classification: emptyClassificationSummary(),
+    };
+  }
+}
+
 export async function syncAllPluggyItemsForUser(userId: string) {
-  const items = await prisma.pluggyItem.findMany({ where: { userId }, select: { pluggyItemId: true } });
+  const items = await prisma.pluggyItem.findMany({
+    where: { userId, status: { not: "DELETED" } },
+    select: { pluggyItemId: true },
+  });
   const totals = {
     itemCount: 0,
     accountCount: 0,
@@ -599,7 +655,7 @@ export async function syncAllPluggyItemsForUser(userId: string) {
     totals.investmentCount += result.investmentCount;
     totals.investmentTransactionCount += result.investmentTransactionCount;
     totals.diagramMappedCount += result.diagram.mapped;
-    totals.diagramReviewCount = result.diagram.review;
+    totals.diagramReviewCount += result.diagram.review;
     addClassificationSummary(totals.classification, result.classification);
   }
   return totals;

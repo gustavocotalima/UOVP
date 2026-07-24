@@ -3,6 +3,7 @@ describe("ferramentas", () => {
 
   it("reproduz o cálculo verificado do primeiro milhão", () => {
     cy.visit("/ferramentas");
+    cy.waitForHydration();
     cy.get("#annual-rate").type("{selectall}8");
     cy.get("#initial-value").type("{selectall}10000");
     cy.get("#desired-value").type("{selectall}1000000");

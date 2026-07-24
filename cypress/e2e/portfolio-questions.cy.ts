@@ -36,6 +36,7 @@ describe("perguntas padrão da carteira", () => {
   beforeEach(() => {
     cy.registerAndLogin();
     cy.visit("/carteira");
+    cy.waitForHydration();
     cy.contains("button", "Perguntas").click();
   });
 

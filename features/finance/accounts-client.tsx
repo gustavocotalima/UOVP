@@ -42,6 +42,7 @@ import type { FinanceData, FinancialAccountDto } from "./types";
 
 type AccountForm = {
   type: "BANK_ACCOUNT" | "CREDIT_CARD";
+  subtype: string;
   name: string;
   institutionName: string;
   accountNumber: string;
@@ -56,7 +57,21 @@ type AccountForm = {
 };
 
 function emptyForm(type: AccountForm["type"]): AccountForm {
-  return { type, name: "", institutionName: "", accountNumber: "", agency: "", numberLastFour: "", bankCode: "", brand: "", balance: "0", creditLimit: "", dueDay: "", closingDay: "" };
+  return {
+    type,
+    subtype: type === "BANK_ACCOUNT" ? "CHECKING_ACCOUNT" : "CREDIT_CARD",
+    name: "",
+    institutionName: "",
+    accountNumber: "",
+    agency: "",
+    numberLastFour: "",
+    bankCode: "",
+    brand: "",
+    balance: "0",
+    creditLimit: "",
+    dueDay: "",
+    closingDay: "",
+  };
 }
 
 export function AccountsClient({ data }: { data: FinanceData }) {
@@ -64,6 +79,8 @@ export function AccountsClient({ data }: { data: FinanceData }) {
   const totals = useMemo(() => calculateAccountTotals(data.accounts), [data.accounts]);
   const [view, setView] = useState<"cards" | "list">("cards");
   const [scriptReady, setScriptReady] = useState(false);
+  const [scriptFailed, setScriptFailed] = useState(false);
+  const [scriptKey, setScriptKey] = useState(0);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [newChoiceOpen, setNewChoiceOpen] = useState(false);
@@ -147,6 +164,7 @@ export function AccountsClient({ data }: { data: FinanceData }) {
     setEditing(account);
     setForm({
       type: account.type,
+      subtype: account.subtype ?? (account.type === "BANK_ACCOUNT" ? "CHECKING_ACCOUNT" : "CREDIT_CARD"),
       name: account.name,
       institutionName: account.institutionName ?? "",
       accountNumber: account.accountNumber ?? "",
@@ -168,6 +186,7 @@ export function AccountsClient({ data }: { data: FinanceData }) {
         saveFinancialAccountAction({
           id: editing?.id,
           type: form.type,
+          subtype: form.subtype,
           name: form.name,
           institutionName: form.institutionName,
           accountNumber: form.accountNumber,
@@ -225,8 +244,41 @@ export function AccountsClient({ data }: { data: FinanceData }) {
 
   return (
     <div className="space-y-6">
-      <Script src="https://cdn.pluggy.ai/pluggy-connect/v2.8.2/pluggy-connect.js" strategy="afterInteractive" onLoad={() => setScriptReady(true)} onReady={() => setScriptReady(true)} />
+      <Script
+        key={scriptKey}
+        src="https://cdn.pluggy.ai/pluggy-connect/v2.8.2/pluggy-connect.js"
+        strategy="afterInteractive"
+        onLoad={() => {
+          setScriptReady(true);
+          setScriptFailed(false);
+        }}
+        onReady={() => {
+          setScriptReady(true);
+          setScriptFailed(false);
+        }}
+        onError={() => {
+          setScriptReady(false);
+          setScriptFailed(true);
+        }}
+      />
       {notice && <FinanceNotice type={notice.type}>{notice.text}</FinanceNotice>}
+      {scriptFailed && (
+        <FinanceNotice type="error">
+          <span className="flex flex-wrap items-center gap-3">
+            O conector da Pluggy não foi carregado.
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setScriptFailed(false);
+                setScriptKey((current) => current + 1);
+              }}
+            >
+              Tentar novamente
+            </Button>
+          </span>
+        </FinanceNotice>
+      )}
       {!data.pluggy.configured && <FinanceNotice type="info">Configure sua aplicação Pluggy em Configurações para conectar e sincronizar instituições.</FinanceNotice>}
       {data.pluggy.pendingCount > 0 && <FinanceNotice type="info">{data.pluggy.pendingCount} conexão(ões) precisam de atenção ou nova autorização.</FinanceNotice>}
 
@@ -265,12 +317,12 @@ export function AccountsClient({ data }: { data: FinanceData }) {
         </div>
       </Dialog>
 
-      <Dialog open={formOpen} onOpenChange={setFormOpen} title={editing ? "Editar conta" : form.type === "BANK_ACCOUNT" ? "Adicionar conta bancária" : "Adicionar cartão"} footer={<Button onClick={saveAccount} disabled={busy || form.name.trim().length < 2}>{editing ? "Salvar alterações" : "Adicionar"}</Button>}>
+      <Dialog open={formOpen} onOpenChange={setFormOpen} dismissible={!busy} title={editing ? "Editar conta" : form.type === "BANK_ACCOUNT" ? "Adicionar conta bancária" : "Adicionar cartão"} footer={<Button onClick={saveAccount} disabled={busy || form.name.trim().length < 2}>{editing ? "Salvar alterações" : "Adicionar"}</Button>}>
         {editing?.source === "PLUGGY" && <div className="mb-5 rounded-xl bg-[var(--muted)] p-3 text-sm text-[var(--muted-foreground)]">Apenas o nome personalizado pode ser alterado. Saldos, limites e datas continuam sendo atualizados pela instituição.</div>}
         <AccountFormFields form={form} setForm={setForm} providerOwned={editing?.source === "PLUGGY"} />
       </Dialog>
 
-      <Dialog open={orderOpen} onOpenChange={setOrderOpen} title="Ordenar contas" description="Reorganize suas contas na ordem desejada." footer={<><Button variant="outline" onClick={() => setOrderOpen(false)}>Cancelar</Button><Button onClick={saveOrder} disabled={busy || !order.length}>Salvar</Button></>}>
+      <Dialog open={orderOpen} onOpenChange={setOrderOpen} dismissible={!busy} title="Ordenar contas" description="Reorganize suas contas na ordem desejada." footer={<><Button variant="outline" onClick={() => setOrderOpen(false)}>Cancelar</Button><Button onClick={saveOrder} disabled={busy || !order.length}>Salvar</Button></>}>
         <div className="grid grid-cols-2 rounded-xl bg-[var(--muted)] p-1">
           {(["BANK_ACCOUNT", "CREDIT_CARD"] as const).map((type) => <button key={type} type="button" onClick={() => openOrder(type)} className={cn("rounded-lg px-3 py-2 text-sm font-semibold", orderType === type && "bg-[var(--card)] shadow-sm")}>{type === "BANK_ACCOUNT" ? "Contas Bancárias" : "Cartões"}</button>)}
         </div>
@@ -427,7 +479,21 @@ function AccountFormFields({
         <>
           <Label>Agência<Input disabled={providerOwned} className="mt-2" value={form.agency} onChange={(event) => setForm({ ...form, agency: event.target.value })} /></Label>
           <Label>Número da conta<Input disabled={providerOwned} className="mt-2" value={form.accountNumber} onChange={(event) => setForm({ ...form, accountNumber: event.target.value })} /></Label>
-          <Label>Tipo<Select disabled={providerOwned} className="mt-2 w-full"><option>Conta corrente</option><option>Poupança</option><option>Conta de pagamento</option></Select></Label>
+          <Label>
+            Tipo
+            <Select
+              disabled={providerOwned}
+              className="mt-2 w-full"
+              value={form.subtype}
+              onChange={(event) => setForm({ ...form, subtype: event.target.value })}
+            >
+              <option value="CHECKING_ACCOUNT">Conta corrente</option>
+              <option value="SAVINGS_ACCOUNT">Poupança</option>
+              <option value="PAYMENT_ACCOUNT">Conta de pagamento</option>
+              <option value="INVESTMENT_ACCOUNT">Conta de investimento</option>
+              <option value="SALARY_ACCOUNT">Conta salário</option>
+            </Select>
+          </Label>
         </>
       ) : (
         <>

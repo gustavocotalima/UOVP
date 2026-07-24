@@ -52,6 +52,12 @@ enum PluggyDiagramMappingStatus {
   EXCLUDED
 }
 
+enum PluggyDisconnectionResolution {
+  PENDING
+  KEEP_MANUAL
+  REMOVE
+}
+
 enum SuggestionExecutionStatus {
   PENDING
   AWAITING_SYNC
@@ -161,6 +167,8 @@ model User {
   financeTags                FinanceTag[]
   financeClassificationRules FinanceClassificationRule[]
   pluggyDiagramLinks         PluggyInvestmentDiagramLink[]
+  pluggyWebhookEvents        PluggyWebhookEvent[]
+  operationLeases            UserOperationLease[]
 }
 
 model Account {
@@ -213,6 +221,9 @@ model UserPreference {
   pluggyClientIdLastFour       String?
   pluggyClientSecretCiphertext String?   @db.Text
   pluggyClientSecretLastFour   String?
+  pluggyWebhookSecretCiphertext String?  @db.Text
+  pluggyWebhookSecretLastFour  String?
+  pluggyWebhookSecretUpdatedAt DateTime?
   pluggyCredentialUpdatedAt    DateTime?
   showSoldInvestments          Boolean   @default(false)
   createdAt                    DateTime  @default(now())
@@ -626,6 +637,8 @@ model PluggyItem {
   providerUpdatedAt     DateTime?
   lastSyncAt            DateTime?
   syncPending           Boolean            @default(true)
+  disconnectedAt        DateTime?
+  disconnectionResolution PluggyDisconnectionResolution?
   createdAt             DateTime           @default(now())
   updatedAt             DateTime           @updatedAt
   user                  User               @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -634,6 +647,41 @@ model PluggyItem {
 
   @@index([userId, status])
   @@index([userId, syncPending])
+  @@index([userId, disconnectionResolution])
+}
+
+model PluggyWebhookEvent {
+  id                  String    @id @default(cuid())
+  userId              String
+  eventId             String
+  event               String
+  itemId              String?
+  processingStartedAt DateTime?
+  processedAt         DateTime?
+  attempts            Int       @default(0)
+  lastError           String?   @db.Text
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, eventId])
+  @@index([processedAt])
+  @@index([itemId])
+  @@index([userId, processedAt, createdAt])
+}
+
+model UserOperationLease {
+  id          String   @id @default(cuid())
+  userId      String
+  operation   String
+  lockedUntil DateTime
+  lastRunAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, operation])
+  @@index([lockedUntil])
 }
 
 model PluggyAccount {
@@ -848,6 +896,7 @@ model ContributionSuggestion {
   awaitingSyncAt                 DateTime?
   baselineQuantity               Decimal?                  @db.Decimal(30, 10)
   baselineValue                  Decimal?                  @db.Decimal(30, 2)
+  confirmationReference          String?                   @unique
   simulation                     ContributionSimulation    @relation(fields: [simulationId], references: [id], onDelete: Cascade)
   asset                          Asset                     @relation(fields: [assetId], references: [id], onDelete: Restrict)
 

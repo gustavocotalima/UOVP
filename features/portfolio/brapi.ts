@@ -195,7 +195,7 @@ export async function fetchBrapiQuotes({
 
   return parsed.data.results.flatMap<BrapiQuote>((result) => {
     const price = result.data.regularMarketPrice;
-    if (price == null || !Number.isFinite(price) || price < 0) return [];
+    if (price == null || !Number.isFinite(price) || price <= 0) return [];
     return [{
       requestedSymbol: normalizeBrapiSymbol(result.requestedSymbol),
       symbol: normalizeBrapiSymbol(result.symbol),

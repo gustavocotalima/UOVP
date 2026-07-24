@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { aggregateHoldingValue, applyManualFixedIncomeContribution, holdingCurrentValue, parentPortfolioPercentage } from "@/features/portfolio/asset-groups";
+import {
+  aggregateHoldingValue,
+  applyManualFixedIncomeContribution,
+  fixedIncomeHoldingFingerprint,
+  holdingCurrentValue,
+  parentPortfolioPercentage,
+} from "@/features/portfolio/asset-groups";
 import { allocateContribution } from "@/features/portfolio/allocation";
 
 const targets = {
@@ -89,9 +95,10 @@ describe("grupos de ativos", () => {
     }]).toNumber()).toBe(990);
   });
 
-  it("converte a cotação nativa do Yahoo para BRL e usa o saldo Pluggy como fallback", () => {
+  it("converte a cotação nativa do Yahoo para BRL e não trata saldo estrangeiro sem FX como BRL", () => {
     expect(holdingCurrentValue({
       pricingSource: "YAHOO",
+      currency: "USD",
       quantity: 2,
       unitPrice: 100,
       fxRateToBrl: 5.25,
@@ -100,14 +107,15 @@ describe("grupos de ativos", () => {
 
     expect(holdingCurrentValue({
       pricingSource: "YAHOO",
+      currency: "USD",
       quantity: 2,
       unitPrice: 100,
       fxRateToBrl: null,
       providerCurrentValue: 900,
-    }).toNumber()).toBe(900);
+    }).toNumber()).toBe(0);
   });
 
-  it("converte pares Binance em USDT para BRL e preserva o valor anterior sem câmbio", () => {
+  it("converte pares Binance em USDT para BRL e não mistura valor nativo sem câmbio", () => {
     expect(holdingCurrentValue({
       pricingSource: "BINANCE",
       currency: "USDT",
@@ -124,6 +132,36 @@ describe("grupos de ativos", () => {
       unitPrice: 0.5,
       fxRateToBrl: null,
       currentValue: 80,
-    }).toNumber()).toBe(80);
+    }).toNumber()).toBe(0);
+  });
+
+  it("converte saldos Pluggy não cotados quando há FX explícito", () => {
+    expect(holdingCurrentValue({
+      pricingSource: "PLUGGY",
+      currency: "USD",
+      quantity: 0,
+      unitPrice: 0,
+      fxRateToBrl: 5,
+      providerCurrentValue: 200,
+    }).toNumber()).toBe(1000);
+  });
+
+  it("gera fingerprint estável para reimportar a mesma aplicação de renda fixa", () => {
+    const original = fixedIncomeHoldingFingerprint({
+      catalogItemId: 12,
+      issuer: "Banco Ágil",
+      productName: "CDB Premium",
+      purchaseDate: new Date("2026-01-10T00:00:00.000Z"),
+      maturityDate: new Date("2028-01-10T00:00:00.000Z"),
+    });
+    const retried = fixedIncomeHoldingFingerprint({
+      catalogItemId: 12,
+      issuer: "  banco agil ",
+      productName: "cdb   premium",
+      purchaseDate: new Date("2026-01-10T00:00:00.000Z"),
+      maturityDate: new Date("2028-01-10T00:00:00.000Z"),
+    });
+
+    expect(retried).toBe(original);
   });
 });

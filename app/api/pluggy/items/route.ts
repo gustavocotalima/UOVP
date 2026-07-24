@@ -4,6 +4,11 @@ import { z } from "zod";
 import { registerPluggyItemForUser, syncPluggyItemForUser } from "@/features/open-finance/sync";
 import { getActiveUser } from "@/lib/current-user";
 import { isSameOriginRequest } from "@/lib/request-security";
+import {
+  assertUserOperationRateLimit,
+  OperationInProgressError,
+  OperationRateLimitError,
+} from "@/lib/operation-security";
 
 const inputSchema = z.object({ itemId: z.string().uuid() });
 
@@ -15,14 +20,30 @@ export async function POST(request: Request) {
   if (!input.success) return NextResponse.json({ error: "Conexão inválida." }, { status: 400 });
 
   try {
+    await assertUserOperationRateLimit({
+      userId: user.id,
+      operation: "pluggy-connect",
+      limit: 20,
+      windowMs: 60 * 60_000,
+    });
     await registerPluggyItemForUser(user.id, input.data.itemId);
     const result = await syncPluggyItemForUser(user.id, input.data.itemId);
     ["/open-finance", "/home", "/orcamento-domestico", "/contas", "/faturas", "/transacoes"].forEach((path) => revalidatePath(path));
     return NextResponse.json(result);
   } catch (error) {
+    const status = error instanceof OperationRateLimitError
+      ? 429
+      : error instanceof OperationInProgressError
+        ? 409
+        : 502;
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Não foi possível registrar a conexão." },
-      { status: 502 },
+      {
+        status,
+        headers: error instanceof OperationRateLimitError
+          ? { "Retry-After": String(error.retryAfterSeconds) }
+          : undefined,
+      },
     );
   }
 }

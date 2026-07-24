@@ -1,11 +1,12 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+import { requireSecureSecret } from "@/lib/security-config";
 
 const ALGORITHM = "aes-256-gcm";
 const ENVELOPE_VERSION = "v2";
 
 export type CredentialContext = {
   userId: string;
-  type: "brapi" | "pluggy-client-id" | "pluggy-client-secret";
+  type: "brapi" | "pluggy-client-id" | "pluggy-client-secret" | "pluggy-webhook-secret";
 };
 
 function associatedData(context: CredentialContext) {
@@ -36,10 +37,7 @@ function parseKeyring() {
 }
 
 function legacyEncryptionKey() {
-  const secret = process.env.AUTH_SECRET;
-  if (!secret || secret.length < 32 || secret.includes("replace-with")) {
-    throw new Error("A credencial antiga não pode ser migrada sem o AUTH_SECRET original.");
-  }
+  const secret = requireSecureSecret("AUTH_SECRET");
   return createHash("sha256").update(`aurum:user-credentials:${secret}`).digest();
 }
 

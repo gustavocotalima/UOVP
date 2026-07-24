@@ -183,7 +183,7 @@ export async function getFinanceData(userId: string, year: number, month: number
       },
     }),
     prisma.pluggyItem.findMany({
-      where: { userId },
+      where: { userId, status: { not: "DELETED" } },
       select: { syncPending: true, lastSyncAt: true },
     }),
     getPluggyCredentialStatus(userId),

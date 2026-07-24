@@ -39,6 +39,13 @@ type WorkingAsset = AllocationAsset & {
   suggested: Decimal;
 };
 
+export function questionChangeAffectsAllocation(
+  currentActive: boolean,
+  change: { active?: boolean },
+) {
+  return change.active !== undefined && change.active !== currentActive;
+}
+
 function sum(values: Decimal[]) {
   return values.reduce((total, value) => total.plus(value), new Decimal(0));
 }
