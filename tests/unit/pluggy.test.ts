@@ -100,7 +100,7 @@ describe("cliente Pluggy", () => {
     );
   });
 
-  it("gera Connect Token no backend com vínculo ao usuário e prevenção de duplicatas", async () => {
+  it("gera Connect Token no backend com vínculo ao usuário sem bloquear reconexões", async () => {
     const fetcher = vi.fn(async (input: string | URL | Request, _init?: RequestInit) => {
       void _init;
       if (String(input).endsWith("/auth")) return Response.json({ apiKey: "temporary-api-key" });
@@ -113,24 +113,7 @@ describe("cliente Pluggy", () => {
 
     const [, request] = fetcher.mock.calls[1];
     expect(JSON.parse(String(request?.body))).toEqual({
-      options: { clientUserId: "user-123", avoidDuplicates: true },
-    });
-  });
-
-  it("permite uma reconexão explícita quando a Pluggy omite o item duplicado", async () => {
-    const fetcher = vi.fn(async (input: string | URL | Request, _init?: RequestInit) => {
-      void _init;
-      if (String(input).endsWith("/auth")) return Response.json({ apiKey: "temporary-api-key" });
-      return Response.json({ accessToken: "connect-token" });
-    });
-    vi.stubGlobal("fetch", fetcher);
-
-    const { createPluggyConnectToken } = await import("@/features/open-finance/pluggy");
-    await createPluggyConnectToken(credentials, "user-123", undefined, false);
-
-    const [, request] = fetcher.mock.calls[1];
-    expect(JSON.parse(String(request?.body))).toEqual({
-      options: { clientUserId: "user-123", avoidDuplicates: false },
+      options: { clientUserId: "user-123" },
     });
   });
 

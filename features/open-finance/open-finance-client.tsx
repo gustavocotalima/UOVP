@@ -33,7 +33,7 @@ import {
   resolvePluggyItemDisconnectionAction,
   setShowSoldInvestmentsAction,
 } from "./diagram-actions";
-import { duplicatePluggyItemIds, pluggyConnectErrorMessage } from "./pluggy-connect-error";
+import { pluggyConnectErrorMessage } from "./pluggy-connect-error";
 
 type Tab = "connections" | "accounts" | "transactions" | "investments";
 type PluggySuccessPayload = { id?: string; item?: { id?: string } };
@@ -139,7 +139,6 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [disconnectionError, setDisconnectionError] = useState<string | null>(null);
-  const [duplicateRetryOpen, setDuplicateRetryOpen] = useState(false);
   const [connectionToDelete, setConnectionToDelete] = useState<
     OpenFinanceData["items"][number] | null
   >(null);
@@ -254,7 +253,7 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
     }
   }
 
-  async function openPluggy(itemId?: string, allowDuplicate = false) {
+  async function openPluggy(itemId?: string) {
     if (!scriptReady || !window.PluggyConnect) {
       setNotice({ type: "error", text: "O conector da Pluggy ainda está carregando." });
       return;
@@ -262,10 +261,7 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
     setBusy(itemId ?? "connect");
     setNotice(null);
     try {
-      const token = await requestJson("/api/pluggy/connect-token", {
-        ...(itemId ? { itemId } : {}),
-        ...(allowDuplicate ? { allowDuplicate: true } : {}),
-      });
+      const token = await requestJson("/api/pluggy/connect-token", itemId ? { itemId } : {});
       if (!token.accessToken) throw new Error("A Pluggy não retornou um token de conexão.");
       const PluggyConnect = window.PluggyConnect;
       const widget = new PluggyConnect({
@@ -275,7 +271,6 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
         theme: document.documentElement.classList.contains("dark") ? "dark" : "light",
         ...(itemId ? { updateItem: itemId } : {}),
         onSuccess: async (payload) => {
-          setDuplicateRetryOpen(false);
           const connectedItemId = payload.item?.id ?? payload.id ?? itemId;
           if (!connectedItemId) {
             setNotice({ type: "error", text: "A conexão terminou sem identificar a instituição." });
@@ -290,48 +285,8 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
           }
         },
         onError: async (error) => {
-          const duplicateItemIds = duplicatePluggyItemIds(error);
-          if (!duplicateItemIds.length) {
-            if (pluggyConnectErrorMessage(error).includes("ITEM_USER_ALREADY_EXISTS")) {
-              setDuplicateRetryOpen(true);
-              setNotice({
-                type: "error",
-                text: "A Pluggy encontrou uma conexão anterior sem fornecer o ID necessário para recuperá-la. Feche a janela da Pluggy para confirmar uma nova conexão.",
-              });
-            } else {
-              setNotice({ type: "error", text: pluggyConnectErrorMessage(error) });
-            }
-            setBusy(null);
-            return;
-          }
-
-          let recovered = 0;
-          let recoveryError: unknown;
-          for (const duplicateItemId of duplicateItemIds) {
-            try {
-              await requestJson("/api/pluggy/items", { itemId: duplicateItemId });
-              recovered += 1;
-            } catch (error) {
-              recoveryError = error;
-            }
-          }
+          setNotice({ type: "error", text: pluggyConnectErrorMessage(error) });
           setBusy(null);
-          if (recovered) {
-            setNotice({
-              type: "success",
-              text: recovered === 1
-                ? "A conexão existente foi recuperada e sincronizada."
-                : `${recovered} conexões existentes foram recuperadas e sincronizadas.`,
-            });
-            router.refresh();
-            return;
-          }
-          setNotice({
-            type: "error",
-            text: recoveryError instanceof Error
-              ? recoveryError.message
-              : "A conexão já existe na Pluggy, mas não foi possível recuperá-la.",
-          });
         },
         onClose: () => setBusy(null),
       });
@@ -756,18 +711,6 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
         onConfirm={() => void deleteConnection()}
       />
 
-      <ConfirmDialog
-        open={duplicateRetryOpen}
-        onOpenChange={setDuplicateRetryOpen}
-        title="Reconectar instituição?"
-        description="A Pluggy reconheceu estas credenciais em uma conexão anterior, mas não informou o ID necessário para recuperá-la. Você pode criar uma nova conexão. Isso pode duplicar dados se a conexão anterior voltar a ficar disponível."
-        confirmLabel="Criar nova conexão"
-        pending={busy !== null}
-        onConfirm={() => {
-          setDuplicateRetryOpen(false);
-          void openPluggy(undefined, true);
-        }}
-      />
     </>
   );
 }

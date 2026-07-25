@@ -374,7 +374,6 @@ export async function createPluggyConnectToken(
   credentials: PluggyCredentials,
   userId: string,
   itemId?: string,
-  avoidDuplicates = true,
 ) {
   return pluggyRequest(
     credentials,
@@ -386,7 +385,6 @@ export async function createPluggyConnectToken(
         ...(itemId ? { itemId } : {}),
         options: {
           clientUserId: userId,
-          avoidDuplicates,
         },
       }),
     },
