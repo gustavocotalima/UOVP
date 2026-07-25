@@ -39,7 +39,7 @@ import { accountSubtypeLabel } from "./account-labels";
 import { calculateAccountTotals } from "./calculations";
 import { FinanceNotice, runFinanceAction } from "./shared";
 import type { FinanceData, FinancialAccountDto } from "./types";
-import { duplicatePluggyItemIds, pluggyConnectErrorMessage } from "@/features/open-finance/pluggy-connect-error";
+import { pluggyConnectErrorMessage } from "@/features/open-finance/pluggy-connect-error";
 
 type AccountForm = {
   type: "BANK_ACCOUNT" | "CREDIT_CARD";
@@ -93,7 +93,6 @@ export function AccountsClient({ data }: { data: FinanceData }) {
   const [orderType, setOrderType] = useState<"BANK_ACCOUNT" | "CREDIT_CARD">("BANK_ACCOUNT");
   const [order, setOrder] = useState<string[]>([]);
   const [deleting, setDeleting] = useState<FinancialAccountDto | null>(null);
-  const [duplicateRetryOpen, setDuplicateRetryOpen] = useState(false);
   const banks = data.accounts.filter((account) => account.type === "BANK_ACCOUNT");
   const cards = data.accounts.filter((account) => account.type === "CREDIT_CARD");
 
@@ -118,7 +117,7 @@ export function AccountsClient({ data }: { data: FinanceData }) {
     }
   }
 
-  async function openPluggy(allowDuplicate = false) {
+  async function openPluggy() {
     setNewChoiceOpen(false);
     if (!data.pluggy.configured) {
       setNotice({ type: "error", text: "Configure suas credenciais individuais da Pluggy em Configurações." });
@@ -131,7 +130,7 @@ export function AccountsClient({ data }: { data: FinanceData }) {
     setBusy(true);
     setNotice(null);
     try {
-      const token = await requestJson("/api/pluggy/connect-token", allowDuplicate ? { allowDuplicate: true } : {});
+      const token = await requestJson("/api/pluggy/connect-token", {});
       if (!token.accessToken) throw new Error("A Pluggy não retornou um token de conexão.");
       const widget = new window.PluggyConnect({
         connectToken: token.accessToken,
@@ -139,7 +138,6 @@ export function AccountsClient({ data }: { data: FinanceData }) {
         language: "pt",
         theme: document.documentElement.classList.contains("dark") ? "dark" : "light",
         onSuccess: async (payload) => {
-          setDuplicateRetryOpen(false);
           try {
             const itemId = payload.item?.id ?? payload.id;
             if (!itemId) throw new Error("A conexão terminou sem identificar a instituição.");
@@ -156,48 +154,8 @@ export function AccountsClient({ data }: { data: FinanceData }) {
           }
         },
         onError: async (error) => {
-          const duplicateItemIds = duplicatePluggyItemIds(error);
-          if (!duplicateItemIds.length) {
-            if (pluggyConnectErrorMessage(error).includes("ITEM_USER_ALREADY_EXISTS")) {
-              setDuplicateRetryOpen(true);
-              setNotice({
-                type: "error",
-                text: "A Pluggy encontrou uma conexão anterior sem fornecer o ID necessário para recuperá-la. Feche a janela da Pluggy para confirmar uma nova conexão.",
-              });
-            } else {
-              setNotice({ type: "error", text: pluggyConnectErrorMessage(error) });
-            }
-            setBusy(false);
-            return;
-          }
-
-          let recovered = 0;
-          let recoveryError: unknown;
-          for (const duplicateItemId of duplicateItemIds) {
-            try {
-              await requestJson("/api/pluggy/items", { itemId: duplicateItemId });
-              recovered += 1;
-            } catch (error) {
-              recoveryError = error;
-            }
-          }
+          setNotice({ type: "error", text: pluggyConnectErrorMessage(error) });
           setBusy(false);
-          if (recovered) {
-            setNotice({
-              type: "success",
-              text: recovered === 1
-                ? "A conexão existente foi recuperada e sincronizada."
-                : `${recovered} conexões existentes foram recuperadas e sincronizadas.`,
-            });
-            router.refresh();
-            return;
-          }
-          setNotice({
-            type: "error",
-            text: recoveryError instanceof Error
-              ? recoveryError.message
-              : "A conexão já existe na Pluggy, mas não foi possível recuperá-la.",
-          });
         },
         onClose: () => setBusy(false),
       });
@@ -396,18 +354,6 @@ export function AccountsClient({ data }: { data: FinanceData }) {
       </Dialog>
 
       <ConfirmDialog open={Boolean(deleting)} onOpenChange={(open) => !open && setDeleting(null)} title="Remover conta?" description={deleting?.source === "PLUGGY" ? "A conta será ocultada. Uma nova sincronização da instituição pode reativá-la." : "A conta manual e suas transações serão removidas permanentemente."} confirmLabel="Remover" danger pending={busy} onConfirm={removeAccount} />
-      <ConfirmDialog
-        open={duplicateRetryOpen}
-        onOpenChange={setDuplicateRetryOpen}
-        title="Reconectar instituição?"
-        description="A Pluggy reconheceu estas credenciais em uma conexão anterior, mas não informou o ID necessário para recuperá-la. Você pode criar uma nova conexão. Isso pode duplicar dados se a conexão anterior voltar a ficar disponível."
-        confirmLabel="Criar nova conexão"
-        pending={busy}
-        onConfirm={() => {
-          setDuplicateRetryOpen(false);
-          void openPluggy(true);
-        }}
-      />
     </div>
   );
 }

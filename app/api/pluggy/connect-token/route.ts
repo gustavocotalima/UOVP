@@ -12,7 +12,6 @@ import {
 
 const inputSchema = z.object({
   itemId: z.string().uuid().optional(),
-  allowDuplicate: z.boolean().optional().default(false),
 });
 
 export async function POST(request: Request) {
@@ -42,7 +41,6 @@ export async function POST(request: Request) {
       credentials,
       user.id,
       input.data.itemId,
-      !input.data.allowDuplicate,
     );
     return NextResponse.json(token, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
