@@ -10,7 +10,10 @@ import {
   OperationRateLimitError,
 } from "@/lib/operation-security";
 
-const inputSchema = z.object({ itemId: z.string().uuid().optional() });
+const inputSchema = z.object({
+  itemId: z.string().uuid().optional(),
+  allowDuplicate: z.boolean().optional().default(false),
+});
 
 export async function POST(request: Request) {
   if (!isSameOriginRequest(request)) return NextResponse.json({ error: "Origem inválida." }, { status: 403 });
@@ -35,7 +38,12 @@ export async function POST(request: Request) {
       windowMs: 60 * 60_000,
     });
     const credentials = await requirePluggyCredentials(user.id);
-    const token = await createPluggyConnectToken(credentials, user.id, input.data.itemId);
+    const token = await createPluggyConnectToken(
+      credentials,
+      user.id,
+      input.data.itemId,
+      !input.data.allowDuplicate,
+    );
     return NextResponse.json(token, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     const status = error instanceof OperationRateLimitError ? 429 : 502;

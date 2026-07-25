@@ -18,16 +18,18 @@ import {
   RefreshCw,
   ShieldCheck,
   TrendingUp,
+  Unplug,
   WalletCards,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog } from "@/components/ui/dialog";
+import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
 import { InstitutionLogo } from "@/components/ui/institution-logo";
 import { SegmentedTabs } from "@/components/ui/segmented-tabs";
 import { cn } from "@/lib/utils";
 import type { OpenFinanceData } from "./data";
 import {
+  deletePluggyConnectionAction,
   resolvePluggyItemDisconnectionAction,
   setShowSoldInvestmentsAction,
 } from "./diagram-actions";
@@ -137,6 +139,10 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [disconnectionError, setDisconnectionError] = useState<string | null>(null);
+  const [duplicateRetryOpen, setDuplicateRetryOpen] = useState(false);
+  const [connectionToDelete, setConnectionToDelete] = useState<
+    OpenFinanceData["items"][number] | null
+  >(null);
   const [resolvedDisconnections, setResolvedDisconnections] = useState<Set<string>>(() => new Set());
   const keepManualFocusRef = useRef<HTMLSpanElement>(null);
   const pendingDisconnection = data.pendingDisconnections.find(
@@ -248,7 +254,7 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
     }
   }
 
-  async function openPluggy(itemId?: string) {
+  async function openPluggy(itemId?: string, allowDuplicate = false) {
     if (!scriptReady || !window.PluggyConnect) {
       setNotice({ type: "error", text: "O conector da Pluggy ainda está carregando." });
       return;
@@ -256,7 +262,10 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
     setBusy(itemId ?? "connect");
     setNotice(null);
     try {
-      const token = await requestJson("/api/pluggy/connect-token", itemId ? { itemId } : {});
+      const token = await requestJson("/api/pluggy/connect-token", {
+        ...(itemId ? { itemId } : {}),
+        ...(allowDuplicate ? { allowDuplicate: true } : {}),
+      });
       if (!token.accessToken) throw new Error("A Pluggy não retornou um token de conexão.");
       const PluggyConnect = window.PluggyConnect;
       const widget = new PluggyConnect({
@@ -266,6 +275,7 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
         theme: document.documentElement.classList.contains("dark") ? "dark" : "light",
         ...(itemId ? { updateItem: itemId } : {}),
         onSuccess: async (payload) => {
+          setDuplicateRetryOpen(false);
           const connectedItemId = payload.item?.id ?? payload.id ?? itemId;
           if (!connectedItemId) {
             setNotice({ type: "error", text: "A conexão terminou sem identificar a instituição." });
@@ -282,7 +292,15 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
         onError: async (error) => {
           const duplicateItemIds = duplicatePluggyItemIds(error);
           if (!duplicateItemIds.length) {
-            setNotice({ type: "error", text: pluggyConnectErrorMessage(error) });
+            if (pluggyConnectErrorMessage(error).includes("ITEM_USER_ALREADY_EXISTS")) {
+              setDuplicateRetryOpen(true);
+              setNotice({
+                type: "error",
+                text: "A Pluggy encontrou uma conexão anterior sem fornecer o ID necessário para recuperá-la. Feche a janela da Pluggy para confirmar uma nova conexão.",
+              });
+            } else {
+              setNotice({ type: "error", text: pluggyConnectErrorMessage(error) });
+            }
             setBusy(null);
             return;
           }
@@ -358,6 +376,29 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
       setDisconnectionError(
         error instanceof Error ? error.message : "Não foi possível concluir a decisão.",
       );
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function deleteConnection() {
+    const connection = connectionToDelete;
+    if (!connection) return;
+    setBusy(`delete:${connection.id}`);
+    setNotice(null);
+    try {
+      await deletePluggyConnectionAction(connection.pluggyItemId);
+      setConnectionToDelete(null);
+      setNotice({
+        type: "success",
+        text: "Instituição desconectada. Agora escolha o que fazer com os dados importados.",
+      });
+      router.refresh();
+    } catch (error) {
+      setNotice({
+        type: "error",
+        text: error instanceof Error ? error.message : "Não foi possível desconectar a instituição.",
+      });
     } finally {
       setBusy(null);
     }
@@ -511,13 +552,25 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
                   </div>
                   {item.errorMessage && <p className="rounded-xl bg-[var(--danger)]/10 p-3 text-xs text-[var(--danger)]">{item.errorMessage}</p>}
                   {!disconnected && (
-                    <div className="flex gap-2">
-                      <Button size="sm" variant="outline" className="flex-1" onClick={() => sync(item.pluggyItemId)} disabled={busy !== null}>
-                        {busy === item.pluggyItemId ? <LoaderCircle className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
-                        Ler dados
-                      </Button>
-                      <Button size="sm" variant="secondary" className="flex-1" onClick={() => openPluggy(item.pluggyItemId)} disabled={!scriptReady || busy !== null}>
-                        Atualizar banco
+                    <div className="space-y-2">
+                      <div className="flex gap-2">
+                        <Button size="sm" variant="outline" className="flex-1" onClick={() => sync(item.pluggyItemId)} disabled={busy !== null}>
+                          {busy === item.pluggyItemId ? <LoaderCircle className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+                          Ler dados
+                        </Button>
+                        <Button size="sm" variant="secondary" className="flex-1" onClick={() => openPluggy(item.pluggyItemId)} disabled={!scriptReady || busy !== null}>
+                          Atualizar banco
+                        </Button>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="w-full text-[var(--danger)] hover:bg-[var(--danger)]/10"
+                        onClick={() => setConnectionToDelete(item)}
+                        disabled={busy !== null}
+                      >
+                        <Unplug className="size-4" />
+                        Desconectar instituição
                       </Button>
                     </div>
                   )}
@@ -689,6 +742,32 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
           </div>
         )}
       </Dialog>
+
+      <ConfirmDialog
+        open={Boolean(connectionToDelete)}
+        onOpenChange={(open) => {
+          if (!open) setConnectionToDelete(null);
+        }}
+        title={`Desconectar ${connectionToDelete?.connectorName ?? "instituição"}?`}
+        description="O consentimento será revogado na Pluggy. Em seguida, você poderá manter os dados já importados como manuais ou removê-los dos relatórios e do diagrama."
+        confirmLabel="Desconectar"
+        danger
+        pending={busy?.startsWith("delete:") ?? false}
+        onConfirm={() => void deleteConnection()}
+      />
+
+      <ConfirmDialog
+        open={duplicateRetryOpen}
+        onOpenChange={setDuplicateRetryOpen}
+        title="Reconectar instituição?"
+        description="A Pluggy reconheceu estas credenciais em uma conexão anterior, mas não informou o ID necessário para recuperá-la. Você pode criar uma nova conexão. Isso pode duplicar dados se a conexão anterior voltar a ficar disponível."
+        confirmLabel="Criar nova conexão"
+        pending={busy !== null}
+        onConfirm={() => {
+          setDuplicateRetryOpen(false);
+          void openPluggy(undefined, true);
+        }}
+      />
     </>
   );
 }

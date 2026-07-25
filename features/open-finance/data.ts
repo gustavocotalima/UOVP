@@ -196,7 +196,7 @@ export async function getOpenFinanceData(userId: string) {
     ),
     timeZone: preference?.timeZone ?? "America/Sao_Paulo",
     webhookConfigured: Boolean(preference?.pluggyWebhookSecretCiphertext),
-    items: items.map((item) => ({
+    items: visibleItems.map((item) => ({
       id: item.id,
       pluggyItemId: item.pluggyItemId,
       connectorName: item.institutionName || item.connectorName,
