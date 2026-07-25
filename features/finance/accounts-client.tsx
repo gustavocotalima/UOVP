@@ -93,6 +93,7 @@ export function AccountsClient({ data }: { data: FinanceData }) {
   const [orderType, setOrderType] = useState<"BANK_ACCOUNT" | "CREDIT_CARD">("BANK_ACCOUNT");
   const [order, setOrder] = useState<string[]>([]);
   const [deleting, setDeleting] = useState<FinancialAccountDto | null>(null);
+  const [duplicateRetryOpen, setDuplicateRetryOpen] = useState(false);
   const banks = data.accounts.filter((account) => account.type === "BANK_ACCOUNT");
   const cards = data.accounts.filter((account) => account.type === "CREDIT_CARD");
 
@@ -117,7 +118,7 @@ export function AccountsClient({ data }: { data: FinanceData }) {
     }
   }
 
-  async function openPluggy() {
+  async function openPluggy(allowDuplicate = false) {
     setNewChoiceOpen(false);
     if (!data.pluggy.configured) {
       setNotice({ type: "error", text: "Configure suas credenciais individuais da Pluggy em Configurações." });
@@ -130,7 +131,7 @@ export function AccountsClient({ data }: { data: FinanceData }) {
     setBusy(true);
     setNotice(null);
     try {
-      const token = await requestJson("/api/pluggy/connect-token", {});
+      const token = await requestJson("/api/pluggy/connect-token", allowDuplicate ? { allowDuplicate: true } : {});
       if (!token.accessToken) throw new Error("A Pluggy não retornou um token de conexão.");
       const widget = new window.PluggyConnect({
         connectToken: token.accessToken,
@@ -138,6 +139,7 @@ export function AccountsClient({ data }: { data: FinanceData }) {
         language: "pt",
         theme: document.documentElement.classList.contains("dark") ? "dark" : "light",
         onSuccess: async (payload) => {
+          setDuplicateRetryOpen(false);
           try {
             const itemId = payload.item?.id ?? payload.id;
             if (!itemId) throw new Error("A conexão terminou sem identificar a instituição.");
@@ -156,7 +158,15 @@ export function AccountsClient({ data }: { data: FinanceData }) {
         onError: async (error) => {
           const duplicateItemIds = duplicatePluggyItemIds(error);
           if (!duplicateItemIds.length) {
-            setNotice({ type: "error", text: pluggyConnectErrorMessage(error) });
+            if (pluggyConnectErrorMessage(error).includes("ITEM_USER_ALREADY_EXISTS")) {
+              setDuplicateRetryOpen(true);
+              setNotice({
+                type: "error",
+                text: "A Pluggy encontrou uma conexão anterior sem fornecer o ID necessário para recuperá-la. Feche a janela da Pluggy para confirmar uma nova conexão.",
+              });
+            } else {
+              setNotice({ type: "error", text: pluggyConnectErrorMessage(error) });
+            }
             setBusy(false);
             return;
           }
@@ -356,7 +366,7 @@ export function AccountsClient({ data }: { data: FinanceData }) {
       <Dialog open={newChoiceOpen} onOpenChange={setNewChoiceOpen} title="Como você gostaria de adicioná-lo?" className="max-w-xl">
         <div className="grid gap-4 sm:grid-cols-2">
           <Choice icon={Pencil} title="Inserir saldo manualmente" text="Cadastre uma conta ou cartão e mantenha o saldo por conta própria." onClick={() => { setNewChoiceOpen(false); setTypeChoiceOpen(true); }} />
-          <Choice icon={Link2} title="Conectar ao banco" text="Importe saldos e transações com segurança via Pluggy e Open Finance." onClick={openPluggy} />
+          <Choice icon={Link2} title="Conectar ao banco" text="Importe saldos e transações com segurança via Pluggy e Open Finance." onClick={() => void openPluggy()} />
         </div>
       </Dialog>
 
@@ -386,6 +396,18 @@ export function AccountsClient({ data }: { data: FinanceData }) {
       </Dialog>
 
       <ConfirmDialog open={Boolean(deleting)} onOpenChange={(open) => !open && setDeleting(null)} title="Remover conta?" description={deleting?.source === "PLUGGY" ? "A conta será ocultada. Uma nova sincronização da instituição pode reativá-la." : "A conta manual e suas transações serão removidas permanentemente."} confirmLabel="Remover" danger pending={busy} onConfirm={removeAccount} />
+      <ConfirmDialog
+        open={duplicateRetryOpen}
+        onOpenChange={setDuplicateRetryOpen}
+        title="Reconectar instituição?"
+        description="A Pluggy reconheceu estas credenciais em uma conexão anterior, mas não informou o ID necessário para recuperá-la. Você pode criar uma nova conexão. Isso pode duplicar dados se a conexão anterior voltar a ficar disponível."
+        confirmLabel="Criar nova conexão"
+        pending={busy}
+        onConfirm={() => {
+          setDuplicateRetryOpen(false);
+          void openPluggy(true);
+        }}
+      />
     </div>
   );
 }

@@ -337,10 +337,44 @@ export async function getPluggyItem(credentials: PluggyCredentials, itemId: stri
   return pluggyRequest(credentials, `/items/${encodeURIComponent(itemId)}`, pluggyItemSchema, { signal });
 }
 
+export async function deletePluggyItem(
+  credentials: PluggyCredentials,
+  itemId: string,
+  retryAuthentication = true,
+): Promise<void> {
+  const apiKey = await getApiKey(credentials);
+  const response = await fetchPluggy(
+    `${PLUGGY_API_URL}/items/${encodeURIComponent(itemId)}`,
+    {
+      method: "DELETE",
+      headers: { "X-API-KEY": apiKey },
+      cache: "no-store",
+      signal: AbortSignal.timeout(PLUGGY_TIMEOUT_MS),
+    },
+  );
+  if (response.status === 401 && retryAuthentication) {
+    apiKeyCache.delete(credentialFingerprint(credentials));
+    await getApiKey(credentials, true);
+    return deletePluggyItem(credentials, itemId, false);
+  }
+  if (response.ok) return;
+
+  const data: unknown = await response.json().catch(() => null);
+  const error = apiErrorSchema.safeParse(data);
+  const code = error.success
+    ? String(error.data.codeDescription ?? error.data.code ?? "") || undefined
+    : undefined;
+  const message = error.success && error.data.message
+    ? error.data.message
+    : "A Pluggy não concluiu a desconexão.";
+  throw new PluggyApiError(message, response.status, code);
+}
+
 export async function createPluggyConnectToken(
   credentials: PluggyCredentials,
   userId: string,
   itemId?: string,
+  avoidDuplicates = true,
 ) {
   return pluggyRequest(
     credentials,
@@ -352,7 +386,7 @@ export async function createPluggyConnectToken(
         ...(itemId ? { itemId } : {}),
         options: {
           clientUserId: userId,
-          avoidDuplicates: true,
+          avoidDuplicates,
         },
       }),
     },

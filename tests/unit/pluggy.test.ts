@@ -116,4 +116,54 @@ describe("cliente Pluggy", () => {
       options: { clientUserId: "user-123", avoidDuplicates: true },
     });
   });
+
+  it("permite uma reconexão explícita quando a Pluggy omite o item duplicado", async () => {
+    const fetcher = vi.fn(async (input: string | URL | Request, _init?: RequestInit) => {
+      void _init;
+      if (String(input).endsWith("/auth")) return Response.json({ apiKey: "temporary-api-key" });
+      return Response.json({ accessToken: "connect-token" });
+    });
+    vi.stubGlobal("fetch", fetcher);
+
+    const { createPluggyConnectToken } = await import("@/features/open-finance/pluggy");
+    await createPluggyConnectToken(credentials, "user-123", undefined, false);
+
+    const [, request] = fetcher.mock.calls[1];
+    expect(JSON.parse(String(request?.body))).toEqual({
+      options: { clientUserId: "user-123", avoidDuplicates: false },
+    });
+  });
+
+  it("revoga uma conexão na Pluggy aceitando resposta sem conteúdo", async () => {
+    const itemId = "55555555-5555-4555-8555-555555555555";
+    const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      if (String(input).endsWith("/auth")) return Response.json({ apiKey: "temporary-api-key" });
+      expect(String(input)).toBe(`https://api.pluggy.ai/items/${itemId}`);
+      expect(init?.method).toBe("DELETE");
+      expect(init?.headers).toEqual({ "X-API-KEY": "temporary-api-key" });
+      return new Response(null, { status: 204 });
+    });
+    vi.stubGlobal("fetch", fetcher);
+
+    const { deletePluggyItem } = await import("@/features/open-finance/pluggy");
+    await expect(deletePluggyItem(credentials, itemId)).resolves.toBeUndefined();
+  });
+
+  it("expõe item inexistente para a camada local concluir a desconexão", async () => {
+    const itemId = "66666666-6666-4666-8666-666666666666";
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      if (String(input).endsWith("/auth")) return Response.json({ apiKey: "temporary-api-key" });
+      return Response.json({ message: "item not found" }, { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetcher);
+
+    const { deletePluggyItem, PluggyApiError } = await import("@/features/open-finance/pluggy");
+    await expect(deletePluggyItem(credentials, itemId)).rejects.toEqual(
+      expect.objectContaining({
+        constructor: PluggyApiError,
+        message: "item not found",
+        status: 404,
+      }),
+    );
+  });
 });

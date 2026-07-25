@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireUserId } from "@/lib/current-user";
+import { assertUserOperationRateLimit } from "@/lib/operation-security";
 import {
   FIXED_INCOME_INDEXATIONS,
   INSTRUMENT_TYPES,
@@ -11,7 +12,9 @@ import {
 } from "@/features/portfolio/constants";
 import { bumpPortfolioAndInvalidateDrafts } from "@/features/portfolio/invalidation";
 import { reconcilePluggyInvestmentsForUser } from "./diagram-sync";
-import { resolvePluggyItemDisconnection } from "./disconnection";
+import { markPluggyItemDisconnected, resolvePluggyItemDisconnection } from "./disconnection";
+import { deletePluggyItem, PluggyApiError } from "./pluggy";
+import { requirePluggyCredentials } from "./pluggy-credentials";
 
 const reviewSchema = z.object({
   linkId: z.string().cuid(),
@@ -135,4 +138,42 @@ export async function resolvePluggyItemDisconnectionAction(
   revalidatePath("/open-finance");
   revalidatePath("/carteira");
   revalidatePath("/home");
+}
+
+export async function deletePluggyConnectionAction(pluggyItemId: string) {
+  const userId = await requireUserId();
+  const parsedItemId = z.string().uuid().parse(pluggyItemId);
+  await assertUserOperationRateLimit({
+    userId,
+    operation: "pluggy-disconnect",
+    limit: 10,
+    windowMs: 60 * 60_000,
+  });
+  const item = await prisma.pluggyItem.findFirst({
+    where: {
+      userId,
+      pluggyItemId: parsedItemId,
+      status: { not: "DELETED" },
+    },
+    select: { id: true },
+  });
+  if (!item) throw new Error("Conexão não encontrada.");
+
+  const credentials = await requirePluggyCredentials(userId);
+  try {
+    await deletePluggyItem(credentials, parsedItemId);
+  } catch (error) {
+    if (!(error instanceof PluggyApiError) || error.status !== 404) throw error;
+  }
+  await markPluggyItemDisconnected(parsedItemId);
+
+  [
+    "/open-finance",
+    "/contas",
+    "/home",
+    "/orcamento-domestico",
+    "/transacoes",
+    "/carteira",
+    "/faturas",
+  ].forEach((path) => revalidatePath(path));
 }
