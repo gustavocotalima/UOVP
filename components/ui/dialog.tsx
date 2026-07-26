@@ -52,6 +52,7 @@ export function Dialog({
   titleAlign = "left",
   dismissible = true,
   initialFocusRef,
+  mobileMode = "sheet",
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -63,6 +64,7 @@ export function Dialog({
   titleAlign?: "left" | "center";
   dismissible?: boolean;
   initialFocusRef?: RefObject<HTMLElement | null>;
+  mobileMode?: "sheet" | "full";
 }) {
   const dialogId = useId();
   const titleId = useId();
@@ -138,7 +140,7 @@ export function Dialog({
   return createPortal(
     <div
       data-dialog-id={dialogId}
-      className="fixed inset-0 z-[100] grid place-items-center overflow-y-auto bg-black/70 p-4 backdrop-blur-[2px]"
+      className="fixed inset-0 z-[100] grid place-items-end overflow-y-auto bg-black/70 p-0 backdrop-blur-[2px] sm:place-items-center sm:p-4"
       onMouseDown={(event) => {
         if (dismissible && event.target === event.currentTarget) onOpenChange(false);
       }}
@@ -151,11 +153,14 @@ export function Dialog({
         aria-labelledby={titleId}
         aria-describedby={description ? descriptionId : undefined}
         className={cn(
-          "my-auto flex max-h-[calc(100vh-2rem)] w-full max-w-3xl flex-col overflow-hidden rounded-3xl border bg-[var(--card)] shadow-2xl",
+          "flex w-full max-w-3xl flex-col overflow-hidden border bg-[var(--card)] shadow-2xl sm:my-auto sm:max-h-[calc(100dvh-2rem)] sm:rounded-3xl",
+          mobileMode === "full"
+            ? "h-dvh max-h-dvh rounded-none sm:h-auto"
+            : "max-h-[92dvh] rounded-t-3xl",
           className,
         )}
       >
-        <header className={cn("relative flex items-start justify-between gap-4 border-b px-6 py-5", titleAlign === "center" && "block text-center")}>
+        <header className={cn("relative flex items-start justify-between gap-4 border-b px-4 py-4 sm:px-6 sm:py-5", titleAlign === "center" && "block text-center")}>
           <div className={cn(titleAlign === "center" && "px-12")}>
             <h2 id={titleId} className="text-lg font-semibold">{title}</h2>
             {description && <p id={descriptionId} className="mt-1 text-sm text-[var(--muted-foreground)]">{description}</p>}
@@ -166,8 +171,8 @@ export function Dialog({
             </Button>
           )}
         </header>
-        <div className="min-h-0 flex-1 overflow-y-auto p-6 scrollbar-thin">{children}</div>
-        {footer && <footer className="flex flex-col-reverse gap-3 border-t px-6 py-4 sm:flex-row sm:justify-end">{footer}</footer>}
+        <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6 scrollbar-thin">{children}</div>
+        {footer && <footer className="flex flex-col-reverse gap-3 border-t px-4 py-4 sm:flex-row sm:justify-end sm:px-6">{footer}</footer>}
       </div>
     </div>,
     document.body,

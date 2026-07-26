@@ -62,7 +62,7 @@ export function BalanceSheetPanel({ entries }: { entries: Entry[] }) {
     <div className="space-y-6">
       <Card className="mx-auto max-w-sm text-center"><CardContent className="pt-6"><p className="text-sm text-[var(--muted-foreground)]">Patrimônio Líquido</p><strong className={`mt-2 block text-3xl ${netWorth >= 0 ? "text-[var(--success)]" : "text-[var(--danger)]"}`}>{formatMoney(netWorth)}</strong></CardContent></Card>
       {message && <p role="status" className="rounded-xl border bg-[var(--card)] p-3 text-sm">{message}</p>}
-      <div className="grid gap-6 lg:grid-cols-2">{renderSide("asset")}{renderSide("liability")}</div>
+      <div className="grid gap-4 @5xl:grid-cols-2 @5xl:gap-6">{renderSide("asset")}{renderSide("liability")}</div>
       {confirmationDialog}
     </div>
   );

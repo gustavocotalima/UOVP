@@ -16,7 +16,7 @@ export default async function BudgetPage({ searchParams }: { searchParams: Promi
   const month = Math.min(12, Math.max(1, Number(params.month) || current.month));
   const data = await getFinanceData(userId, year, month);
   return (
-    <div className="space-y-7">
+    <div className="space-y-5 sm:space-y-7">
       <PageHeader title="Orçamento" description="Controle seu orçamento com base em suas metas e rendimentos" actions={<MonthNavigator year={year} month={month} />} />
       <BudgetOverviewClient data={data} />
     </div>

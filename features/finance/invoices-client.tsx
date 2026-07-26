@@ -35,7 +35,7 @@ export function InvoicesClient({ data }: { data: FinanceData }) {
       <label className="block max-w-xl text-sm font-medium">Selecione o cartão<Select className="mt-2 w-full" value={account.id} onChange={(event) => { setAccountId(event.target.value); setExpanded(null); }}>{cards.map((card) => <option key={card.id} value={card.id}>{card.name} {card.numberLastFour ? `•••• ${card.numberLastFour}` : ""}</option>)}</Select></label>
 
       <Card>
-        <CardHeader className="flex-row items-center gap-4">
+        <CardHeader className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3 @3xl:grid-cols-[auto_minmax(0,1fr)_auto] @3xl:gap-4">
           <InstitutionLogo
             src={account.institutionImageUrl}
             name={account.institutionName || account.name}
@@ -43,7 +43,7 @@ export function InvoicesClient({ data }: { data: FinanceData }) {
             size="large"
           />
           <div className="min-w-0 flex-1"><CardTitle className="truncate text-lg">{account.name}</CardTitle><p className="mt-1 text-sm text-[var(--muted-foreground)]">•••• •••• •••• {account.numberLastFour || "0000"}</p></div>
-          <div className="text-right"><p className="text-xs text-[var(--muted-foreground)]">{account.brand || "CARTÃO"}</p><p className="mt-1 text-xs">Disponível: {account.availableCredit ? formatMoney(Number(account.availableCredit)) : "—"}</p></div>
+          <div className="col-span-2 flex items-center justify-between border-t pt-3 text-right @3xl:col-span-1 @3xl:block @3xl:border-0 @3xl:pt-0"><p className="text-xs text-[var(--muted-foreground)]">{account.brand || "CARTÃO"}</p><p className="text-xs @3xl:mt-1">Disponível: {account.availableCredit ? formatMoney(Number(account.availableCredit)) : "—"}</p></div>
         </CardHeader>
         <CardContent>
           <p className="mb-3 text-sm font-semibold">Faturas</p>
@@ -52,7 +52,7 @@ export function InvoicesClient({ data }: { data: FinanceData }) {
               const open = expanded === invoice.key;
               return (
                 <div key={invoice.key} className="overflow-hidden rounded-xl border">
-                  <button type="button" aria-expanded={open} onClick={() => setExpanded(open ? null : invoice.key)} className="flex w-full items-center gap-4 p-4 text-left hover:bg-[var(--muted)]/50">
+                  <button type="button" aria-expanded={open} onClick={() => setExpanded(open ? null : invoice.key)} className="flex w-full items-center gap-3 p-3 text-left hover:bg-[var(--muted)]/50 sm:gap-4 sm:p-4">
                     <div className="min-w-0 flex-1"><p className="font-semibold">{String(invoice.month).padStart(2, "0")}/{invoice.year} {invoice.open && <span className="ml-2 rounded-full bg-[var(--primary)]/14 px-2 py-1 text-[10px] text-[var(--primary)]">Fatura em aberto</span>}</p><p className="mt-1 text-xs text-[var(--muted-foreground)]">{invoice.open ? "Valor estimado — pode diferir do fechamento real" : `Vencimento: ${new Intl.DateTimeFormat("pt-BR", { timeZone: data.profile.timeZone }).format(new Date(invoice.dueDate))}`}</p></div>
                     <p className={cn("font-semibold", invoice.open && "text-[var(--danger)]")}>{invoice.open ? "-" : ""}{formatMoney(invoice.total)}</p>
                     <ChevronDown className={cn("size-4 transition", open && "rotate-180")} />
@@ -60,7 +60,23 @@ export function InvoicesClient({ data }: { data: FinanceData }) {
                   {open && (
                     <div className="border-t p-4">
                       <label className="mb-4 flex items-center gap-3 text-sm"><input type="checkbox" role="switch" checked={includeIgnored} onChange={(event) => setIncludeIgnored(event.target.checked)} className="size-4 accent-[var(--primary)]" /> Incluir transações ignoradas</label>
-                      <div className="overflow-x-auto">
+                      <div className="space-y-2 lg:hidden">
+                        {invoice.transactions.map((transaction) => (
+                          <article key={transaction.id} data-testid="mobile-invoice-transaction" className={cn("rounded-xl border bg-[var(--card)] p-3", transaction.ignored && "opacity-50")}>
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0"><strong className="block truncate text-sm">{transaction.description}</strong><span className="mt-1 block text-[10px] text-[var(--muted-foreground)]">{new Intl.DateTimeFormat("pt-BR", { timeZone: data.profile.timeZone }).format(new Date(transaction.date))}</span></div>
+                              <strong className="whitespace-nowrap text-sm">{formatCurrency(transaction.amount, transaction.currencyCode)}</strong>
+                            </div>
+                            <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[10px]">
+                              <span className="rounded-full bg-[var(--muted)] px-2 py-1">{categoryLabel(transaction.budgetCategory, transaction.kind)}</span>
+                              {transaction.tags.map((tag) => <span key={tag.id} className="rounded-full px-2 py-1 text-white" style={{ background: tag.color }}>{tag.name}</span>)}
+                              {transaction.installmentNumber && transaction.installmentTotal && <span className="rounded-full bg-[var(--muted)] px-2 py-1">Parcela {transaction.installmentNumber}/{transaction.installmentTotal}</span>}
+                            </div>
+                          </article>
+                        ))}
+                        {!invoice.transactions.length && <p className="py-8 text-center text-sm text-[var(--muted-foreground)]">Nenhuma transação nesta fatura.</p>}
+                      </div>
+                      <div className="hidden overflow-x-auto lg:block">
                         <div className="min-w-[760px]">
                           <div className="grid grid-cols-[90px_minmax(220px,1fr)_110px_130px_150px_80px] gap-3 border-b pb-3 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]"><span>Data</span><span>Descrição</span><span className="text-right">Valor</span><span>Meta</span><span>Tags</span><span>Parcela</span></div>
                           <div className="divide-y">

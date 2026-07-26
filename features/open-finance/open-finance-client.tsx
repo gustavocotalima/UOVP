@@ -436,7 +436,7 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
         </div>
       )}
 
-      <section className="grid gap-4 sm:grid-cols-3">
+      <section className="grid gap-3 @2xl:grid-cols-2 @5xl:grid-cols-3 @5xl:gap-4">
         <SummaryCard
           icon={Landmark}
           label="Saldo em contas"
@@ -457,9 +457,9 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
         />
       </section>
 
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-4 @4xl:flex-row @4xl:items-center @4xl:justify-between">
         <SegmentedTabs value={tab} onValueChange={setTab} options={tabs} ariaLabel="Dados Open Finance" />
-        <div className="flex flex-wrap gap-2">
+        <div className="grid grid-cols-2 gap-2 @3xl:flex @3xl:flex-wrap">
           <Button
             variant="outline"
             onClick={() => sync()}
@@ -480,7 +480,7 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
           id="open-finance-panel-connections"
           role="tabpanel"
           aria-labelledby="open-finance-tab-connections"
-          className="grid gap-4 md:grid-cols-2 xl:grid-cols-3"
+          className="grid gap-4 @4xl:grid-cols-2 @7xl:grid-cols-3"
         >
           {data.items.map((item) => {
             const healthy = statusLabel(item.status, item.executionStatus) === "Conectado";
@@ -546,7 +546,7 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
           <DataCard title="Contas e cartões" description={`${data.accounts.length} produto(s) sincronizado(s)`}>
             <div className="divide-y">
               {data.accounts.map((account) => (
-                <div key={account.id} className="flex flex-col gap-3 py-4 first:pt-0 sm:flex-row sm:items-center sm:justify-between">
+                <div key={account.id} className="flex flex-col gap-3 py-4 first:pt-0 @3xl:flex-row @3xl:items-center @3xl:justify-between">
                   <div className="flex min-w-0 items-center gap-3">
                     <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[var(--muted)]">
                       {account.type === "CREDIT" ? <CreditCard className="size-5" /> : <WalletCards className="size-5" />}
@@ -558,7 +558,7 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
                       </p>
                     </div>
                   </div>
-                  <div className="text-left sm:text-right">
+                  <div className="text-left @3xl:text-right">
                     <p className="font-semibold tabular-nums">{money(account.balance, account.currencyCode)}</p>
                     <p className="text-xs text-[var(--muted-foreground)]">{date(account.updatedAt, data.timeZone)}</p>
                   </div>
@@ -593,7 +593,7 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
                         </p>
                       </div>
                     </div>
-                    <div className="pl-12 text-left sm:pl-0 sm:text-right">
+                    <div className="pl-12 text-left @3xl:pl-0 @3xl:text-right">
                       <p className={cn("text-sm font-semibold tabular-nums", incoming ? "text-[var(--success)]" : "")}>{money(transaction.amount, transaction.currencyCode)}</p>
                       <p className="text-xs text-[var(--muted-foreground)]">{date(transaction.date, data.timeZone)}</p>
                     </div>
@@ -839,7 +839,7 @@ function InvestmentPortfolio({
 
   return (
     <Card className="overflow-hidden">
-      <CardHeader className="flex-row items-center justify-between gap-4 border-b">
+      <CardHeader className="gap-4 border-b @4xl:flex-row @4xl:items-center @4xl:justify-between">
         <div className="flex items-center gap-3">
           <BriefcaseBusiness className="size-5 text-[var(--primary)]" />
           <div>
@@ -847,7 +847,7 @@ function InvestmentPortfolio({
             <CardDescription>Posições e movimentações informadas diretamente pelas instituições.</CardDescription>
           </div>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 @4xl:justify-end">
           {soldCount > 0 && (
             <Button size="sm" variant="outline" onClick={onToggleSold}>
               {showSold ? "Ocultar vendidos" : `Mostrar vendidos (${soldCount})`}
@@ -881,7 +881,7 @@ function InvestmentPortfolio({
                     type="button"
                     aria-expanded={expanded}
                     onClick={() => onToggle(investment.id)}
-                    className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-5 py-4 text-left transition hover:bg-[var(--muted)]/25"
+                    className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3 py-4 text-left transition hover:bg-[var(--muted)]/25 sm:px-5 sm:gap-4"
                   >
                     <span className="flex min-w-0 items-center gap-3">
                       <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[var(--muted)]">
@@ -904,7 +904,7 @@ function InvestmentPortfolio({
                         </span>
                       </span>
                     </span>
-                    <span className="flex items-center gap-3 text-right">
+                    <span className="flex items-center gap-2 text-right sm:gap-3">
                       <span>
                         <strong className="block text-sm tabular-nums text-[var(--success)]">
                           {money(investment.balance, investment.currencyCode)}
@@ -988,8 +988,8 @@ function InvestmentDetails({
   ].filter((item): item is { label: string; value: string } => item !== null);
 
   return (
-    <div className="border-t bg-[var(--muted)]/10 px-5 py-5">
-      <dl className="grid gap-x-8 gap-y-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+    <div className="border-t bg-[var(--muted)]/10 px-3 py-4 sm:px-5 sm:py-5">
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-5 @4xl:grid-cols-3 @6xl:grid-cols-4 @4xl:gap-x-8">
         {details.map((detail) => (
           <div key={detail.label} className="min-w-0">
             <dt className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">{detail.label}</dt>
@@ -1071,7 +1071,7 @@ function JsonDetails({ title, value, compact = false }: { title: string; value: 
   return (
     <div className={compact ? "mt-2 border-t pt-2" : "mt-6 border-t pt-4"}>
       <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">{title}</p>
-      <dl className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+      <dl className="grid gap-2 @3xl:grid-cols-2 @5xl:grid-cols-3">
         {entries.map(([key, entry]) => (
           <div key={key} className="text-xs">
             <dt className="text-[var(--muted-foreground)]">{key}</dt>
@@ -1126,7 +1126,7 @@ function DataCard({ title, description, children }: { title: string; description
 
 function EmptyState({ title, text }: { title: string; text: string }) {
   return (
-    <Card className="md:col-span-2 xl:col-span-3">
+    <Card className="@4xl:col-span-2 @7xl:col-span-3">
       <CardContent className="flex flex-col items-center py-12 text-center">
         <span className="mb-4 grid size-12 place-items-center rounded-full bg-[var(--muted)]"><Landmark className="size-5" /></span>
         <p className="font-semibold">{title}</p>

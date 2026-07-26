@@ -13,5 +13,5 @@ export default async function AccountsPage() {
   const data = await getFinanceData(userId, current.year, current.month, {
     transactionScope: "NONE",
   });
-  return <div className="space-y-7"><PageHeader title="Contas" description="Gerencie suas contas bancárias e cartões." /><AccountsClient data={data} /></div>;
+  return <div className="space-y-5 sm:space-y-7"><PageHeader title="Contas" description="Gerencie suas contas bancárias e cartões." /><AccountsClient data={data} /></div>;
 }

@@ -8,7 +8,7 @@ export type DonutDatum = { name: string; value: number; color: string };
 export function DonutChart({ data, centerLabel }: { data: DonutDatum[]; centerLabel?: string }) {
   const total = data.reduce((sum, item) => sum + item.value, 0);
   return (
-    <div className="relative h-64 w-full" aria-label={`Gráfico de distribuição. Total ${formatMoney(total)}`} role="img">
+    <div className="relative h-56 w-full sm:h-64" aria-label={`Gráfico de distribuição. Total ${formatMoney(total)}`} role="img">
       <ResponsiveContainer width="100%" height="100%">
         <PieChart>
           <Pie data={data} dataKey="value" nameKey="name" innerRadius="63%" outerRadius="88%" paddingAngle={2} strokeWidth={0}>

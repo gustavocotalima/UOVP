@@ -9,7 +9,7 @@ export default async function OpenFinancePage() {
   const userId = await requireUserId();
   const data = await getOpenFinanceData(userId);
   return (
-    <div className="space-y-7">
+    <div className="space-y-5 sm:space-y-7">
       <PageHeader
         eyebrow="Integrações"
         title="Open Finance"

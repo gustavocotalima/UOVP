@@ -45,7 +45,7 @@ export function SegmentedTabs<T extends string>({
   }
 
   return (
-    <div role="tablist" aria-label={ariaLabel} className={cn("flex w-fit max-w-full gap-1 overflow-x-auto rounded-xl border bg-[var(--card)] p-1", className)}>
+    <div role="tablist" aria-label={ariaLabel} className={cn("flex w-fit max-w-full snap-x gap-1 overflow-x-auto rounded-xl border bg-[var(--card)] p-1 [-webkit-overflow-scrolling:touch] [scrollbar-width:none] max-sm:[mask-image:linear-gradient(to_right,black_calc(100%_-_1.5rem),transparent)] [&::-webkit-scrollbar]:hidden", className)}>
       {options.map((option, index) => (
         <button
           type="button"
@@ -61,7 +61,7 @@ export function SegmentedTabs<T extends string>({
           onClick={() => onValueChange(option.value)}
           onKeyDown={(event) => handleKeyDown(event, index)}
           className={cn(
-            "min-h-9 whitespace-nowrap rounded-lg px-3 text-sm font-medium transition",
+            "min-h-11 snap-start whitespace-nowrap rounded-lg px-3 text-sm font-medium transition sm:min-h-9",
             value === option.value
               ? "bg-[var(--primary)] text-[var(--primary-foreground)]"
               : "text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]",

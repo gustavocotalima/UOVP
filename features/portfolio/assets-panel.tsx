@@ -454,6 +454,7 @@ export function AssetsPanel({
   const [pending, startTransition] = useTransition();
   const panelRef = useRef<HTMLDivElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const mobileActions = useRef<HTMLDetailsElement>(null);
   const tickerRequestId = useRef(0);
   const tickerInputFocused = useRef(false);
   const tickerInput = useRef<HTMLInputElement>(null);
@@ -1134,14 +1135,14 @@ export function AssetsPanel({
           <Button onClick={() => openReview(integrationReview[0])}>Revisar integração</Button>
         </div>
       )}
-      <div className="grid gap-6 xl:grid-cols-[1fr_340px]">
+      <div className="grid gap-4 @7xl:grid-cols-[minmax(0,1fr)_340px] @7xl:gap-6">
         <Card>
-          <CardHeader className="gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <CardHeader className="gap-4 @5xl:flex-row @5xl:items-center @5xl:justify-between">
             <div>
               <CardTitle>Seus ativos</CardTitle>
               <p className="mt-1 text-sm text-[var(--muted-foreground)]">{assets.length} ativos · {formatMoney(total)}</p>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="hidden flex-wrap gap-2 @5xl:flex">
               <Button
                 variant="outline"
                 onClick={refreshMarketPrices}
@@ -1150,25 +1151,51 @@ export function AssetsPanel({
               >
                 <RefreshCw className="size-4" /> Atualizar cotações
               </Button>
-              <input ref={fileInput} className="sr-only" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => event.target.files?.[0] && void importFile(event.target.files[0])} />
               <Button variant="outline" onClick={() => exportPortfolioXlsx(assets)} disabled={!assets.length}><Download className="size-4" /> Exportar XLSX</Button>
               <Button variant="outline" onClick={() => fileInput.current?.click()}><Upload className="size-4" /> Importar XLSX</Button>
               <Button variant="outline" onClick={() => setFixedGroupForm({ ...emptyFixedGroup })}><Plus className="size-4" /> Renda fixa</Button>
               <Button onClick={startAdding}><Plus className="size-4" /> Adicionar ativo</Button>
             </div>
+            <div className="flex gap-2 @5xl:hidden">
+              <Button className="min-w-0 flex-1" onClick={startAdding}><Plus className="size-4" /> Adicionar ativo</Button>
+              <details ref={mobileActions} className="group relative">
+                <summary className="flex min-h-10 cursor-pointer list-none items-center justify-center rounded-xl border px-4 text-sm font-semibold [&::-webkit-details-marker]:hidden">
+                  Mais
+                </summary>
+                <div className="absolute right-0 z-30 mt-2 grid w-56 gap-1 rounded-2xl border bg-[var(--card)] p-2 shadow-2xl">
+                  <button type="button" className="flex min-h-11 items-center gap-2 rounded-xl px-3 text-left text-sm hover:bg-[var(--muted)]" onClick={() => {
+                    mobileActions.current?.removeAttribute("open");
+                    void refreshMarketPrices();
+                  }} disabled={pending || !hasRefreshableQuotes}><RefreshCw className="size-4" /> Atualizar cotações</button>
+                  <button type="button" className="flex min-h-11 items-center gap-2 rounded-xl px-3 text-left text-sm hover:bg-[var(--muted)]" onClick={() => {
+                    mobileActions.current?.removeAttribute("open");
+                    exportPortfolioXlsx(assets);
+                  }} disabled={!assets.length}><Download className="size-4" /> Exportar XLSX</button>
+                  <button type="button" className="flex min-h-11 items-center gap-2 rounded-xl px-3 text-left text-sm hover:bg-[var(--muted)]" onClick={() => {
+                    mobileActions.current?.removeAttribute("open");
+                    fileInput.current?.click();
+                  }}><Upload className="size-4" /> Importar XLSX</button>
+                  <button type="button" className="flex min-h-11 items-center gap-2 rounded-xl px-3 text-left text-sm hover:bg-[var(--muted)]" onClick={() => {
+                    mobileActions.current?.removeAttribute("open");
+                    setFixedGroupForm({ ...emptyFixedGroup });
+                  }}><Plus className="size-4" /> Renda fixa</button>
+                </div>
+              </details>
+            </div>
           </CardHeader>
           <CardContent>
-            <div className="mb-4 flex flex-col gap-3 md:flex-row">
+            <input ref={fileInput} className="sr-only" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => event.target.files?.[0] && void importFile(event.target.files[0])} />
+            <div className="mb-4 grid gap-3 @4xl:grid-cols-[minmax(0,1fr)_auto_auto_auto]">
               <label className="relative flex-1">
                 <span className="sr-only">Buscar ativos</span>
                 <Search className="pointer-events-none absolute left-3 top-3.5 size-4 text-[var(--muted-foreground)]" />
                 <Input className="pl-9" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar nome ou ticker" />
               </label>
-              <Select aria-label="Filtrar por classe" value={filter} onChange={(event) => setFilter(event.target.value as typeof filter)}>
+              <Select className="w-full" aria-label="Filtrar por classe" value={filter} onChange={(event) => setFilter(event.target.value as typeof filter)}>
                 <option value="ALL">Todas as classes</option>
                 {INVESTMENT_CLASSES.map((investmentClass) => <option key={investmentClass} value={investmentClass}>{INVESTMENT_CLASS_META[investmentClass].label}</option>)}
               </Select>
-              <Select aria-label="Filtrar por instrumento" value={instrumentFilter} onChange={(event) => setInstrumentFilter(event.target.value as typeof instrumentFilter)}>
+              <Select className="w-full" aria-label="Filtrar por instrumento" value={instrumentFilter} onChange={(event) => setInstrumentFilter(event.target.value as typeof instrumentFilter)}>
                 <option value="ALL">Todos os instrumentos</option>
                 {INSTRUMENT_TYPES.map((instrumentType) => <option key={instrumentType} value={instrumentType}>{INSTRUMENT_TYPE_META[instrumentType].label}</option>)}
               </Select>
@@ -1179,7 +1206,133 @@ export function AssetsPanel({
               )}
             </div>
             {message && <p role="status" className="mb-4 rounded-xl bg-[var(--muted)] p-3 text-sm">{message}</p>}
-            <div className="overflow-x-auto scrollbar-thin">
+            <div className="space-y-3 lg:hidden">
+              {filtered.map((asset) => {
+                const expandable = asset.instrumentType === "FIXED_INCOME" || asset.pluggyControlled || asset.holdings.length > 1 || Boolean(asset.awaitingSyncContribution);
+                const showsApplicationCount = ["FIXED_INCOME", "MUTUAL_FUND"].includes(asset.instrumentType);
+                const expanded = expandedAssets.has(asset.id) || searchExpandedAssets.has(asset.id);
+                return (
+                  <article key={asset.id} data-testid="mobile-asset-card" className="overflow-hidden rounded-2xl border bg-[var(--card)]">
+                    <div className="p-4">
+                      <div className="flex min-w-0 items-start gap-3">
+                        {expandable ? (
+                          <button
+                            type="button"
+                            className="grid size-11 shrink-0 place-items-center rounded-xl hover:bg-[var(--muted)]"
+                            onClick={() => toggleExpanded(asset.id)}
+                            aria-label={`${expanded ? "Recolher" : "Expandir"} ${asset.name}`}
+                            aria-expanded={expanded}
+                          >
+                            {expanded ? <ChevronDown className="size-5" /> : <ChevronRight className="size-5" />}
+                          </button>
+                        ) : <span className="w-1 shrink-0" />}
+                        <AssetLogo asset={asset} />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-start justify-between gap-2">
+                            <span className="min-w-0">
+                              <strong className="block truncate text-base">{asset.ticker}</strong>
+                              <span className="block truncate text-xs text-[var(--muted-foreground)]">{asset.name}</span>
+                            </span>
+                            <Button variant="ghost" size="icon" onClick={() => edit(asset)} aria-label={`Editar ${asset.ticker}`}><Pencil className="size-4" /></Button>
+                          </div>
+                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                            <span className="inline-flex rounded-full px-2 py-1 text-[11px]" style={{ background: `${INSTRUMENT_TYPE_META[asset.instrumentType].color}20`, color: INSTRUMENT_TYPE_META[asset.instrumentType].color }}>{INSTRUMENT_TYPE_META[asset.instrumentType].label}</span>
+                            <span className="text-[11px] text-[var(--muted-foreground)]">{INVESTMENT_CLASS_META[asset.investmentClass].shortLabel}</span>
+                            {asset.awaitingSyncContribution && <span className="inline-flex items-center gap-1 text-[11px] text-[var(--primary)]"><Clock3 className="size-3" /> Aguardando sync</span>}
+                          </div>
+                        </div>
+                      </div>
+                      <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 border-t pt-4 text-sm">
+                        <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Valor atual</dt><dd className="mt-1 font-semibold">{formatMoney(asset.currentValue)}</dd></div>
+                        <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">% da carteira</dt><dd className="mt-1 font-semibold">{formatPercent(total ? currentValue(asset) / total * 100 : 0)}</dd></div>
+                        <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Nota</dt><dd className="mt-1 flex items-center gap-2 font-semibold">{asset.score}{asset.needsScore && <span className="text-[10px] font-normal text-[var(--primary)]">Revisar</span>}</dd></div>
+                        <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">{showsApplicationCount ? "Aplicações" : "Quantidade"}</dt><dd className="mt-1 font-semibold">{showsApplicationCount ? asset.holdings.length : Number(asset.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 8 })}</dd></div>
+                        <div className="col-span-2"><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Atualizado</dt><dd className="mt-1 text-xs">{reviewDate(asset.priceUpdatedAt ?? asset.updatedAt, timeZone)}</dd></div>
+                      </dl>
+                    </div>
+
+                    {expandable && expanded && (
+                      <div className="space-y-3 border-t bg-[var(--muted)]/20 p-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div><strong className="text-sm">Posições do ativo</strong><p className="text-[11px] text-[var(--muted-foreground)]">Soma das posições ativas.</p></div>
+                          {asset.instrumentType === "FIXED_INCOME" && <Button size="sm" onClick={() => startHolding(asset)}><Plus className="size-4" /> Aplicação</Button>}
+                        </div>
+
+                        {asset.awaitingSyncContribution && (
+                          <div className="space-y-3 rounded-xl border border-[var(--primary)]/35 bg-[var(--primary)]/10 p-3 text-xs">
+                            <span className="inline-flex items-center gap-1.5 font-semibold text-[var(--primary)]"><Clock3 className="size-4" /> Aguardando sync</span>
+                            {asset.instrumentType === "FIXED_INCOME" ? (
+                              <p>{formatMoney(asset.awaitingSyncContribution.value)}</p>
+                            ) : asset.awaitingSyncContribution.paidUnitPrice ? (
+                              <p>{reviewDecimal(asset.awaitingSyncContribution.quantity)} un. · {formatMoney(asset.awaitingSyncContribution.paidUnitPrice)} cada · {formatMoney(asset.awaitingSyncContribution.value)}</p>
+                            ) : (
+                              <div className="grid gap-2">
+                                <span>{reviewDecimal(asset.awaitingSyncContribution.quantity)} un.</span>
+                                <div className="flex gap-2">
+                                  <Input type="number" min="0.00000001" step="any" value={pendingPriceByAsset[asset.id] ?? ""} onChange={(event) => setPendingPriceByAsset((current) => ({ ...current, [asset.id]: event.target.value }))} aria-label={`Preço unitário pago por ${asset.ticker}`} placeholder="Preço pago" className="h-10 bg-[var(--card)]" />
+                                  <Button type="button" onClick={() => savePendingContributionPrice(asset.id)} disabled={pending || !(Number(pendingPriceByAsset[asset.id]) > 0)}>Salvar</Button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {asset.holdings.map((holding) => {
+                          const movementState = holdingTransactions[holding.id];
+                          const displayedTransactions = movementState?.transactions ?? holding.transactions;
+                          const displayedAveragePrice = movementState?.averagePricePaid ?? holding.averagePricePaid;
+                          const displayedAveragePriceCoverage = movementState?.averagePriceCoverage ?? holding.averagePriceCoverage;
+                          return (
+                            <section key={holding.id} className="rounded-xl border bg-[var(--card)] p-3">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0"><strong className="block truncate text-sm">{holding.typeName}</strong><span className="block truncate text-xs text-[var(--muted-foreground)]">{holding.productName}</span></div>
+                                {holding.positionSource === "PLUGGY"
+                                  ? <span className="rounded-full bg-[var(--primary)]/12 px-2 py-1 text-[10px] font-semibold text-[var(--primary)]">Pluggy</span>
+                                  : <div className="flex"><Button variant="ghost" size="icon" onClick={() => startHolding(asset, holding)} aria-label={`Editar ${holding.productName}`}><Pencil className="size-4" /></Button><Button variant="ghost" size="icon" className="text-[var(--danger)]" onClick={() => setDeleteTarget({ kind: "holding", id: holding.id, label: holding.productName })} aria-label={`Excluir ${holding.productName}`}><Trash2 className="size-4" /></Button></div>}
+                              </div>
+                              <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-3 text-xs">
+                                <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Emissor</dt><dd className="mt-1">{holding.issuer || "—"}</dd></div>
+                                <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Atual</dt><dd className="mt-1 font-semibold">{formatMoney(holding.currentValue)}</dd></div>
+                                {holding.investedValue !== null && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Investido</dt><dd className="mt-1">{formatMoney(holding.investedValue)}</dd></div>}
+                                {["STOCK", "ETF", "REAL_ESTATE_FUND", "REIT", "CRYPTO"].includes(asset.instrumentType) && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Quantidade atual</dt><dd className="mt-1">{Number(holding.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 8 })}</dd></div>}
+                                {displayedAveragePrice !== null && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Preço médio</dt><dd className="mt-1">{formatMoney(displayedAveragePrice)}{displayedAveragePriceCoverage < 0.999 && <span className="block text-[9px] text-[var(--primary)]">Histórico parcial</span>}</dd></div>}
+                                {holdingProfitability(holding) && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Rentabilidade</dt><dd className="mt-1">{holdingProfitability(holding)}</dd></div>}
+                                {holding.purchaseDate && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Compra</dt><dd className="mt-1">{reviewDate(holding.purchaseDate, timeZone)}</dd></div>}
+                                {holding.maturityDate && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Vencimento</dt><dd className="mt-1">{reviewDate(holding.maturityDate, timeZone)}</dd></div>}
+                                {holding.positionSource === "PLUGGY" && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Status</dt><dd className="mt-1">{holding.providerStatus ?? "Sincronizado"}</dd></div>}
+                              </dl>
+
+                              {(holding.transactionCount > 0 || movementState?.loading || movementState?.error) && (
+                                <div className="mt-3 border-t pt-3">
+                                  <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">Operações informadas ({holding.transactionCount})</p>
+                                  <div className="space-y-2">
+                                    {displayedTransactions.map((transaction) => {
+                                      const operationAmount = transaction.netAmount ?? transaction.amount;
+                                      return (
+                                        <div key={transaction.id} className="rounded-lg bg-[var(--muted)]/35 p-3 text-xs">
+                                          <div className="flex items-start justify-between gap-3"><span><strong>{operationTypeLabel(transaction.type)}</strong><span className="mt-1 block text-[10px] text-[var(--muted-foreground)]">{reviewDate(transaction.tradeDate ?? transaction.date, timeZone)}</span></span><strong>{operationAmount === null ? "—" : reviewMoney(operationAmount, holding.currency)}</strong></div>
+                                          <div className="mt-2 flex justify-between gap-3 text-[10px] text-[var(--muted-foreground)]"><span>{transaction.quantity === null ? "Quantidade —" : `${Number(transaction.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 8 })} un.`}</span><span>{transaction.value === null ? "Preço —" : reviewMoney(transaction.value, holding.currency)}</span></div>
+                                        </div>
+                                      );
+                                    })}
+                                    {movementState?.loading && <div className="flex items-center justify-center gap-2 py-3 text-xs text-[var(--muted-foreground)]"><LoaderCircle className="size-4 animate-spin" /> Carregando…</div>}
+                                    {movementState?.error && <div className="flex items-center justify-between gap-2 text-xs text-[var(--danger)]"><span>{movementState.error}</span><Button size="sm" variant="outline" onClick={() => void loadHoldingTransactions(holding.id)}>Tentar novamente</Button></div>}
+                                    {movementState && !movementState.loading && !movementState.error && movementState.transactions.length < movementState.total && <Button className="w-full" size="sm" variant="outline" onClick={() => void loadHoldingTransactions(holding.id, movementState.page + 1, true)}>Carregar mais</Button>}
+                                  </div>
+                                </div>
+                              )}
+                            </section>
+                          );
+                        })}
+                        {!asset.holdings.length && <div className="rounded-xl border border-dashed p-5 text-center text-sm text-[var(--muted-foreground)]">Nenhuma aplicação cadastrada.</div>}
+                      </div>
+                    )}
+                  </article>
+                );
+              })}
+              {!filtered.length && <div className="grid min-h-56 place-items-center text-center text-sm text-[var(--muted-foreground)]"><div><FileSpreadsheet className="mx-auto mb-3 size-8 opacity-45" /><p>Nenhum ativo encontrado.</p></div></div>}
+            </div>
+            <div className="hidden overflow-x-auto scrollbar-thin lg:block">
               <table className="w-full min-w-[1030px] table-fixed text-left text-sm">
                 <colgroup>
                   <col className="w-[300px]" />
@@ -1431,7 +1584,7 @@ export function AssetsPanel({
             </div>
           </CardContent>
         </Card>
-        <Card className="self-start xl:sticky xl:top-8">
+        <Card className="self-start @7xl:sticky @7xl:top-6">
           <CardHeader><CardTitle>Distribuição atual</CardTitle></CardHeader>
           <CardContent>
             {chartData.length ? <DonutChart data={chartData} centerLabel="Patrimônio" /> : <div className="grid h-64 place-items-center text-sm text-[var(--muted-foreground)]">Adicione ativos para visualizar.</div>}
@@ -1444,6 +1597,7 @@ export function AssetsPanel({
 
       <Dialog
         open={reviewForm !== null}
+        mobileMode="full"
         onOpenChange={(open) => !open && setReviewForm(null)}
         dismissible={!pending}
         title="Revisar integração Pluggy"
@@ -1509,6 +1663,7 @@ export function AssetsPanel({
 
       <Dialog
         open={form !== null}
+        mobileMode="full"
         onOpenChange={(open) => !open && setForm(null)}
         dismissible={!pending}
         title={form?.id ? "Editar ativo" : "Adicionar ativo"}
@@ -1795,6 +1950,7 @@ export function AssetsPanel({
 
       <Dialog
         open={fixedGroupForm !== null}
+        mobileMode="full"
         onOpenChange={(open) => !open && setFixedGroupForm(null)}
         dismissible={!pending}
         title={fixedGroupForm?.id ? "Editar grupo de renda fixa" : "Adicionar grupo de renda fixa"}
@@ -1839,6 +1995,7 @@ export function AssetsPanel({
 
       <Dialog
         open={holdingForm !== null && Boolean(holdingAsset)}
+        mobileMode="full"
         onOpenChange={(open) => !open && setHoldingForm(null)}
         dismissible={!pending}
         title={holdingForm?.id ? "Editar aplicação" : "Adicionar aplicação"}

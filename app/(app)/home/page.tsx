@@ -24,7 +24,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
     includeHistory: true,
   });
   return (
-    <div className="space-y-7">
+    <div className="space-y-5 sm:space-y-7">
       <PageHeader
         eyebrow="Painel"
         title={`${greetingForTimeZone(timeZone)}, ${data.user.name || "Investidor"}!`}

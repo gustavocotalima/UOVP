@@ -13,5 +13,5 @@ export default async function GoalsPage() {
   const data = await getFinanceData(userId, current.year, current.month, {
     transactionScope: "NONE",
   });
-  return <div className="space-y-7"><PageHeader title="Metas" description="Defina como sua renda mensal deve ser distribuída." /><GoalsClient data={data} /></div>;
+  return <div className="space-y-5 sm:space-y-7"><PageHeader title="Metas" description="Defina como sua renda mensal deve ser distribuída." /><GoalsClient data={data} /></div>;
 }

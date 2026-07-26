@@ -14,13 +14,13 @@ describe("autenticação e navegação", () => {
       ["Ferramentas", "/ferramentas"],
     ];
     routes.forEach(([label, path]) => {
-      cy.contains("a", label).click();
+      cy.contains("a", label).filter(":visible").click();
       cy.location("pathname").should("eq", path);
     });
 
-    cy.get('a[href="/perfil"]').click();
+    cy.get('a[href="/perfil"]:visible').click();
     cy.location("pathname").should("eq", "/perfil");
-    cy.get('a[aria-label="Configurações"]').click();
+    cy.get('a[aria-label="Configurações"]:visible').click();
     cy.location("pathname").should("eq", "/configuracoes");
   });
 });

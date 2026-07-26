@@ -30,7 +30,7 @@ export default async function SettingsPage() {
     getUserTimeZone(userId),
   ]);
   return (
-    <div className="space-y-7">
+    <div className="space-y-5 sm:space-y-7">
       <PageHeader
         eyebrow="Conta"
         title="Configurações"

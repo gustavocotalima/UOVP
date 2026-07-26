@@ -12,7 +12,7 @@ export function ProjectionChart({ rows }: { rows: { contribution: number; values
     ...Object.fromEntries(selected.map((row) => [String(row.contribution), row.values[index].value])),
   })) ?? [];
   return (
-    <div className="h-80 w-full" role="img" aria-label="Projeção patrimonial por aporte mensal">
+    <div className="h-64 w-full sm:h-80" role="img" aria-label="Projeção patrimonial por aporte mensal">
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={data} margin={{ left: 8, right: 12, top: 8 }}>
           <XAxis dataKey="years" stroke="var(--muted-foreground)" tickLine={false} axisLine={false} fontSize={12} />

@@ -9,6 +9,7 @@ import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 import {
   createFinanceDescriptionPrefixRuleAction,
   createFinanceTagAction,
@@ -178,7 +179,17 @@ export function TagsClient({
       <div className="flex items-center justify-between"><p className="text-sm text-[var(--muted-foreground)]">{tags.length} tags encontradas</p><Button onClick={openCreate}><Plus className="size-4" /> Criar Tag</Button></div>
       <Card className="overflow-hidden">
         <CardContent className="p-0">
-          <table className="w-full text-left text-sm">
+          <div className="divide-y lg:hidden">
+            {tags.map((tag) => (
+              <article key={tag.id} className="flex min-h-16 items-center gap-3 p-3">
+                <span className="block size-5 shrink-0 rounded-md" style={{ background: tag.color }} />
+                <span className="min-w-0 flex-1 truncate text-sm font-medium">{tag.name}{tag.systemKey && <small className="ml-2 text-[10px] font-normal text-[var(--muted-foreground)]">Padrão</small>}</span>
+                <Button variant="ghost" size="icon" aria-label="Editar tag" onClick={() => openEdit(tag)}><Pencil className="size-4" /></Button>
+                <Button variant="ghost" size="icon" aria-label="Excluir tag" disabled={Boolean(tag.systemKey)} onClick={() => setDeleting(tag)}><Trash2 className="size-4" /></Button>
+              </article>
+            ))}
+          </div>
+          <table className="hidden w-full text-left text-sm lg:table">
             <thead className="border-b bg-[var(--muted)]/40 text-[11px] uppercase tracking-wide text-[var(--muted-foreground)]"><tr><th className="w-14 p-4"></th><th className="p-4">Tag</th><th className="p-4 text-right">Ações</th></tr></thead>
             <tbody className="divide-y">
               {tags.map((tag) => <tr key={tag.id}><td className="p-4"><span className="block size-5 rounded-md" style={{ background: tag.color }} /></td><td className="p-4 font-medium">{tag.name}{tag.systemKey && <small className="ml-2 text-[10px] font-normal text-[var(--muted-foreground)]">Padrão</small>}</td><td className="p-4"><div className="flex justify-end gap-1"><Button variant="ghost" size="icon" aria-label="Editar tag" onClick={() => openEdit(tag)}><Pencil className="size-4" /></Button><Button variant="ghost" size="icon" aria-label="Excluir tag" disabled={Boolean(tag.systemKey)} onClick={() => setDeleting(tag)}><Trash2 className="size-4" /></Button></div></td></tr>)}
@@ -201,7 +212,22 @@ export function TagsClient({
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          <div className="overflow-x-auto">
+          <div className="space-y-3 p-3 lg:hidden">
+            {rules.map((rule) => (
+              <article key={rule.id} className={cn("rounded-xl border p-4", !rule.enabled && "opacity-55")}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0"><strong className="block truncate text-sm">{rule.matchLabel}</strong><small className="mt-1 block text-[10px] text-[var(--muted-foreground)]">{ruleMatchLabel(rule.matchType)} · {rule.kind === "EXPENSE" ? "Saída" : "Entrada"}</small></div>
+                  <span className={cn("shrink-0 rounded-full px-2 py-1 text-[10px]", rule.enabled ? "bg-[var(--success)]/12 text-[var(--success)]" : "bg-[var(--muted)] text-[var(--muted-foreground)]")}>{rule.enabled ? "Ativa" : "Desativada"}</span>
+                </div>
+                <dl className="mt-4 grid grid-cols-2 gap-3 text-xs">
+                  <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Resultado</dt><dd className="mt-1">{ruleResult(rule)}</dd></div>
+                  <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Aplicações</dt><dd className="mt-1 font-semibold">{rule.appliedCount}</dd></div>
+                </dl>
+                <div className="mt-3 flex justify-end gap-1 border-t pt-2"><Button variant="ghost" size="sm" onClick={() => openRule(rule)}><Pencil className="size-4" /> Editar</Button><Button variant="ghost" size="sm" className="text-[var(--danger)]" onClick={() => setDeletingRule(rule)}><Trash2 className="size-4" /> Excluir</Button></div>
+              </article>
+            ))}
+          </div>
+          <div className="hidden overflow-x-auto lg:block">
             <table className="w-full min-w-[760px] text-left text-sm">
               <thead className="border-y bg-[var(--muted)]/40 text-[11px] uppercase tracking-wide text-[var(--muted-foreground)]">
                 <tr><th className="p-4">Correspondência</th><th className="p-4">Resultado</th><th className="p-4">Aplicações</th><th className="p-4">Status</th><th className="p-4 text-right">Ações</th></tr>
