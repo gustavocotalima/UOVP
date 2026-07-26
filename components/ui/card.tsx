@@ -18,5 +18,13 @@ export function CardDescription({ className, ...props }: React.HTMLAttributes<HT
 }
 
 export function CardContent({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("p-4 pt-0 sm:p-5 sm:pt-0", className)} {...props} />;
+  return (
+    <div
+      className={cn(
+        "[--card-content-padding:1rem] p-[var(--card-content-padding)] pt-0 sm:[--card-content-padding:1.25rem]",
+        className,
+      )}
+      {...props}
+    />
+  );
 }
