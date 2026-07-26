@@ -31,7 +31,7 @@ export function BudgetOverviewClient({ data }: { data: FinanceData }) {
           {period.missingFxCount} transação(ões) aguardam conversão para BRL e não entram nos totais.
         </div>
       )}
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <section className="grid gap-3 @2xl:grid-cols-2 @6xl:grid-cols-4 @5xl:gap-4">
         <SummaryCard icon={TrendingUp} label="Entradas" value={period.grossIncome} detail="Todas as entradas reportáveis do mês" />
         <SummaryCard icon={TrendingUp} label="Renda considerada nas metas" value={period.budgetBaseIncome} detail="Entradas sem meta atribuída" />
         <SummaryCard icon={TrendingDown} label="Gastos do Mês" value={period.spent} detail={`${formatPercent(period.budgetBaseIncome > 0 ? period.spent / period.budgetBaseIncome * 100 : 0)} da renda-base utilizada`} danger />
@@ -43,7 +43,7 @@ export function BudgetOverviewClient({ data }: { data: FinanceData }) {
           <h2 className="text-xl font-semibold">Metas financeiras</h2>
           <p className="mt-1 text-sm text-[var(--muted-foreground)]">Distribuição da sua renda mensal por categoria</p>
         </div>
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-4 @3xl:grid-cols-2 @6xl:grid-cols-3">
           {categories.map((item) => (
             <Card key={item.category} className="overflow-hidden" data-budget-category={item.category}>
               <CardContent className="p-5">

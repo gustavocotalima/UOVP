@@ -12,7 +12,7 @@ export default async function PortfolioPage() {
     getDiagramData(userId),
   ]);
   return (
-    <div className="space-y-7">
+    <div className="space-y-5 sm:space-y-7">
       <PageHeader eyebrow="Patrimônio" title="Carteira" description="Organize ativos, defina metas, avalie sua tese e distribua novos aportes." />
       <PortfolioClient portfolio={portfolio} questions={diagram.questions} answers={diagram.answers} />
     </div>

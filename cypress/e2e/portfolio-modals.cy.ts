@@ -7,7 +7,7 @@ describe("modais da carteira", () => {
   });
 
   it("exibe o logo do Yahoo Finance na tabela da carteira", () => {
-    cy.contains("button", "Adicionar ativo").click();
+    cy.contains("button:visible", "Adicionar ativo").click();
     cy.get("#asset-class").select("INTERNATIONAL_STOCKS");
     cy.get("#asset-ticker").type("AAPL");
     cy.get("#market-ticker-options", { timeout: 10000 }).contains('[role="option"]', "AAPL").click();
@@ -23,7 +23,7 @@ describe("modais da carteira", () => {
 
   it("abre o modal de adição de ativo e fecha pelo controle acessível", () => {
     cy.contains("button", "Atualizar cotações").should("exist");
-    cy.contains("button", "Adicionar ativo").click();
+    cy.contains("button:visible", "Adicionar ativo").click();
     cy.get('[role="dialog"]').should("be.visible").and("contain", "Adicionar ativo");
     cy.get('[role="dialog"]').find("#asset-class").should("be.visible");
     cy.get("#asset-ticker")
@@ -51,7 +51,7 @@ describe("modais da carteira", () => {
   });
 
   it("exige seleção do catálogo Spot da Binance para criptomoedas", () => {
-    cy.contains("button", "Adicionar ativo").click();
+    cy.contains("button:visible", "Adicionar ativo").click();
     cy.get("#asset-instrument").select("CRYPTO");
     cy.get("#asset-class").should("have.value", "CRYPTO");
     cy.get("#asset-ticker").type("BTC");
@@ -68,7 +68,7 @@ describe("modais da carteira", () => {
   });
 
   it("sugere FIIs da brapi sem recortar a lista pelo modal", () => {
-    cy.contains("button", "Adicionar ativo").click();
+    cy.contains("button:visible", "Adicionar ativo").click();
     cy.get("#asset-class").select("REAL_ESTATE_FUNDS");
     cy.get("#asset-ticker").type("RBVA11");
 
@@ -83,7 +83,7 @@ describe("modais da carteira", () => {
   });
 
   it("exige uma opção do autocomplete e oculta tickers fracionários", () => {
-    cy.contains("button", "Adicionar ativo").click();
+    cy.contains("button:visible", "Adicionar ativo").click();
     cy.get("#asset-ticker").type("ITAUSA");
     cy.get('button[form="asset-modal-form"]').should("be.disabled");
 
@@ -127,7 +127,7 @@ describe("modais da carteira", () => {
   });
 
   it("cria, expande, pesquisa e mantém um grupo vazio de renda fixa", () => {
-    cy.contains("button", "Renda fixa").click();
+    cy.contains("button:visible", "Renda fixa").click();
     cy.get("#fixed-family").should("contain", "Tesouro Direto").and("not.contain", "Tesouro IPCA+").and("not.contain", "Tesouro Selic");
     cy.get("#fixed-family").select("BANK_DEPOSITS_FGC");
     cy.get("#fixed-indexation").select("PRE_FIXED");
@@ -135,8 +135,8 @@ describe("modais da carteira", () => {
     cy.get('button[form="fixed-income-group-form"]').click();
     cy.contains("Grupo de renda fixa adicionado.").should("be.visible");
 
-    cy.get('button[aria-label^="Expandir Depósitos bancários com FGC"]').click();
-    cy.contains("button", "Adicionar aplicação").click();
+    cy.get('button[aria-label^="Expandir Depósitos bancários com FGC"]:visible').click();
+    cy.contains("button:visible", "Adicionar aplicação").click();
     cy.get("#holding-type").select("5");
     cy.get("#holding-issuer").type("Banco Exemplo");
     cy.get("#holding-product").type("CDB Exemplo 2029");
@@ -149,24 +149,24 @@ describe("modais da carteira", () => {
     cy.get("#holding-maturity-date").type("2029-01-10");
     cy.get('button[form="fixed-income-holding-form"]').click();
     cy.contains("Aplicação adicionada.").should("be.visible");
-    cy.contains("CDB Exemplo 2029").should("be.visible");
+    cy.contains(":visible", "CDB Exemplo 2029").should("be.visible");
 
-    cy.get('button[aria-label^="Recolher Depósitos bancários com FGC"]').click();
-    cy.contains("CDB Exemplo 2029").should("not.exist");
+    cy.get('button[aria-label^="Recolher Depósitos bancários com FGC"]:visible').click();
+    cy.contains(":visible", "CDB Exemplo 2029").should("not.exist");
     cy.get('input[placeholder="Buscar nome ou ticker"]').type("CDB Exemplo 2029");
-    cy.contains("CDB Exemplo 2029").should("be.visible");
+    cy.contains(":visible", "CDB Exemplo 2029").should("be.visible");
 
     cy.contains("tr", "CDB Exemplo 2029").contains("button", "Excluir").click();
     cy.get('[role="dialog"]').contains("button", "Remover").click();
-    cy.contains("CDB Exemplo 2029").should("not.exist");
+    cy.contains(":visible", "CDB Exemplo 2029").should("not.exist");
     cy.get('input[placeholder="Buscar nome ou ticker"]').clear();
     cy.contains("Depósitos bancários com FGC · Pré-fixado").should("exist");
-    cy.get('button[aria-label^="Expandir Depósitos bancários com FGC"]').click();
-    cy.contains("Nenhuma aplicação cadastrada. O grupo continua elegível para receber aportes.").should("be.visible");
+    cy.get('button[aria-label^="Expandir Depósitos bancários com FGC"]:visible').click();
+    cy.contains(":visible", "Nenhuma aplicação cadastrada. O grupo continua elegível para receber aportes.").should("be.visible");
   });
 
   it("permite selecionar ETF e escolher uma exposição diferente", () => {
-    cy.contains("button", "Adicionar ativo").click();
+    cy.contains("button:visible", "Adicionar ativo").click();
     cy.get("#asset-instrument").select("ETF");
     cy.get("#asset-class").should("not.be.disabled").select("FIXED_INCOME");
     cy.get("#asset-fixed-group").should("be.visible").select("PUBLIC_TREASURY");
@@ -177,7 +177,7 @@ describe("modais da carteira", () => {
   });
 
   it("reproduz o modal operacional de novo aporte", () => {
-    cy.contains("button", "Adicionar ativo").click();
+    cy.contains("button:visible", "Adicionar ativo").click();
     cy.get("#asset-class").select("INTERNATIONAL_STOCKS");
     cy.get("#asset-ticker").type("AAPL");
     cy.get("#market-ticker-options", { timeout: 10000 }).contains('[role="option"]', "AAPL").click();
@@ -185,7 +185,7 @@ describe("modais da carteira", () => {
     cy.get('button[form="asset-modal-form"]').click();
     cy.contains("Ativo adicionado.").should("be.visible");
 
-    cy.get('button[aria-label="Editar AAPL"]').click();
+    cy.get('button[aria-label="Editar AAPL"]:visible').click();
     cy.get('[role="switch"]').click({ multiple: true });
     cy.get('button[form="asset-modal-form"]').click();
     cy.contains("Ativo atualizado.").should("be.visible");

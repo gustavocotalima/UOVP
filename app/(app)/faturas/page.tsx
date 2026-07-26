@@ -13,5 +13,5 @@ export default async function InvoicesPage() {
   const data = await getFinanceData(userId, current.year, current.month, {
     transactionScope: "INVOICE_HISTORY",
   });
-  return <div className="space-y-7"><PageHeader title="Faturas" description="Acompanhe as faturas de todos os seus cartões de crédito" /><InvoicesClient data={data} /></div>;
+  return <div className="space-y-5 sm:space-y-7"><PageHeader title="Faturas" description="Acompanhe as faturas de todos os seus cartões de crédito" /><InvoicesClient data={data} /></div>;
 }

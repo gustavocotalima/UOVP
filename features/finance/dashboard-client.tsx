@@ -47,7 +47,7 @@ export function FinanceDashboardClient({ data }: { data: FinanceData }) {
           Há valores em moeda estrangeira aguardando conversão. Eles não foram incluídos nos totais em BRL.
         </div>
       )}
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <section className="grid gap-3 @2xl:grid-cols-2 @5xl:grid-cols-3 @7xl:grid-cols-5 @5xl:gap-4">
         <Summary label="Resultado do período" value={period.balance} tone={period.balance < 0 ? "danger" : "default"} />
         <Summary label="Entradas" value={period.grossIncome} tone="success" />
         <Summary label="Renda considerada nas metas" value={period.budgetBaseIncome} />
@@ -55,9 +55,9 @@ export function FinanceDashboardClient({ data }: { data: FinanceData }) {
         <Summary label="Saldo em conta" value={accountTotals.bankBalance} />
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-[1.55fr_1fr]">
+      <section className="grid gap-4 @6xl:grid-cols-[1.55fr_1fr] @6xl:gap-6">
         <Card>
-          <CardHeader className="flex-row items-start justify-between gap-4">
+          <CardHeader className="gap-4 @2xl:flex-row @2xl:items-start @2xl:justify-between">
             <div>
               <CardTitle>Histórico financeiro</CardTitle>
               <p className="mt-1 text-sm text-[var(--muted-foreground)]">Receitas e despesas dos últimos meses</p>
@@ -77,7 +77,7 @@ export function FinanceDashboardClient({ data }: { data: FinanceData }) {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="h-80">
+            <div className="h-64 @3xl:h-80">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={history}>
                   <defs>
@@ -135,7 +135,7 @@ export function FinanceDashboardClient({ data }: { data: FinanceData }) {
         </Card>
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-[1fr_1.25fr]">
+      <section className="grid gap-4 @6xl:grid-cols-[1fr_1.25fr] @6xl:gap-6">
         <Card>
           <CardHeader>
             <CardTitle>Metas Financeiras</CardTitle>
@@ -161,7 +161,7 @@ export function FinanceDashboardClient({ data }: { data: FinanceData }) {
         </Card>
 
         <Card>
-          <CardHeader className="flex-row items-center justify-between">
+          <CardHeader className="gap-3 @2xl:flex-row @2xl:items-center @2xl:justify-between">
             <div>
               <CardTitle>Transações recentes</CardTitle>
               <p className="mt-1 text-sm text-[var(--muted-foreground)]">Últimas movimentações sincronizadas</p>

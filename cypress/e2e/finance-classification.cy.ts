@@ -50,7 +50,7 @@ describe("classificação automática de transações Pluggy", () => {
     cy.contains("Regra pessoal criada e aplicada às transações semelhantes.").should("be.visible");
     cy.contains("tr", "Loja semelhante B").should("contain", "Metas").and("contain", "Regra pessoal");
 
-    cy.contains("a", "Tags").click();
+    cy.contains("a", "Tags").filter(":visible").click();
     cy.contains("Regras automáticas").should("be.visible");
     cy.contains("tr", "12.345.678/0001-90").should("contain", "Metas").and("contain", "Ativa");
 
@@ -61,7 +61,7 @@ describe("classificação automática de transações Pluggy", () => {
     cy.get('[role="dialog"]').contains("button", "Salvar regra").click();
     cy.contains("Regra automática atualizada.").should("be.visible");
 
-    cy.contains("a", "Transações").click();
+    cy.contains("a", "Transações").filter(":visible").click();
     cy.contains("tr", "Loja semelhante A").should("contain", "Metas").and("contain", "Manual");
     cy.contains("tr", "Loja semelhante B").should("contain", "Conforto").and("contain", "Pluggy");
   });

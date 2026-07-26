@@ -191,7 +191,7 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
   return (
     <div className="space-y-6">
       <Card>
-        <CardContent className="flex flex-col gap-4 pt-5 sm:flex-row sm:items-end">
+        <CardContent className="flex flex-col gap-4 pt-4 sm:pt-5 @3xl:flex-row @3xl:items-end">
           <div className="w-full max-w-sm space-y-2"><Label htmlFor="contribution-value">Valor do aporte</Label><Input id="contribution-value" type="number" min="0.01" step="0.01" value={value} onChange={(event) => setValue(Number(event.target.value))} /></div>
           <Button size="lg" onClick={calculate} disabled={pending || value <= 0 || !assets.length}><Calculator className="size-4" /> {pending ? "Calculando…" : "Calcular"}</Button>
           {!assets.length && <p className="text-sm text-[var(--muted-foreground)]">Adicione ativos antes de simular.</p>}
@@ -220,7 +220,38 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
           <Card>
             <CardHeader><CardTitle className="text-xl">Sugestões de investimento</CardTitle></CardHeader>
             <CardContent>
-              <div className="max-h-[540px] overflow-auto scrollbar-thin">
+              <div className="space-y-3 lg:hidden">
+                {simulation.suggestions.map((item) => {
+                  const asset = assets.find((candidate) => candidate.id === item.assetId);
+                  const meta = INVESTMENT_CLASS_META[item.investmentClass];
+                  return (
+                    <article key={item.id} data-testid="mobile-contribution-card" className="rounded-2xl border bg-[var(--card)] p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <strong className="block truncate text-base">{item.ticker}</strong>
+                          <span className="mt-1 inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold text-black" style={{ background: meta.color }}>{meta.label}</span>
+                        </div>
+                        <span className="grid size-9 shrink-0 place-items-center rounded-full bg-[var(--muted)] text-sm font-semibold">{asset?.score ?? 0}</span>
+                      </div>
+                      <dl className="mt-4 grid grid-cols-2 gap-3 border-t pt-4 text-sm">
+                        <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Atual</dt><dd className="mt-1 font-semibold text-[var(--success)]">{formatMoney(asset?.currentValue ?? 0)}</dd></div>
+                        <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Preço atual</dt><dd className="mt-1 font-semibold text-[var(--success)]">{formatMoney(asset?.unitPrice ?? 0)}</dd></div>
+                        <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Sugestão</dt><dd className="mt-1 font-semibold">{formatMoney(item.value)}</dd></div>
+                        <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Quantidade</dt><dd className="mt-1 font-semibold">{formatQuantity(item.quantity)}</dd></div>
+                        <div className="col-span-2"><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Total após aporte</dt><dd className="mt-1 font-semibold">{formatPercent(item.totalAfterSuggestionPercentage)}</dd></div>
+                      </dl>
+                      <div className="mt-4">
+                        {item.executed
+                          ? <span className="inline-flex min-h-11 w-full items-center justify-center gap-1 rounded-xl bg-[var(--success)]/10 text-sm text-[var(--success)]"><CheckCircle2 className="size-4" /> Registrado</span>
+                          : item.executionStatus === "AWAITING_SYNC"
+                            ? <span className="inline-flex min-h-11 w-full items-center justify-center gap-1 rounded-xl bg-[var(--primary)]/10 text-sm text-[var(--primary)]"><Clock3 className="size-4" /> Aguardando sync</span>
+                            : <Button className="w-full" onClick={() => openContribution(item.id, item.quantity)} disabled={pending}><DollarSign className="size-5" /> Aportar</Button>}
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+              <div className="hidden max-h-[540px] overflow-auto scrollbar-thin lg:block">
                 <table aria-label="Sugestões de investimento" className="w-full min-w-[1080px] text-left text-sm">
                   <thead className="sticky top-0 z-10 bg-[var(--primary)] text-[var(--primary-foreground)]">
                     <tr>
@@ -269,6 +300,7 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
 
       <Dialog
         open={Boolean(contributionModal && selectedSuggestion && selectedAsset)}
+        mobileMode="full"
         onOpenChange={(open) => !open && setContributionModal(undefined)}
         title="Novo aporte"
         titleAlign="center"

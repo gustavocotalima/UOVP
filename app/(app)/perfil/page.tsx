@@ -13,5 +13,5 @@ export default async function ProfilePage() {
   const data = await getFinanceData(userId, current.year, current.month, {
     transactionScope: "NONE",
   });
-  return <div className="space-y-7"><PageHeader title="Perfil" description="Aqui você pode visualizar todas as informações do seu perfil" /><ProfileClient data={data} /></div>;
+  return <div className="space-y-5 sm:space-y-7"><PageHeader title="Perfil" description="Aqui você pode visualizar todas as informações do seu perfil" /><ProfileClient data={data} /></div>;
 }

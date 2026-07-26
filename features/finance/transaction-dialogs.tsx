@@ -182,6 +182,7 @@ function TransactionEditorDialogContent({
   return (
     <Dialog
       open={open}
+      mobileMode="full"
       onOpenChange={onOpenChange}
       dismissible={!pending}
       title={formatCurrency(transaction.amount, transaction.currencyCode)}
@@ -379,6 +380,7 @@ function NewTransactionDialogContent({
   return (
     <Dialog
       open={open}
+      mobileMode="full"
       onOpenChange={onOpenChange}
       dismissible={!pending}
       title="Nova transação"

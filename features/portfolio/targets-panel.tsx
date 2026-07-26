@@ -36,11 +36,11 @@ export function TargetsPanel({ initialTargets }: { initialTargets: Record<Invest
   }
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[1fr_360px]">
+    <div className="grid gap-4 @6xl:grid-cols-[minmax(0,1fr)_340px] @6xl:gap-6 min-[2048px]:grid-cols-[minmax(0,1fr)_360px]">
       <div className="space-y-6">
         <Card>
           <CardHeader><CardTitle>Perfis de investidor</CardTitle></CardHeader>
-          <CardContent className="grid gap-3 md:grid-cols-3">
+          <CardContent className="grid gap-3 @4xl:grid-cols-3">
             {INVESTMENT_PRESETS.map((preset) => (
               <button key={preset.slug} type="button" onClick={() => setTargets({ ...preset.targets })} className="rounded-2xl border p-4 text-left transition hover:border-[var(--primary)] hover:bg-[var(--muted)]">
                 <strong>{preset.name}</strong>
@@ -53,7 +53,7 @@ export function TargetsPanel({ initialTargets }: { initialTargets: Record<Invest
           <CardHeader className="flex-row items-center justify-between"><CardTitle>Metas por classe</CardTitle><span className={`rounded-full px-3 py-1 text-sm font-semibold ${valid ? "bg-green-500/10 text-[var(--success)]" : "bg-red-500/10 text-[var(--danger)]"}`}>{formatPercent(total, 0)}</span></CardHeader>
           <CardContent className="space-y-6">
             {INVESTMENT_CLASSES.map((investmentClass) => (
-              <label key={investmentClass} className="grid gap-2 sm:grid-cols-[220px_1fr_76px] sm:items-center">
+              <label key={investmentClass} className="grid gap-2 @3xl:grid-cols-[220px_1fr_76px] @3xl:items-center">
                 <span className="flex items-center gap-2 text-sm"><span className="size-2.5 rounded-full" style={{ background: INVESTMENT_CLASS_META[investmentClass].color }} />{INVESTMENT_CLASS_META[investmentClass].label}</span>
                 <input type="range" min="0" max="100" step="1" value={targets[investmentClass]} onChange={(event) => setTargets({ ...targets, [investmentClass]: Number(event.target.value) })} className="accent-[var(--primary)]" />
                 <div className="flex items-center rounded-lg border"><input aria-label={`Meta de ${INVESTMENT_CLASS_META[investmentClass].label}`} className="h-9 w-12 bg-transparent px-2 text-right text-sm" type="number" min="0" max="100" value={targets[investmentClass]} onChange={(event) => setTargets({ ...targets, [investmentClass]: Number(event.target.value) })} /><span className="pr-2 text-xs text-[var(--muted-foreground)]">%</span></div>

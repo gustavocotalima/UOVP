@@ -52,7 +52,7 @@ export function GoalsClient({ data }: { data: FinanceData }) {
     <div className="space-y-6">
       {notice && <FinanceNotice type={notice.type}>{notice.text}</FinanceNotice>}
       <Card>
-        <CardContent className="flex flex-col gap-5 p-5 sm:flex-row sm:items-center sm:justify-between">
+        <CardContent className="flex flex-col gap-5 p-4 sm:p-5 @3xl:flex-row @3xl:items-center @3xl:justify-between">
           <div><p className="text-sm text-[var(--muted-foreground)]">Renda mensal</p><p className="mt-1 text-2xl font-semibold">{formatMoney(income)}</p><p className="mt-1 text-xs text-[var(--muted-foreground)]">Base usada para calcular os valores das metas</p></div>
           <div className="grid grid-cols-2 rounded-xl bg-[var(--muted)] p-1">
             <button type="button" onClick={() => setMode("percentage")} className={cn("rounded-lg px-4 py-2 text-sm font-semibold", mode === "percentage" && "bg-[var(--card)] shadow-sm")}>Porcentagem</button>
@@ -66,7 +66,7 @@ export function GoalsClient({ data }: { data: FinanceData }) {
           <div><CardTitle>Visualização de uso</CardTitle><p className="mt-1 text-sm text-[var(--muted-foreground)]">Distribuição planejada da sua renda</p></div>
           <Button variant="ghost" size="sm" onClick={reset} disabled={pending}><RotateCcw className="size-4" /> Resetar valores</Button>
         </CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <CardContent className="grid gap-4 @3xl:grid-cols-2 @6xl:grid-cols-3">
           {DISPLAY_ORDER.map((category) => {
             const meta = BUDGET_CATEGORY_META[category];
             return <div key={category} className="rounded-xl border p-4"><div className="flex items-center justify-between"><span className="flex items-center gap-2 text-sm font-medium"><span className="size-2.5 rounded-full" style={{ background: meta.color }} />{meta.label}</span><strong>{mode === "percentage" ? formatPercent(goals[category]) : formatMoney(income * goals[category] / 100)}</strong></div></div>;

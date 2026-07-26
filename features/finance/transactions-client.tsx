@@ -75,6 +75,7 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
   const [deleting, setDeleting] = useState<FinanceTransactionDto | null>(null);
   const [applyingSimilar, setApplyingSimilar] = useState<FinanceTransactionDto | null>(null);
   const [menu, setMenu] = useState<string | null>(null);
+  const [expandedMobile, setExpandedMobile] = useState<string | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
@@ -364,7 +365,7 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
       </Card>
 
       <Card>
-        <CardHeader className="gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <CardHeader className="gap-4 @5xl:flex-row @5xl:items-center @5xl:justify-between">
           <div><CardTitle>Transações</CardTitle><p className="mt-1 text-sm text-[var(--muted-foreground)]">Um total de {transactionTotal} transações encontradas</p></div>
           <div className="grid grid-cols-3 gap-2 sm:min-w-[450px]">
             <MiniTotal label="Entradas" value={totals.income} tone="success" />
@@ -373,7 +374,7 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl bg-[var(--muted)] p-3">
+          <div className={cn("mb-4 flex flex-wrap items-center gap-3 rounded-xl bg-[var(--muted)] p-3", selected.length > 0 && "sticky bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-20 shadow-lg @7xl:static @7xl:shadow-none")}>
             <Switch
               aria-label="Ocultar transações selecionadas dos relatórios"
               disabled={!selected.length || pending}
@@ -386,7 +387,109 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
             <div><strong className="text-sm">Ocultar dos Relatórios:</strong><p className="text-xs text-[var(--muted-foreground)]">Selecione transações e use este toggle para excluí-las das análises financeiras.</p></div>
           </div>
 
-          <div className="overflow-x-auto">
+          <div className="mb-3 flex items-center gap-2 lg:hidden">
+            <Label htmlFor="mobile-transaction-sort" className="text-xs text-[var(--muted-foreground)]">Ordenar:</Label>
+            <Select
+              id="mobile-transaction-sort"
+              className="h-10 min-w-0 flex-1"
+              value={`${sort.key}:${sort.direction}`}
+              onChange={(event) => {
+                const [key, direction] = event.target.value.split(":") as [typeof sort.key, typeof sort.direction];
+                setSort({ key, direction });
+              }}
+            >
+              <option value="date:desc">Mais recentes</option>
+              <option value="date:asc">Mais antigas</option>
+              <option value="amount:desc">Maior valor</option>
+              <option value="amount:asc">Menor valor</option>
+              <option value="description:asc">Descrição A–Z</option>
+              <option value="account:asc">Conta A–Z</option>
+            </Select>
+          </div>
+
+          <div className="space-y-3 lg:hidden">
+            {visible.map((transaction) => {
+              const expanded = expandedMobile === transaction.id;
+              return (
+                <article
+                  key={transaction.id}
+                  data-testid="mobile-transaction-card"
+                  className={cn(
+                    "overflow-hidden rounded-2xl border bg-[var(--card)]",
+                    !isReportable(transaction) && "opacity-60",
+                    transaction.providerLifecycle === "DELETION_PENDING" && "border-[var(--primary)]/45 bg-[var(--primary)]/5",
+                  )}
+                >
+                  <div className="p-4">
+                    <div className="flex items-start gap-3">
+                      <input className="mt-1 size-4 shrink-0" type="checkbox" aria-label={`Selecionar ${transaction.description}`} checked={selected.includes(transaction.id)} onChange={(event) => setSelected(event.target.checked ? [...selected, transaction.id] : selected.filter((id) => id !== transaction.id))} />
+                      <button type="button" className="min-w-0 flex-1 text-left" onClick={() => setExpandedMobile(expanded ? null : transaction.id)} aria-expanded={expanded}>
+                        <span className="block truncate text-sm font-semibold">{transaction.description}</span>
+                        <span className="mt-1 block text-xs text-[var(--muted-foreground)]">{new Intl.DateTimeFormat("pt-BR", { timeZone: data.profile.timeZone }).format(new Date(transaction.date))} · {transaction.accountName}</span>
+                      </button>
+                      <div className="text-right">
+                        <strong className={cn("whitespace-nowrap text-sm", transaction.kind === "INCOME" && "text-[var(--success)]")}>{formatCurrency(transaction.amount, transaction.currencyCode)}</strong>
+                        <ChevronDown className={cn("ml-auto mt-2 size-4 transition", expanded && "rotate-180")} aria-hidden="true" />
+                      </div>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2 pl-7 text-[10px]">
+                      <span className="rounded-full bg-[var(--muted)] px-2 py-1">{transaction.budgetCategory ? BUDGET_CATEGORY_META[transaction.budgetCategory].label : "Sem meta"}</span>
+                      <span className="rounded-full bg-[var(--muted)] px-2 py-1">{transaction.tags.length ? transaction.tags.map((tag) => tag.name).join(", ") : "Sem tags"}</span>
+                      {transaction.internalTransfer && <span className="rounded-full bg-[var(--primary)]/12 px-2 py-1 text-[var(--primary)]">Transferência interna</span>}
+                      {transaction.reportingAmountBrl === null && <span className="rounded-full bg-[var(--danger)]/10 px-2 py-1 text-[var(--danger)]">Câmbio pendente</span>}
+                    </div>
+                  </div>
+
+                  {expanded && (
+                    <div className="space-y-4 border-t bg-[var(--muted)]/18 p-4">
+                      <dl className="grid grid-cols-2 gap-3 text-xs">
+                        <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Mês de referência</dt><dd className="mt-1 capitalize">{new Intl.DateTimeFormat("pt-BR", { month: "long" }).format(new Date(transaction.referenceYear, transaction.referenceMonth - 1, 1))}</dd></div>
+                        <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Instituição</dt><dd className="mt-1">{transaction.institutionName}</dd></div>
+                        {transaction.originalAmount && transaction.originalCurrencyCode && transaction.originalCurrencyCode !== transaction.currencyCode && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Valor original</dt><dd className="mt-1">{formatCurrency(transaction.originalAmount, transaction.originalCurrencyCode)}</dd></div>}
+                        {transaction.reportingAmountBrl !== null && transaction.currencyCode !== "BRL" && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Valor em BRL</dt><dd className="mt-1">{formatCurrency(transaction.reportingAmountBrl, "BRL")}</dd></div>}
+                      </dl>
+                      <div className="grid gap-3">
+                        <Label className="text-xs">Meta
+                          <Select className="mt-1 w-full" value={transaction.budgetCategory ?? ""} onChange={(event) => updateCategory(transaction, event.target.value)} disabled={pending}>
+                            <option value="">Sem meta</option>
+                            {BUDGET_CATEGORIES.map((category) => <option key={category} value={category}>{BUDGET_CATEGORY_META[category].label}</option>)}
+                          </Select>
+                        </Label>
+                        <div>
+                          <Label className="text-xs">Tags</Label>
+                          <button type="button" onClick={() => { setTagging(transaction); setTagSelection(transaction.tags.map((tag) => tag.id)); }} className="mt-1 flex min-h-11 w-full items-center justify-between gap-2 rounded-xl border bg-[var(--card)] px-3 text-left text-sm">
+                            <span className="truncate">{transaction.tags.length === 0 ? "Sem tags" : transaction.tags.length === 1 ? transaction.tags[0].name : `${transaction.tags.length} tags`}</span>
+                            <ChevronDown className="size-4" />
+                          </button>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between gap-3 rounded-xl border bg-[var(--card)] p-3">
+                        <div><strong className="text-xs">Ocultar dos relatórios</strong>{transaction.internalTransfer && <span className="block text-[10px] text-[var(--muted-foreground)]">Ocultada automaticamente</span>}</div>
+                        <Switch aria-label={`${transaction.ignored ? "Incluir" : "Ocultar"} ${transaction.description} nos relatórios`} checked={!isReportable(transaction)} onCheckedChange={(checked) => setIgnored([transaction.id], checked)} disabled={pending || transaction.internalTransfer} />
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <button type="button" className="min-h-11 min-w-0 flex-1 truncate text-left text-xs text-[var(--primary)]" onClick={() => { setNoting(transaction); setNote(transaction.note ?? ""); }}>{transaction.note || "+ Adicionar observação"}</button>
+                        <ActionMenu open={menu === `mobile:${transaction.id}`} onOpenChange={(open) => setMenu(open ? `mobile:${transaction.id}` : null)} label={`Ações de ${transaction.description}`}>
+                          <MenuButton icon={Pencil} label="Editar" onClick={() => { setEditing(transaction); setMenu(null); }} />
+                          <MenuButton icon={FileText} label="Ver detalhes" onClick={() => { setEditing(transaction); setMenu(null); }} />
+                          {transaction.source === "PLUGGY" && <MenuButton icon={CopyCheck} label="Aplicar às semelhantes" onClick={() => { setApplyingSimilar(transaction); setMenu(null); }} />}
+                          {transaction.providerLifecycle === "DELETION_PENDING" && <><div role="separator" className="my-1 border-t" /><MenuButton icon={Undo2} label="Manter como manual" onClick={() => resolveDeletion(transaction, "KEEP_MANUAL")} /><MenuButton icon={Trash2} label="Remover dos relatórios" danger onClick={() => resolveDeletion(transaction, "REMOVE")} /></>}
+                          <div role="separator" className="my-1 border-t" />
+                          <MenuButton icon={ArrowDown} label={transaction.internalTransfer ? "Remover transferência interna" : "Marcar como transferência interna"} onClick={() => toggleInternal(transaction)} />
+                          <div role="separator" className="my-1 border-t" />
+                          <MenuButton icon={Trash2} label="Deletar" danger onClick={() => { setDeleting(transaction); setMenu(null); }} />
+                        </ActionMenu>
+                      </div>
+                    </div>
+                  )}
+                </article>
+              );
+            })}
+            {tableLoading && <div className="flex items-center justify-center gap-2 py-16 text-sm text-[var(--muted-foreground)]"><LoaderCircle className="size-4 animate-spin" /> Carregando transações…</div>}
+            {!tableLoading && !visible.length && <div className="py-16 text-center text-sm text-[var(--muted-foreground)]">Nenhuma transação encontrada.</div>}
+          </div>
+
+          <div className="hidden overflow-x-auto lg:block">
             <table className="w-full min-w-[1180px] text-left text-sm">
               <thead className="border-b text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">
                 <tr>
@@ -477,8 +580,8 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
                     </td>
                     <td className="py-3 text-right">
                       <ActionMenu
-                        open={menu === transaction.id}
-                        onOpenChange={(open) => setMenu(open ? transaction.id : null)}
+                        open={menu === `desktop:${transaction.id}`}
+                        onOpenChange={(open) => setMenu(open ? `desktop:${transaction.id}` : null)}
                         label={`Ações de ${transaction.description}`}
                       >
                         <MenuButton icon={Pencil} label="Editar" onClick={() => { setEditing(transaction); setMenu(null); }} />

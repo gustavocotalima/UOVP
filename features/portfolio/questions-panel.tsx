@@ -88,7 +88,7 @@ export function QuestionsPanel({ questions }: { questions: DiagramQuestionDto[] 
   return (
     <Card>
       <CardHeader className="gap-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-col gap-3 @4xl:flex-row @4xl:items-center @4xl:justify-between">
           <div>
             <CardTitle>Perguntas</CardTitle>
             <p className="mt-1 text-sm text-[var(--muted-foreground)]">Adicione perguntas que deverão ser feitas quando você adicionar um ativo em sua carteira.</p>
@@ -98,7 +98,7 @@ export function QuestionsPanel({ questions }: { questions: DiagramQuestionDto[] 
             <Button variant="outline" onClick={() => setModelConfirmation("model")}><Sparkles className="size-4" /> Usar modelo</Button>
           </div>
         </div>
-        <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+        <div className="grid gap-3 @4xl:grid-cols-[1fr_auto]">
           <label className="relative">
             <span className="sr-only">Pesquisar perguntas</span>
             <Search className="pointer-events-none absolute left-3 top-3.5 size-4 text-[var(--muted-foreground)]" />
@@ -117,7 +117,17 @@ export function QuestionsPanel({ questions }: { questions: DiagramQuestionDto[] 
           <h3 className="font-semibold">Perguntas</h3>
           <Button onClick={() => setForm({ criterion: "", text: "" })}><Plus className="size-4" /> Adicionar pergunta</Button>
         </div>
-        <div className="overflow-x-auto rounded-xl border scrollbar-thin">
+        <div className="space-y-3 lg:hidden">
+          {visibleQuestions.map((question) => (
+            <article key={question.id} className="rounded-xl border p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0"><strong className="text-sm">{question.criterion}</strong><p className="mt-2 text-sm leading-6 text-[var(--muted-foreground)]">{question.text}</p></div>
+                <Button size="icon" variant="ghost" onClick={() => setForm({ id: question.id, criterion: question.criterion, text: question.text })} aria-label={`Editar ${question.criterion}`}><Pencil className="size-4" /></Button>
+              </div>
+            </article>
+          ))}
+        </div>
+        <div className="hidden overflow-x-auto rounded-xl border scrollbar-thin lg:block">
           <table className="w-full min-w-[720px] text-left text-sm">
             <thead className="bg-[var(--primary)] text-[var(--primary-foreground)]">
               <tr><th className="px-4 py-3">Critério</th><th className="px-4 py-3">Pergunta</th><th className="px-4 py-3 text-right">Ação</th></tr>

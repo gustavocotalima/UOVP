@@ -360,10 +360,10 @@ export default function CountryMap() {
             if (!event.target.value.trim()) setAppliedQuery("");
           }}
           onKeyDown={(event) => event.key === "Enter" && setAppliedQuery(query.trim())}
-          className="h-11 w-full max-w-[200px] rounded-lg border bg-transparent px-4 text-sm outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_25%,transparent)]"
+          className="h-11 w-full rounded-lg border bg-transparent px-4 text-sm outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_25%,transparent)] @3xl:max-w-[260px]"
         />
 
-        <div className="grid min-h-[400px] gap-4 md:min-h-[600px] md:grid-cols-[1.5fr_1fr]">
+        <div className="grid min-h-[400px] gap-4 @5xl:min-h-[600px] @5xl:grid-cols-[1.5fr_1fr]">
           <div className="overflow-hidden rounded-lg bg-slate-800 shadow-md" role="region" aria-label="Mapa de risco por país">
             {world && countries.length ? (
               <MapContainer center={[20, 0]} zoom={2} minZoom={2} maxZoom={6} maxBounds={[[-90, -180], [90, 180]]} scrollWheelZoom className="auvp-country-map z-0">
@@ -371,9 +371,9 @@ export default function CountryMap() {
                 <WorldLayer data={world} countries={countries} appliedQuery={appliedQuery} selectedGeoJsonName={selectedGeoJsonName} onSelect={selectCountry} />
                 <ResizeMap />
               </MapContainer>
-            ) : <div className="grid h-full min-h-[400px] place-items-center text-sm text-slate-300 md:min-h-[600px]">{loadError ? "Não foi possível carregar o mapa." : "Carregando mapa…"}</div>}
+            ) : <div className="grid h-full min-h-[400px] place-items-center text-sm text-slate-300 @5xl:min-h-[600px]">{loadError ? "Não foi possível carregar o mapa." : "Carregando mapa…"}</div>}
           </div>
-          <aside data-testid="country-info-panel" className="min-h-full max-h-[600px] overflow-y-auto rounded-lg bg-white shadow-md">
+          <aside data-testid="country-info-panel" className="max-h-[70svh] min-h-[320px] overflow-y-auto rounded-lg bg-white shadow-md @5xl:max-h-[600px] @5xl:min-h-full">
             <CountryInfo country={selectedCountry} tab={detailTab} onTabChange={setDetailTab} />
           </aside>
         </div>

@@ -13,5 +13,5 @@ export default async function TagsPage() {
   const data = await getFinanceData(userId, current.year, current.month, {
     transactionScope: "NONE",
   });
-  return <div className="space-y-7"><PageHeader title="Tags" description="Aqui você pode criar e visualizar suas tags. As tags podem ser anexadas às transações" /><TagsClient tags={data.tags} rules={data.classificationRules} /></div>;
+  return <div className="space-y-5 sm:space-y-7"><PageHeader title="Tags" description="Aqui você pode criar e visualizar suas tags. As tags podem ser anexadas às transações" /><TagsClient tags={data.tags} rules={data.classificationRules} /></div>;
 }

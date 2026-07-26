@@ -300,19 +300,19 @@ export function AccountsClient({ data }: { data: FinanceData }) {
       {!data.pluggy.configured && <FinanceNotice type="info">Configure sua aplicação Pluggy em Configurações para conectar e sincronizar instituições.</FinanceNotice>}
       {data.pluggy.pendingCount > 0 && <FinanceNotice type="info">{data.pluggy.pendingCount} conexão(ões) precisam de atenção ou nova autorização.</FinanceNotice>}
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-col gap-3 @4xl:flex-row @4xl:items-center @4xl:justify-between">
         <div className="flex rounded-xl bg-[var(--muted)] p-1" role="group" aria-label="Alternar visualização das contas">
           <button type="button" aria-pressed={view === "cards"} onClick={() => setView("cards")} className={cn("flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold", view === "cards" && "bg-[var(--card)] shadow-sm")}><LayoutGrid className="size-4" /> Cards</button>
           <button type="button" aria-pressed={view === "list"} onClick={() => setView("list")} className={cn("flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold", view === "list" && "bg-[var(--card)] shadow-sm")}><List className="size-4" /> Lista</button>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="grid grid-cols-2 gap-2 @3xl:flex @3xl:flex-wrap">
           <Button variant="outline" onClick={sync} disabled={busy || !data.pluggy.configured || !data.pluggy.itemCount}>{busy ? <LoaderCircle className="size-4 animate-spin" /> : <RefreshCw className="size-4" />} Sincronizar</Button>
           <Button variant="outline" onClick={() => openOrder()} disabled={!data.accounts.length}><GripVertical className="size-4" /> Ordenar Contas</Button>
           <Button onClick={() => setNewChoiceOpen(true)}><Plus className="size-4" /> Nova conta</Button>
         </div>
       </div>
 
-      <section className="grid gap-4 md:grid-cols-3">
+      <section className="grid gap-3 @2xl:grid-cols-2 @5xl:grid-cols-3 @5xl:gap-4">
         <AccountSummary label="Saldo em contas" value={totals.bankBalance} icon={Landmark} />
         <AccountSummary label="Dívidas em cartões" value={-totals.cardDebt} icon={CreditCard} danger />
         <AccountSummary label="Resultado do período" value={totals.result} icon={WalletCards} danger={totals.result < 0} />
@@ -377,11 +377,16 @@ function AccountSection({ title, accounts, view, timeZone, onEdit, onDelete }: {
     <section>
       <div className="mb-3 flex items-center gap-2"><h2 className="text-lg font-semibold">{title}</h2><span className="rounded-full bg-[var(--muted)] px-2 py-0.5 text-xs">{accounts.length}</span></div>
       {view === "cards" ? (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-4 @3xl:grid-cols-2 @6xl:grid-cols-3">
           {accounts.map((account) => <AccountCard key={account.id} account={account} timeZone={timeZone} onEdit={onEdit} onDelete={onDelete} />)}
         </div>
       ) : (
-        <Card className="overflow-hidden"><div className="overflow-x-auto"><table className="w-full min-w-[820px] text-left text-sm"><thead className="border-b text-[11px] uppercase tracking-wide text-[var(--muted-foreground)]"><tr><th className="p-4">Conta</th><th>Tipo</th><th>Agência / Conta</th><th>Saldo</th><th>Sincronização</th><th className="pr-4 text-right">Ações</th></tr></thead><tbody className="divide-y">{accounts.map((account) => <tr key={account.id}><td className="p-4"><div className="flex items-center gap-3"><AccountLogo account={account} /><div><p className="font-semibold">{account.name}</p><p className="text-xs text-[var(--muted-foreground)]">{account.institutionName}</p></div></div></td><td>{accountSubtypeLabel(account.subtype, account.type)}</td><td>{account.type === "CREDIT_CARD" ? `•••• ${account.numberLastFour || "—"}` : `${account.agency ? `Ag ${account.agency} · ` : ""}${account.accountNumber || "—"}`}</td><td className="font-semibold">{formatCurrency(account.balance, account.currencyCode)}</td><td className="text-xs text-[var(--muted-foreground)]">{account.providerUpdatedAt ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone }).format(new Date(account.providerUpdatedAt)) : "Manual"}</td><td className="pr-4"><div className="flex justify-end gap-1"><Button variant="ghost" size="icon" onClick={() => onEdit(account)} aria-label="Editar conta"><Pencil className="size-4" /></Button><Button variant="ghost" size="icon" onClick={() => onDelete(account)} aria-label="Excluir conta"><Trash2 className="size-4" /></Button></div></td></tr>)}</tbody></table></div></Card>
+        <>
+          <div className="grid gap-4 @3xl:grid-cols-2 lg:hidden">
+            {accounts.map((account) => <AccountCard key={account.id} account={account} timeZone={timeZone} onEdit={onEdit} onDelete={onDelete} />)}
+          </div>
+          <Card className="hidden overflow-hidden lg:block"><div className="overflow-x-auto"><table className="w-full min-w-[820px] text-left text-sm"><thead className="border-b text-[11px] uppercase tracking-wide text-[var(--muted-foreground)]"><tr><th className="p-4">Conta</th><th>Tipo</th><th>Agência / Conta</th><th>Saldo</th><th>Sincronização</th><th className="pr-4 text-right">Ações</th></tr></thead><tbody className="divide-y">{accounts.map((account) => <tr key={account.id}><td className="p-4"><div className="flex items-center gap-3"><AccountLogo account={account} /><div><p className="font-semibold">{account.name}</p><p className="text-xs text-[var(--muted-foreground)]">{account.institutionName}</p></div></div></td><td>{accountSubtypeLabel(account.subtype, account.type)}</td><td>{account.type === "CREDIT_CARD" ? `•••• ${account.numberLastFour || "—"}` : `${account.agency ? `Ag ${account.agency} · ` : ""}${account.accountNumber || "—"}`}</td><td className="font-semibold">{formatCurrency(account.balance, account.currencyCode)}</td><td className="text-xs text-[var(--muted-foreground)]">{account.providerUpdatedAt ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone }).format(new Date(account.providerUpdatedAt)) : "Manual"}</td><td className="pr-4"><div className="flex justify-end gap-1"><Button variant="ghost" size="icon" onClick={() => onEdit(account)} aria-label="Editar conta"><Pencil className="size-4" /></Button><Button variant="ghost" size="icon" onClick={() => onDelete(account)} aria-label="Excluir conta"><Trash2 className="size-4" /></Button></div></td></tr>)}</tbody></table></div></Card>
+        </>
       )}
       {!accounts.length && <Card><CardContent className="py-10 text-center text-sm text-[var(--muted-foreground)]">Nenhuma conta nesta categoria.</CardContent></Card>}
     </section>

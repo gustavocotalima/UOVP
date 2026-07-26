@@ -280,7 +280,7 @@ export function SettingsClient({
           {timeZoneMessage && <p role="status" className="text-xs text-[var(--muted-foreground)]">{timeZoneMessage}</p>}
         </CardContent>
       </Card>
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="grid gap-4 @6xl:grid-cols-[minmax(0,1fr)_340px] @6xl:gap-6 min-[2048px]:grid-cols-[minmax(0,1fr)_360px]">
         <Card>
           <CardHeader>
             <div className="flex items-start gap-3">
@@ -422,7 +422,7 @@ export function SettingsClient({
         </Card>
       </div>
 
-      <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="mt-6 grid gap-4 @6xl:grid-cols-[minmax(0,1fr)_340px] @6xl:gap-6 min-[2048px]:grid-cols-[minmax(0,1fr)_360px]">
         <Card>
           <CardHeader>
             <div className="flex items-start gap-3">
