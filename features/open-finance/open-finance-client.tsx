@@ -234,7 +234,11 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    const payload = (await response.json().catch(() => ({}))) as { error?: string; accessToken?: string };
+    const payload = (await response.json().catch(() => ({}))) as {
+      error?: string;
+      warning?: string;
+      accessToken?: string;
+    };
     if (!response.ok) throw new Error(payload.error || "A solicitação não foi concluída.");
     return payload;
   }
@@ -243,8 +247,12 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
     setBusy(itemId ?? "all");
     setNotice(null);
     try {
-      await requestJson("/api/pluggy/sync", itemId ? { itemId } : {});
-      setNotice({ type: "success", text: itemId ? "Instituição sincronizada." : "Todas as conexões foram sincronizadas." });
+      const result = await requestJson("/api/pluggy/sync", itemId ? { itemId } : {});
+      setNotice({
+        type: result.warning ? "error" : "success",
+        text: result.warning
+          ?? (itemId ? "Instituição sincronizada." : "Todas as conexões foram sincronizadas."),
+      });
       router.refresh();
     } catch (error) {
       setNotice({ type: "error", text: error instanceof Error ? error.message : "Falha na sincronização." });

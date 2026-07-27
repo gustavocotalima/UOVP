@@ -2,6 +2,27 @@ import { defineConfig } from "cypress";
 import { PrismaClient } from "@prisma/client";
 import { createHash, randomBytes } from "node:crypto";
 
+async function cleanupCypressUsers() {
+  const prisma = new PrismaClient();
+  try {
+    await prisma.user.deleteMany({
+      where: {
+        OR: [
+          {
+            email: {
+              startsWith: "cypress-",
+              endsWith: "@example.com",
+            },
+          },
+          { email: "cypress-invite-admin@example.com" },
+        ],
+      },
+    });
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
 export default defineConfig({
   e2e: {
     baseUrl: "http://localhost:3000",
@@ -11,6 +32,8 @@ export default defineConfig({
     viewportHeight: 900,
     video: false,
     setupNodeEvents(on) {
+      on("before:run", cleanupCypressUsers);
+      on("after:run", cleanupCypressUsers);
       on("task", {
         async createRegistrationInvite({ email }: { email: string }) {
           const prisma = new PrismaClient();

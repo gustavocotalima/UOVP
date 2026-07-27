@@ -8,6 +8,7 @@ import { ConfirmDialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import { InstallAppCard } from "@/components/pwa/install-app-card";
 import { removeBrapiApiKeyAction, saveBrapiApiKeyAction } from "@/features/portfolio/actions";
 import type { BrapiCredentialStatus } from "@/features/portfolio/brapi-credentials";
 import {
@@ -251,6 +252,7 @@ export function SettingsClient({
 
   return (
     <>
+      <InstallAppCard />
       <Card className="mb-6">
         <CardHeader>
           <div className="flex items-start gap-3">

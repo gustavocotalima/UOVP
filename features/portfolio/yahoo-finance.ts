@@ -39,6 +39,31 @@ export type YahooQuote = {
   asOf: Date;
 };
 
+export type CachedYahooQuote = {
+  quote: YahooQuote;
+  cachedAt: Date;
+};
+
+function decodeCachedYahooQuote(value: unknown) {
+  const parsed = cachedYahooQuoteSchema.safeParse(value);
+  return parsed.success ? { ...parsed.data, asOf: new Date(parsed.data.asOf) } : null;
+}
+
+export async function readCachedYahooQuotes(symbols: string[]) {
+  const normalizedSymbols = [...new Set(symbols.map(normalizeYahooSymbol).filter(Boolean))];
+  const keysBySymbol = new Map(normalizedSymbols.map((symbol) => [
+    symbol,
+    sharedCacheKey("yahoo:quote", symbol),
+  ]));
+  const hits = await getSharedCacheMany([...keysBySymbol.values()], decodeCachedYahooQuote);
+  return new Map<string, CachedYahooQuote>(normalizedSymbols.flatMap((symbol) => {
+    const hit = hits.get(keysBySymbol.get(symbol)!);
+    return hit
+      ? [[symbol, { quote: hit.value, cachedAt: new Date(hit.cachedAt) }] as const]
+      : [];
+  }));
+}
+
 export type YahooFxRate = {
   currency: string;
   symbol: string;
@@ -430,14 +455,10 @@ export async function fetchYahooQuotes({
     symbol,
     sharedCacheKey("yahoo:quote", symbol),
   ]));
-  const decodeQuote = (value: unknown) => {
-    const parsed = cachedYahooQuoteSchema.safeParse(value);
-    return parsed.success ? { ...parsed.data, asOf: new Date(parsed.data.asOf) } : null;
-  };
   const readCached = async (requested: string[], minimumCachedAt = 0) => {
     const hits = await getSharedCacheMany(
       requested.map((symbol) => keysBySymbol.get(symbol)!),
-      decodeQuote,
+      decodeCachedYahooQuote,
     );
     return new Map(requested.flatMap((symbol) => {
       const hit = hits.get(keysBySymbol.get(symbol)!);

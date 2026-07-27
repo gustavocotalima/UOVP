@@ -245,6 +245,7 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
       const response = await fetch("/api/pluggy/sync", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
       const payload = (await response.json().catch(() => ({}))) as {
         error?: string;
+        warning?: string;
         classification?: {
           metasAssigned: number;
           tagsAssigned: number;
@@ -255,10 +256,10 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
       if (!response.ok) throw new Error(payload.error || "Não foi possível importar as transações.");
       const classification = payload.classification;
       setNotice({
-        type: "success",
-        text: classification
+        type: payload.warning ? "error" : "success",
+        text: payload.warning ?? (classification
           ? `Transações atualizadas: ${classification.metasAssigned} com meta, ${classification.tagsAssigned} com tags, ${classification.internalTransfersDetected} transferências internas e ${classification.unclassified} pendentes.`
-          : "Transações importadas e atualizadas.",
+          : "Transações importadas e atualizadas."),
       });
       setImportOpen(false);
       reloadTransactions();

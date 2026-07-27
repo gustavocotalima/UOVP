@@ -99,6 +99,34 @@ type PriceCacheEntry = {
   fetchedAt: number;
 };
 
+export type CachedBinancePairPrice = {
+  price: number;
+  cachedAt: Date;
+};
+
+export async function readCachedBinancePairPrices(symbols: string[]) {
+  const normalizedSymbols = [...new Set(symbols.map(normalizedAsset).filter(Boolean))];
+  const keysBySymbol = new Map(normalizedSymbols.map((symbol) => [
+    symbol,
+    sharedCacheKey("binance:quote", symbol),
+  ]));
+  const hits = await getSharedCacheMany(
+    [...keysBySymbol.values()],
+    (value) => {
+      const parsed = cachedPriceSchema.safeParse(value);
+      return parsed.success ? parsed.data : null;
+    },
+  );
+  return new Map<string, CachedBinancePairPrice>(normalizedSymbols.flatMap((symbol) => {
+    const hit = hits.get(keysBySymbol.get(symbol)!);
+    if (!hit) return [];
+    const price = new Decimal(hit.value.price);
+    return price.isFinite() && price.gt(0)
+      ? [[symbol, { price: price.toNumber(), cachedAt: new Date(hit.cachedAt) }] as const]
+      : [];
+  }));
+}
+
 let catalogCache: CatalogCache | null = null;
 let catalogRequest: Promise<BinanceSpotPair[]> | null = null;
 const priceCache = new Map<string, PriceCacheEntry>();
