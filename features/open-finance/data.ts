@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import {
+  resolvePluggyInvestmentIssuer,
   resolvePluggyInstitutionLogo,
   resolvePluggyInstitutionName,
 } from "./institution-logo";
@@ -165,7 +166,12 @@ export async function getOpenFinanceData(userId: string) {
       institutionNumber: investment.institutionNumber,
       insurerName: investment.insurerName,
       insurerCnpj: investment.insurerCnpj,
-      issuer: investment.issuer,
+      issuer: resolvePluggyInvestmentIssuer(
+        investment.issuer,
+        investment.institutionName,
+        itemInstitutionName(item),
+        item.connectorName,
+      ),
       issuerCnpj: investment.issuerCnpj,
       rate: investment.rate?.toString() ?? null,
       rateType: investment.rateType,

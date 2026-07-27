@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   pluggyInstitutionIconForBankCode,
   pluggyInstitutionNameForBankCode,
+  resolvePluggyInvestmentIssuer,
   resolvePluggyInstitutionLogo,
   resolvePluggyInstitutionName,
 } from "@/features/open-finance/institution-logo";
@@ -58,5 +59,20 @@ describe("Pluggy institution logos", () => {
 
   it("normalizes bank codes when resolving names", () => {
     expect(pluggyInstitutionNameForBankCode("77")).toBe("Inter");
+  });
+
+  it("ignores generic Pluggy placeholders when resolving an investment issuer", () => {
+    expect(
+      resolvePluggyInvestmentIssuer("MeuPluggy", "Pluggy", "Inter", "MeuPluggy"),
+    ).toBe("Inter");
+    expect(
+      resolvePluggyInvestmentIssuer("Banco Agibank S.A.", "MeuPluggy", "XP Banking", "MeuPluggy"),
+    ).toBe("Banco Agibank S.A.");
+  });
+
+  it("does not expose MeuPluggy as an investment issuer", () => {
+    expect(
+      resolvePluggyInvestmentIssuer("MeuPluggy", null, null, "MeuPluggy"),
+    ).toBe("Instituição");
   });
 });
