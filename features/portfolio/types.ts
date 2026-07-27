@@ -6,6 +6,7 @@ export type AssetHoldingDto = {
   typeName: string;
   customTypeName: string | null;
   issuer: string;
+  institution: string | null;
   productName: string;
   pricingSource: "MANUAL" | "BRAPI" | "YAHOO" | "BINANCE" | "PLUGGY";
   positionSource: "MANUAL" | "PLUGGY";

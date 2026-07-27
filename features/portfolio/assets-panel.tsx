@@ -490,7 +490,7 @@ export function AssetsPanel({
       const matchesText = !query
         || asset.ticker.toLowerCase().includes(query)
         || asset.name.toLowerCase().includes(query)
-        || asset.holdings.some((holding) => [holding.typeName, holding.issuer, holding.productName, holding.ticker ?? ""].some((value) => value.toLowerCase().includes(query)));
+        || asset.holdings.some((holding) => [holding.typeName, holding.issuer, holding.institution ?? "", holding.productName, holding.ticker ?? ""].some((value) => value.toLowerCase().includes(query)));
       return (filter === "ALL" || asset.investmentClass === filter)
         && (instrumentFilter === "ALL" || asset.instrumentType === instrumentFilter)
         && matchesText;
@@ -503,7 +503,7 @@ export function AssetsPanel({
     return new Set(
       assets
         .filter((asset) => asset.holdings.some((holding) =>
-          [holding.typeName, holding.issuer, holding.productName, holding.ticker ?? ""]
+          [holding.typeName, holding.issuer, holding.institution ?? "", holding.productName, holding.ticker ?? ""]
             .some((value) => value.toLowerCase().includes(query)),
         ))
         .map((asset) => asset.id),
@@ -1292,6 +1292,7 @@ export function AssetsPanel({
                               </div>
                               <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-3 text-xs">
                                 <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Emissor</dt><dd className="mt-1">{holding.issuer || "—"}</dd></div>
+                                {holding.institution && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Instituição</dt><dd className="mt-1">{holding.institution}</dd></div>}
                                 <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Atual</dt><dd className="mt-1 font-semibold">{formatMoney(holding.currentValue)}</dd></div>
                                 {holding.investedValue !== null && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Investido</dt><dd className="mt-1">{formatMoney(holding.investedValue)}</dd></div>}
                                 {["STOCK", "ETF", "REAL_ESTATE_FUND", "REIT", "CRYPTO"].includes(asset.instrumentType) && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Quantidade atual</dt><dd className="mt-1">{Number(holding.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 8 })}</dd></div>}
@@ -1513,7 +1514,7 @@ export function AssetsPanel({
                                           {holdingColumns.maturityDate && <td className="whitespace-nowrap px-3 py-3">{holding.maturityDate ? reviewDate(holding.maturityDate, timeZone) : "—"}</td>}
                                           <td className="px-3 py-3">
                                             {holding.positionSource === "PLUGGY"
-                                              ? <div className="text-right"><span className="rounded-full bg-[var(--primary)]/12 px-2 py-1 text-[10px] font-semibold text-[var(--primary)]">Pluggy</span><span className="mt-1 block text-[10px] text-[var(--muted-foreground)]">{holding.providerStatus ?? "Sincronizado"}</span></div>
+                                              ? <div className="text-right"><span className="rounded-full bg-[var(--primary)]/12 px-2 py-1 text-[10px] font-semibold text-[var(--primary)]">Pluggy</span>{holding.institution && <span className="mt-1 block text-[10px] font-medium">{holding.institution}</span>}<span className="mt-0.5 block text-[10px] text-[var(--muted-foreground)]">{holding.providerStatus ?? "Sincronizado"}</span></div>
                                               : <div className="flex justify-end gap-2"><Button variant="ghost" size="sm" onClick={() => startHolding(asset, holding)}><Pencil className="size-3.5" /> Editar</Button><Button variant="ghost" size="sm" className="text-[var(--danger)]" onClick={() => setDeleteTarget({ kind: "holding", id: holding.id, label: holding.productName })}><Trash2 className="size-3.5" /> Excluir</Button></div>}
                                           </td>
                                         </tr>
