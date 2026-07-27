@@ -31,7 +31,10 @@ import {
   type PluggyCredentials,
 } from "./pluggy-credentials";
 import { markPluggyItemDisconnected } from "./disconnection";
-import { resolvePluggyInstitutionLogo } from "./institution-logo";
+import {
+  resolvePluggyInstitutionLogo,
+  resolvePluggyInstitutionName,
+} from "./institution-logo";
 
 const WRITE_BATCH_SIZE = 100;
 const INVESTMENT_SYNC_CONCURRENCY = 6;
@@ -575,16 +578,23 @@ async function syncPluggyItemForUserUnlocked(
       getPluggyInvestments(credentials, pluggyItemId, lease.signal),
     ]);
     const remoteItemData = itemData(remote, userId);
+    const bankCodes = accounts.map((account) =>
+      parseBankNumber(account.bankData?.transferNumber ?? account.number).bankCode
+    );
     const connectorImageUrl = resolvePluggyInstitutionLogo(
       remoteItemData.connectorImageUrl,
-      accounts.map((account) =>
-        parseBankNumber(account.bankData?.transferNumber ?? account.number).bankCode,
-      ),
+      bankCodes,
+    );
+    const institutionName = resolvePluggyInstitutionName(
+      stored.institutionName,
+      remoteItemData.connectorName,
+      bankCodes,
     );
     const syncedItem = {
       ...stored,
       ...remoteItemData,
       connectorImageUrl,
+      institutionName,
     };
     const [financialMonthStart, timeZone] = await Promise.all([
       prisma.financeProfile.findUnique({
@@ -726,6 +736,7 @@ async function syncPluggyItemForUserUnlocked(
         data: {
           ...remoteItemData,
           connectorImageUrl,
+          institutionName,
           syncPending: false,
           lastSyncAt: new Date(),
         },

@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   pluggyInstitutionIconForBankCode,
+  pluggyInstitutionNameForBankCode,
   resolvePluggyInstitutionLogo,
+  resolvePluggyInstitutionName,
 } from "@/features/open-finance/institution-logo";
 
 describe("Pluggy institution logos", () => {
@@ -41,5 +43,20 @@ describe("Pluggy institution logos", () => {
         ["999"],
       ),
     ).toBeNull();
+  });
+
+  it("resolves MeuPluggy connections to the real institution name", () => {
+    expect(resolvePluggyInstitutionName(null, "MeuPluggy", ["077"])).toBe("Inter");
+    expect(resolvePluggyInstitutionName("MeuPluggy", "MeuPluggy", ["348"])).toBe("XP Banking");
+  });
+
+  it("preserves an explicit institution name", () => {
+    expect(resolvePluggyInstitutionName("BTG Investimentos", "MeuPluggy", ["208"])).toBe(
+      "BTG Investimentos",
+    );
+  });
+
+  it("normalizes bank codes when resolving names", () => {
+    expect(pluggyInstitutionNameForBankCode("77")).toBe("Inter");
   });
 });
