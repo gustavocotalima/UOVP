@@ -1121,12 +1121,8 @@ async function refreshMarketPricesForUser(
             unitPrice: quote.price,
             currentValue: null,
             fractional: holding.asset.instrumentType === "CRYPTO",
-            ...(holding.positionSource === "MANUAL"
-              ? {
-                  issuer: quote.name,
-                  productName: quote.name,
-                }
-              : {}),
+            issuer: metadata?.name ?? quote.name,
+            productName: metadata?.name ?? quote.name,
             currency: quote.currency,
             fxRateToBrl: null,
             fxUpdatedAt: null,
@@ -1138,9 +1134,10 @@ async function refreshMarketPricesForUser(
             priceUpdatedAt: quote.asOf,
           },
         });
-        if (holding.positionSource === "MANUAL") {
-          await tx.asset.update({ where: { id: holding.asset.id }, data: { name: quote.name } });
-        }
+        await tx.asset.update({
+          where: { id: holding.asset.id },
+          data: { name: metadata?.name ?? quote.name },
+        });
       }
       for (const { holding, quote, fx } of yahooUpdates) {
         await tx.assetHolding.update({

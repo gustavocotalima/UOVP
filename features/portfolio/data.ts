@@ -4,7 +4,11 @@ import { resolvePluggyInvestmentIssuer } from "@/features/open-finance/instituti
 import { INVESTMENT_CLASSES, type InvestmentClassKey } from "./constants";
 import { aggregateHoldingValue, holdingCurrentValue, holdingUnitPriceBrl } from "./asset-groups";
 import { aggregateAveragePrices, calculateHoldingAveragePrice } from "./average-price";
+import { fetchBrapiTickerMetadata, normalizeBrapiSymbol } from "./brapi";
 import { DEFAULT_QUESTIONS, defaultQuestionTemplateKey } from "./questions";
+
+const BRAPI_INSTRUMENTS = new Set(["STOCK", "ETF", "REAL_ESTATE_FUND"]);
+const MARKET_INSTRUMENTS = new Set(["STOCK", "ETF", "REAL_ESTATE_FUND", "REIT"]);
 
 export async function ensurePortfolio(userId: string) {
   return prisma.portfolio.upsert({
@@ -86,6 +90,18 @@ export async function getPortfolioData(userId: string) {
       select: { timeZone: true },
     }),
   ]);
+  const missingLogoTickers = assets.flatMap((asset) =>
+    BRAPI_INSTRUMENTS.has(asset.instrumentType)
+      && asset.holdings.some((holding) => holding.includedInTotals && !holding.logoUrl)
+      ? [asset.ticker]
+      : [],
+  );
+  const brapiMetadata = missingLogoTickers.length
+    ? await fetchBrapiTickerMetadata({ tickers: missingLogoTickers }).catch(() => [])
+    : [];
+  const brapiMetadataBySymbol = new Map(
+    brapiMetadata.map((metadata) => [metadata.symbol, metadata]),
+  );
   const targets = Object.fromEntries(
     INVESTMENT_CLASSES.map((investmentClass) => [
       investmentClass,
@@ -125,6 +141,9 @@ export async function getPortfolioData(userId: string) {
       })));
       const currentValue = aggregateHoldingValue(holdings);
       const firstHolding = holdings[0];
+      const marketMetadata = BRAPI_INSTRUMENTS.has(asset.instrumentType)
+        ? brapiMetadataBySymbol.get(normalizeBrapiSymbol(asset.ticker))
+        : undefined;
       const latestPriceUpdate = holdings.reduce<Date | null>((latest, holding) => {
         if (!holding.priceUpdatedAt) return latest;
         return !latest || holding.priceUpdatedAt > latest ? holding.priceUpdatedAt : latest;
@@ -139,7 +158,7 @@ export async function getPortfolioData(userId: string) {
         fixedIncomeFamilyName: asset.fixedIncomeFamily?.name ?? null,
         fixedIncomeFamilyShortCode: asset.fixedIncomeFamily?.shortCode ?? null,
         indexation: asset.indexation,
-        logoUrl: firstHolding?.logoUrl ?? null,
+        logoUrl: firstHolding?.logoUrl ?? marketMetadata?.logoUrl ?? null,
         currency: firstHolding?.currency ?? "BRL",
         quantity: asset.instrumentType === "FIXED_INCOME"
           ? currentValue.toString()
@@ -171,14 +190,24 @@ export async function getPortfolioData(userId: string) {
           catalogItemId: holding.catalogItemId,
           typeName: holding.catalogItem?.name ?? holding.customTypeName ?? "Outro",
           customTypeName: holding.customTypeName,
-          issuer: holding.pluggyDiagramLink
+          issuer: holding.pluggyDiagramLink && MARKET_INSTRUMENTS.has(asset.instrumentType)
+            ? marketMetadata?.name ?? asset.name
+            : holding.pluggyDiagramLink
+              ? resolvePluggyInvestmentIssuer(
+                  holding.pluggyDiagramLink.investment.issuer,
+                  holding.pluggyDiagramLink.investment.institutionName,
+                  holding.pluggyDiagramLink.investment.item.institutionName,
+                  holding.pluggyDiagramLink.investment.item.connectorName,
+                )
+              : holding.issuer,
+          institution: holding.pluggyDiagramLink
             ? resolvePluggyInvestmentIssuer(
-                holding.pluggyDiagramLink.investment.issuer,
+                null,
                 holding.pluggyDiagramLink.investment.institutionName,
                 holding.pluggyDiagramLink.investment.item.institutionName,
                 holding.pluggyDiagramLink.investment.item.connectorName,
               )
-            : holding.issuer,
+            : null,
           productName: holding.productName,
           pricingSource: holding.pricingSource,
           positionSource: holding.positionSource,
@@ -208,7 +237,7 @@ export async function getPortfolioData(userId: string) {
           rateValue: holding.rateValue?.toString() ?? null,
           purchaseDate: holding.purchaseDate?.toISOString() ?? null,
           maturityDate: holding.maturityDate?.toISOString() ?? null,
-          logoUrl: holding.logoUrl,
+          logoUrl: holding.logoUrl ?? marketMetadata?.logoUrl ?? null,
           priceUpdatedAt: holding.priceUpdatedAt?.toISOString() ?? null,
           providerCurrentValue: holding.providerCurrentValue?.toString() ?? null,
           providerStatus: holding.pluggyDiagramLink?.investment.status ?? null,
