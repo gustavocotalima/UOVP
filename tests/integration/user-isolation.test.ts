@@ -5,6 +5,7 @@ import {
   classifyFinanceTransactionsForUser,
   learnFinanceClassificationRule,
 } from "@/features/finance/classification-service";
+import { PLUGGY_DIAGRAM_EXCLUSION_REASON } from "@/features/open-finance/diagram-exclusion";
 
 const enabled = Boolean(process.env.DATABASE_URL);
 const db = enabled ? new PrismaClient() : null;
@@ -379,5 +380,54 @@ suite("isolamento entre usuários", () => {
     expect(firstLinks.every((link) => link.status === "MAPPED")).toBe(true);
     expect(secondLinks).toHaveLength(0);
     expect(soldLink).toBeNull();
+
+    const reconnectedLink = firstLinks.find((link) => link.assetHoldingId);
+    expect(reconnectedLink?.assetHoldingId).toBeTruthy();
+    await db!.$transaction([
+      db!.pluggyInvestmentDiagramLink.update({
+        where: { id: reconnectedLink!.id },
+        data: {
+          status: "EXCLUDED",
+          classificationSource: "USER_OVERRIDE",
+          reviewReason: PLUGGY_DIAGRAM_EXCLUSION_REASON.CONNECTION_REMOVE,
+        },
+      }),
+      db!.assetHolding.update({
+        where: { id: reconnectedLink!.assetHoldingId! },
+        data: { includedInTotals: false },
+      }),
+    ]);
+
+    await reconcilePluggyInvestmentsForUser(firstUserId);
+    const reactivated = await db!.pluggyInvestmentDiagramLink.findUniqueOrThrow({
+      where: { id: reconnectedLink!.id },
+      include: { holding: true },
+    });
+    expect(reactivated.status).toBe("MAPPED");
+    expect(reactivated.reviewReason).toBeNull();
+    expect(reactivated.holding?.includedInTotals).toBe(true);
+
+    await db!.$transaction([
+      db!.pluggyInvestmentDiagramLink.update({
+        where: { id: reconnectedLink!.id },
+        data: {
+          status: "EXCLUDED",
+          reviewReason: PLUGGY_DIAGRAM_EXCLUSION_REASON.USER,
+        },
+      }),
+      db!.assetHolding.update({
+        where: { id: reconnectedLink!.assetHoldingId! },
+        data: { includedInTotals: false },
+      }),
+    ]);
+
+    await reconcilePluggyInvestmentsForUser(firstUserId);
+    const stillExcluded = await db!.pluggyInvestmentDiagramLink.findUniqueOrThrow({
+      where: { id: reconnectedLink!.id },
+      include: { holding: true },
+    });
+    expect(stillExcluded.status).toBe("EXCLUDED");
+    expect(stillExcluded.reviewReason).toBe(PLUGGY_DIAGRAM_EXCLUSION_REASON.USER);
+    expect(stillExcluded.holding?.includedInTotals).toBe(false);
   });
 });

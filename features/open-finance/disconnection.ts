@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { type UserOperationLeaseContext, withUserOperationLease } from "@/lib/operation-security";
 import { prisma } from "@/lib/prisma";
+import { PLUGGY_DIAGRAM_EXCLUSION_REASON } from "./diagram-exclusion";
 
 async function invalidatePortfolioAfterDisconnection(
   tx: Prisma.TransactionClient,
@@ -148,6 +149,8 @@ async function resolvePluggyItemDisconnectionUnlocked(
 
   await lease.runFencedTransaction(async (tx) => {
     for (const entry of linked) {
+      const userExcluded = entry.link.status === "EXCLUDED"
+        && entry.link.reviewReason === PLUGGY_DIAGRAM_EXCLUSION_REASON.USER;
       if (resolution === "KEEP_MANUAL") {
         const providerValue = entry.holding.providerCurrentValue
           ?? entry.holding.currentValue
@@ -159,7 +162,7 @@ async function resolvePluggyItemDisconnectionUnlocked(
             pricingSource: entry.holding.pricingSource === "PLUGGY" ? "MANUAL" : entry.holding.pricingSource,
             currentValue: entry.holding.pricingSource === "PLUGGY" ? providerValue : entry.holding.currentValue,
             providerCurrentValue: null,
-            includedInTotals: entry.investment.status === "ACTIVE",
+            includedInTotals: !userExcluded && entry.investment.status === "ACTIVE",
             supersededAt: null,
           },
         });
@@ -170,9 +173,11 @@ async function resolvePluggyItemDisconnectionUnlocked(
           assetHoldingId: resolution === "KEEP_MANUAL" ? null : entry.holding.id,
           status: "EXCLUDED",
           classificationSource: "USER_OVERRIDE",
-          reviewReason: resolution === "KEEP_MANUAL"
-            ? "Posição mantida manualmente após a desconexão da instituição."
-            : "Posição removida do diagrama após a desconexão da instituição.",
+          reviewReason: userExcluded
+            ? PLUGGY_DIAGRAM_EXCLUSION_REASON.USER
+            : resolution === "KEEP_MANUAL"
+              ? PLUGGY_DIAGRAM_EXCLUSION_REASON.CONNECTION_KEEP_MANUAL
+              : PLUGGY_DIAGRAM_EXCLUSION_REASON.CONNECTION_REMOVE,
           lastReconciledAt: new Date(),
         },
       });

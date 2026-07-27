@@ -15,6 +15,7 @@ import {
   normalizePluggyTicker,
   type DiagramClassification,
 } from "./diagram-classification";
+import { shouldReconcileExcludedPluggyPosition } from "./diagram-exclusion";
 
 type InvestmentWithItem = Prisma.PluggyInvestmentGetPayload<{
   include: {
@@ -377,7 +378,7 @@ export async function reconcilePluggyInvestmentsForUser(
         }
         continue;
       }
-      if (existingLink?.status === "EXCLUDED") continue;
+      if (existingLink && !shouldReconcileExcludedPluggyPosition(existingLink)) continue;
 
       let classification = classifyPluggyInvestment(investment);
       if (existingLink?.classificationSource === "USER_OVERRIDE") {
@@ -450,7 +451,11 @@ export async function reconcilePluggyInvestmentsForUser(
         if (!family) {
           await tx.pluggyInvestmentDiagramLink.upsert({
             where: { pluggyInvestmentDbId: investment.id },
-            update: { status: "NEEDS_REVIEW", reviewReason: "O grupo de renda fixa não está cadastrado.", lastReconciledAt: new Date() },
+            update: {
+              status: "NEEDS_REVIEW",
+              reviewReason: "O grupo de renda fixa não está cadastrado.",
+              lastReconciledAt: new Date(),
+            },
             create: {
               userId,
               pluggyInvestmentDbId: investment.id,
