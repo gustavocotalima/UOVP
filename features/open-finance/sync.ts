@@ -795,7 +795,10 @@ export async function syncAllPluggyItemsForUser(userId: string) {
     select: { pluggyItemId: true },
   });
   const totals = {
-    itemCount: 0,
+    itemCount: items.length,
+    succeededItemCount: 0,
+    failedItemCount: 0,
+    failures: [] as Array<{ itemId: string; message: string }>,
     accountCount: 0,
     transactionCount: 0,
     investmentCount: 0,
@@ -805,15 +808,23 @@ export async function syncAllPluggyItemsForUser(userId: string) {
     classification: emptyClassificationSummary(),
   };
   for (const item of items) {
-    const result = await syncPluggyItemForUser(userId, item.pluggyItemId);
-    totals.itemCount += 1;
-    totals.accountCount += result.accountCount;
-    totals.transactionCount += result.transactionCount;
-    totals.investmentCount += result.investmentCount;
-    totals.investmentTransactionCount += result.investmentTransactionCount;
-    totals.diagramMappedCount += result.diagram.mapped;
-    totals.diagramReviewCount += result.diagram.review;
-    addClassificationSummary(totals.classification, result.classification);
+    try {
+      const result = await syncPluggyItemForUser(userId, item.pluggyItemId);
+      totals.succeededItemCount += 1;
+      totals.accountCount += result.accountCount;
+      totals.transactionCount += result.transactionCount;
+      totals.investmentCount += result.investmentCount;
+      totals.investmentTransactionCount += result.investmentTransactionCount;
+      totals.diagramMappedCount += result.diagram.mapped;
+      totals.diagramReviewCount += result.diagram.review;
+      addClassificationSummary(totals.classification, result.classification);
+    } catch (error) {
+      totals.failedItemCount += 1;
+      totals.failures.push({
+        itemId: item.pluggyItemId,
+        message: error instanceof Error ? error.message : "Falha desconhecida na sincronização.",
+      });
+    }
   }
   return totals;
 }

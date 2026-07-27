@@ -98,7 +98,11 @@ export function AccountsClient({ data }: { data: FinanceData }) {
 
   async function requestJson(url: string, body: object) {
     const response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    const payload = (await response.json().catch(() => ({}))) as { error?: string; accessToken?: string };
+    const payload = (await response.json().catch(() => ({}))) as {
+      error?: string;
+      warning?: string;
+      accessToken?: string;
+    };
     if (!response.ok) throw new Error(payload.error || "A solicitação não foi concluída.");
     return payload;
   }
@@ -107,8 +111,11 @@ export function AccountsClient({ data }: { data: FinanceData }) {
     setBusy(true);
     setNotice(null);
     try {
-      await requestJson("/api/pluggy/sync", {});
-      setNotice({ type: "success", text: "Contas e transações sincronizadas." });
+      const result = await requestJson("/api/pluggy/sync", {});
+      setNotice({
+        type: result.warning ? "error" : "success",
+        text: result.warning ?? "Contas e transações sincronizadas.",
+      });
       router.refresh();
     } catch (error) {
       setNotice({ type: "error", text: error instanceof Error ? error.message : "Não foi possível sincronizar." });

@@ -10,6 +10,11 @@ import {
   type UserOperationLeaseContext,
   withUserOperationLease,
 } from "@/lib/operation-security";
+import {
+  isAutomaticRefreshStale,
+  shouldRefreshMarketHoldings,
+} from "@/lib/automatic-refresh-policy";
+import { anonymizedUserId, logIntegrationRefresh } from "@/lib/integration-observability";
 import { allocateContribution, questionChangeAffectsAllocation } from "./allocation";
 import {
   applyManualFixedIncomeContribution,
@@ -18,11 +23,12 @@ import {
 import { bumpPortfolioAndInvalidateDrafts } from "./invalidation";
 import {
   fetchBinanceQuotes,
+  readCachedBinancePairPrices,
   searchBinanceAssets,
   type BinanceAssetSearchResult,
   type BinanceQuote,
 } from "./binance";
-import { fetchAvailableBrapiQuotes, fetchBrapiQuotes, fetchBrapiTickerMetadata, normalizeBrapiSymbol, preferredBrapiLogoUrl, searchBrapiEtfTickers, searchBrapiTickers, type BrapiQuote } from "./brapi";
+import { fetchAvailableBrapiQuotes, fetchBrapiQuotes, fetchBrapiTickerMetadata, normalizeBrapiSymbol, preferredBrapiLogoUrl, readCachedBrapiQuotes, searchBrapiEtfTickers, searchBrapiTickers, type BrapiQuote } from "./brapi";
 import { clearBrapiApiKey, requireBrapiApiKey, storeBrapiApiKey } from "./brapi-credentials";
 import { ensurePortfolio, getPortfolioData } from "./data";
 import { FIXED_INCOME_INDEXATIONS, INSTRUMENT_TYPES, INVESTMENT_CLASSES, RATE_CONVENTIONS, FIXED_INCOME_INDEXATION_META, type InvestmentClassKey } from "./constants";
@@ -34,7 +40,9 @@ import {
   fetchYahooFxRates,
   fetchYahooQuotes,
   normalizeYahooSymbol,
+  readCachedYahooQuotes,
   searchYahooTickers,
+  yahooFxSymbol,
   type YahooQuote,
   type YahooSearchKind,
 } from "./yahoo-finance";
@@ -982,6 +990,260 @@ export type MarketRefreshResult = {
   binance: ProviderRefreshResult & { missingConversion: string[] };
 };
 
+export type AutomaticMarketRefreshResult = {
+  status: "SKIPPED" | "UPDATED" | "PARTIAL" | "FAILED";
+  changed: boolean;
+  appliedFromCache: number;
+  result: MarketRefreshResult | null;
+  message: string | null;
+};
+
+async function findMarketHoldings(portfolioId: string) {
+  return prisma.assetHolding.findMany({
+    where: {
+      asset: { portfolioId },
+      ticker: { not: null },
+      includedInTotals: true,
+    },
+    select: {
+      id: true,
+      ticker: true,
+      providerSymbol: true,
+      currentValue: true,
+      logoUrl: true,
+      pricingSource: true,
+      positionSource: true,
+      priceUpdatedAt: true,
+      asset: { select: { id: true, instrumentType: true, investmentClass: true } },
+    },
+  });
+}
+
+type MarketHolding = Awaited<ReturnType<typeof findMarketHoldings>>[number];
+
+function partitionMarketHoldings(holdings: MarketHolding[]) {
+  return {
+    brapi: holdings.filter((holding) =>
+      usesBrapiQuotes(
+        holding.asset.investmentClass as InvestmentClassKey,
+        holding.asset.instrumentType,
+      ),
+    ),
+    yahoo: holdings.filter((holding) =>
+      usesYahooQuotes(
+        holding.asset.investmentClass as InvestmentClassKey,
+        holding.asset.instrumentType,
+      ),
+    ),
+    binance: holdings.filter((holding) =>
+      usesBinanceQuotes(
+        holding.asset.investmentClass as InvestmentClassKey,
+        holding.asset.instrumentType,
+      ),
+    ),
+  };
+}
+
+function newestDate(left: Date | null, right: Date | null) {
+  if (!left) return right;
+  if (!right) return left;
+  return left.getTime() >= right.getTime() ? left : right;
+}
+
+async function applyFreshSharedMarketCache({
+  userId,
+  portfolioId,
+  holdings,
+  lease,
+  now,
+}: {
+  userId: string;
+  portfolioId: string;
+  holdings: MarketHolding[];
+  lease: UserOperationLeaseContext;
+  now: Date;
+}) {
+  const groups = partitionMarketHoldings(holdings);
+  const brapiCacheAllowed = await requireBrapiApiKey(userId).then(() => true).catch(() => false);
+  const [brapiCache, yahooCache, binancePairCache] = await Promise.all([
+    brapiCacheAllowed
+      ? readCachedBrapiQuotes(groups.brapi.flatMap((holding) => holding.ticker ? [holding.ticker] : []))
+      : Promise.resolve(new Map()),
+    readCachedYahooQuotes(groups.yahoo.flatMap((holding) => holding.ticker ? [holding.ticker] : [])),
+    readCachedBinancePairPrices([
+      ...groups.binance.flatMap((holding) => holding.providerSymbol ? [holding.providerSymbol] : []),
+      ...(groups.binance.some((holding) => holding.providerSymbol?.toUpperCase().endsWith("USDT"))
+        ? ["USDTBRL"]
+        : []),
+    ]),
+  ]);
+  const yahooCurrencies = [...new Set([...yahooCache.values()].map((entry) => entry.quote.currency))];
+  const yahooFxSymbols = yahooCurrencies.flatMap((currency) => {
+    const symbol = yahooFxSymbol(currency);
+    return symbol ? [symbol] : [];
+  });
+  const yahooFxCache = await readCachedYahooQuotes(yahooFxSymbols);
+  const effectiveUpdatedAt = new Map(holdings.map((holding) => [holding.id, holding.priceUpdatedAt]));
+  const brapiUpdates: Array<{
+    holding: MarketHolding;
+    cachedAt: Date;
+    quote: BrapiQuote;
+  }> = [];
+  const yahooUpdates: Array<{
+    holding: MarketHolding;
+    cachedAt: Date;
+    quote: YahooQuote;
+    fxRateToBrl: number;
+    fxUpdatedAt: Date | null;
+  }> = [];
+  const binanceUpdates: Array<{
+    holding: MarketHolding;
+    cachedAt: Date;
+    price: number;
+    currency: string;
+    fxRateToBrl: number | null;
+  }> = [];
+
+  for (const holding of groups.brapi) {
+    if (!holding.ticker) continue;
+    const cached = brapiCache.get(normalizeBrapiSymbol(holding.ticker));
+    if (!cached || isAutomaticRefreshStale(cached.cachedAt, now)) continue;
+    effectiveUpdatedAt.set(holding.id, newestDate(effectiveUpdatedAt.get(holding.id) ?? null, cached.cachedAt));
+    if (!holding.priceUpdatedAt || cached.cachedAt > holding.priceUpdatedAt) {
+      brapiUpdates.push({ holding, cachedAt: cached.cachedAt, quote: cached.quote });
+    }
+  }
+
+  for (const holding of groups.yahoo) {
+    if (!holding.ticker) continue;
+    const cached = yahooCache.get(normalizeYahooSymbol(holding.ticker));
+    if (!cached) continue;
+    const fxSymbol = yahooFxSymbol(cached.quote.currency);
+    const cachedFx = fxSymbol ? yahooFxCache.get(fxSymbol) : null;
+    const fxRateToBrl = cached.quote.currency === "BRL" ? 1 : cachedFx?.quote.price;
+    if (fxRateToBrl == null) continue;
+    const cachedAt = cachedFx
+      ? new Date(Math.min(cached.cachedAt.getTime(), cachedFx.cachedAt.getTime()))
+      : cached.cachedAt;
+    if (isAutomaticRefreshStale(cachedAt, now)) continue;
+    effectiveUpdatedAt.set(holding.id, newestDate(effectiveUpdatedAt.get(holding.id) ?? null, cachedAt));
+    if (!holding.priceUpdatedAt || cachedAt > holding.priceUpdatedAt) {
+      yahooUpdates.push({
+        holding,
+        cachedAt,
+        quote: cached.quote,
+        fxRateToBrl,
+        fxUpdatedAt: cachedFx?.cachedAt ?? null,
+      });
+    }
+  }
+
+  for (const holding of groups.binance) {
+    const pair = holding.providerSymbol?.trim().toUpperCase();
+    if (!pair) continue;
+    const cached = binancePairCache.get(pair);
+    if (!cached) continue;
+    const usesUsdt = pair.endsWith("USDT");
+    const cachedFx = usesUsdt ? binancePairCache.get("USDTBRL") : null;
+    if (usesUsdt && !cachedFx) continue;
+    const cachedAt = cachedFx
+      ? new Date(Math.min(cached.cachedAt.getTime(), cachedFx.cachedAt.getTime()))
+      : cached.cachedAt;
+    if (isAutomaticRefreshStale(cachedAt, now)) continue;
+    effectiveUpdatedAt.set(holding.id, newestDate(effectiveUpdatedAt.get(holding.id) ?? null, cachedAt));
+    if (!holding.priceUpdatedAt || cachedAt > holding.priceUpdatedAt) {
+      binanceUpdates.push({
+        holding,
+        cachedAt,
+        price: cached.price,
+        currency: usesUsdt ? "USDT" : "BRL",
+        fxRateToBrl: cachedFx?.price ?? null,
+      });
+    }
+  }
+
+  const applied = brapiUpdates.length + yahooUpdates.length + binanceUpdates.length;
+  if (applied) {
+    await lease.runFencedTransaction(async (tx) => {
+      for (const { holding, quote, cachedAt } of brapiUpdates) {
+        await tx.assetHolding.update({
+          where: { id: holding.id },
+          data: {
+            pricingSource: "BRAPI",
+            unitPrice: quote.price,
+            currentValue: null,
+            fractional: false,
+            issuer: quote.name,
+            productName: quote.name,
+            currency: quote.currency,
+            fxRateToBrl: null,
+            fxUpdatedAt: null,
+            logoUrl: preferredBrapiLogoUrl({
+              quoteLogoUrl: quote.logoUrl,
+              existingLogoUrl: holding.logoUrl,
+              metadataLogoUrl: null,
+            }),
+            priceUpdatedAt: cachedAt,
+          },
+        });
+        await tx.asset.update({ where: { id: holding.asset.id }, data: { name: quote.name } });
+      }
+      for (const { holding, quote, cachedAt, fxRateToBrl, fxUpdatedAt } of yahooUpdates) {
+        await tx.assetHolding.update({
+          where: { id: holding.id },
+          data: {
+            pricingSource: "YAHOO",
+            unitPrice: quote.price,
+            currentValue: null,
+            fractional: holding.asset.instrumentType !== "ETF",
+            ...(holding.positionSource === "MANUAL"
+              ? { issuer: quote.name, productName: quote.name }
+              : {}),
+            currency: quote.currency,
+            fxRateToBrl,
+            fxUpdatedAt,
+            marketExchange: quote.exchange,
+            marketQuoteType: quote.quoteType,
+            logoUrl: quote.logoUrl ?? holding.logoUrl,
+            priceUpdatedAt: cachedAt,
+          },
+        });
+        if (holding.positionSource === "MANUAL") {
+          await tx.asset.update({ where: { id: holding.asset.id }, data: { name: quote.name } });
+        }
+      }
+      for (const { holding, cachedAt, price, currency, fxRateToBrl } of binanceUpdates) {
+        await tx.assetHolding.update({
+          where: { id: holding.id },
+          data: {
+            pricingSource: "BINANCE",
+            unitPrice: price,
+            currentValue: null,
+            fractional: true,
+            currency,
+            fxRateToBrl,
+            fxUpdatedAt: fxRateToBrl ? cachedAt : null,
+            marketExchange: "BINANCE",
+            marketQuoteType: "SPOT",
+            priceUpdatedAt: cachedAt,
+          },
+        });
+      }
+      await bumpPortfolioAndInvalidateDrafts(tx, portfolioId, userId);
+    }, { timeout: 120_000 });
+  }
+
+  return {
+    applied,
+    stale: shouldRefreshMarketHoldings(
+      holdings.map((holding) => ({
+        priceUpdatedAt: effectiveUpdatedAt.get(holding.id) ?? null,
+      })),
+      now,
+    ),
+  };
+}
+
 async function refreshMarketPricesForUser(
   userId: string,
   lease?: UserOperationLeaseContext,
@@ -993,33 +1255,12 @@ async function refreshMarketPricesForUser(
         create: { userId },
       }))
     : await ensurePortfolio(userId);
-  const holdings = await prisma.assetHolding.findMany({
-    where: {
-      asset: { portfolioId: portfolio.id },
-      ticker: { not: null },
-      includedInTotals: true,
-    },
-    select: {
-      id: true,
-      ticker: true,
-      currentValue: true,
-      logoUrl: true,
-      pricingSource: true,
-      positionSource: true,
-      asset: { select: { id: true, instrumentType: true, investmentClass: true } },
-    },
-  });
-
-  const brapiHoldings = holdings.filter((holding) =>
-    holding.pricingSource === "BRAPI"
-    && usesBrapiQuotes(holding.asset.investmentClass as InvestmentClassKey, holding.asset.instrumentType),
-  );
-  const yahooHoldings = holdings.filter((holding) =>
-    usesYahooQuotes(holding.asset.investmentClass as InvestmentClassKey, holding.asset.instrumentType),
-  );
-  const binanceHoldings = holdings.filter((holding) =>
-    usesBinanceQuotes(holding.asset.investmentClass as InvestmentClassKey, holding.asset.instrumentType),
-  );
+  const holdings = await findMarketHoldings(portfolio.id);
+  const marketGroups = partitionMarketHoldings(holdings);
+  const brapiHoldings = marketGroups.brapi;
+  const yahooHoldings = marketGroups.yahoo;
+  const binanceHoldings = marketGroups.binance;
+  const refreshedAt = new Date();
 
   const [brapiSettled, yahooSettled, binanceSettled] = await Promise.allSettled([
     (async () => {
@@ -1039,7 +1280,7 @@ async function refreshMarketPricesForUser(
       const metadata = await fetchBrapiTickerMetadata({
         tickers: brapiHoldings.flatMap((holding) => holding.ticker ? [holding.ticker] : []),
         signal: lease?.signal,
-        cacheMode: "REFRESH",
+        cacheMode: "USE_CACHE",
       });
       return { quotes, metadata };
     })(),
@@ -1131,7 +1372,7 @@ async function refreshMarketPricesForUser(
               quoteLogoUrl: quote.logoUrl,
               existingLogoUrl: holding.logoUrl,
             }),
-            priceUpdatedAt: quote.asOf,
+            priceUpdatedAt: refreshedAt,
           },
         });
         await tx.asset.update({
@@ -1159,7 +1400,7 @@ async function refreshMarketPricesForUser(
             marketExchange: quote.exchange,
             marketQuoteType: quote.quoteType,
             logoUrl: quote.logoUrl ?? holding.logoUrl,
-            priceUpdatedAt: quote.asOf,
+            priceUpdatedAt: refreshedAt,
           },
         });
         if (holding.positionSource === "MANUAL") {
@@ -1180,7 +1421,7 @@ async function refreshMarketPricesForUser(
             fxUpdatedAt: quote.fxRateToBrl ? quote.asOf : null,
             marketExchange: "BINANCE",
             marketQuoteType: "SPOT",
-            priceUpdatedAt: quote.asOf,
+            priceUpdatedAt: refreshedAt,
           },
         });
       }
@@ -1241,11 +1482,96 @@ export async function refreshMarketPricesAction(): Promise<MarketRefreshResult> 
     limit: 6,
     windowMs: 10 * 60_000,
   });
-  return withUserOperationLease({
+  const startedAt = Date.now();
+  const result = await withUserOperationLease({
     userId,
     operation: "market-refresh",
     leaseMs: 2 * 60_000,
     action: (lease) => refreshMarketPricesForUser(userId, lease),
+  });
+  logIntegrationRefresh({
+    event: "market-refresh",
+    user: anonymizedUserId(userId),
+    reason: "MANUAL",
+    durationMs: Date.now() - startedAt,
+    requested: {
+      brapi: result.brapi.requested,
+      yahoo: result.yahoo.requested,
+      binance: result.binance.requested,
+    },
+    updated: result.updated,
+    failedProviders: [
+      result.brapi.error ? "brapi" : null,
+      result.yahoo.error ? "yahoo" : null,
+      result.binance.error ? "binance" : null,
+    ].filter(Boolean),
+  });
+  return result;
+}
+
+export async function refreshStaleMarketPricesAction(): Promise<AutomaticMarketRefreshResult> {
+  const userId = await requireUserId();
+  return withUserOperationLease({
+    userId,
+    operation: "market-refresh",
+    leaseMs: 2 * 60_000,
+    action: async (lease) => {
+      const portfolio = await lease.runFencedTransaction((tx) => tx.portfolio.upsert({
+        where: { userId },
+        update: {},
+        create: { userId },
+      }));
+      const allHoldings = await findMarketHoldings(portfolio.id);
+      const groups = partitionMarketHoldings(allHoldings);
+      const holdings = [...new Map(
+        [...groups.brapi, ...groups.yahoo, ...groups.binance].map((holding) => [holding.id, holding]),
+      ).values()];
+      if (!holdings.length) {
+        return {
+          status: "SKIPPED",
+          changed: false,
+          appliedFromCache: 0,
+          result: null,
+          message: null,
+        };
+      }
+      const cache = await applyFreshSharedMarketCache({
+        userId,
+        portfolioId: portfolio.id,
+        holdings,
+        lease,
+        now: new Date(),
+      });
+      if (!cache.stale) {
+        if (cache.applied) {
+          revalidatePath("/carteira");
+          revalidatePath("/home");
+        }
+        return {
+          status: cache.applied ? "UPDATED" : "SKIPPED",
+          changed: cache.applied > 0,
+          appliedFromCache: cache.applied,
+          result: null,
+          message: null,
+        };
+      }
+      const result = await refreshMarketPricesForUser(userId, lease);
+      const failedProviders = [result.brapi, result.yahoo, result.binance]
+        .filter((provider) => provider.requested > 0 && provider.error);
+      const requested = result.brapi.requested + result.yahoo.requested + result.binance.requested;
+      const changed = cache.applied + result.updated > 0;
+      return {
+        status: failedProviders.length
+          ? changed ? "PARTIAL" : "FAILED"
+          : result.updated < requested ? "PARTIAL" : "UPDATED",
+        changed,
+        appliedFromCache: cache.applied,
+        result,
+        message: failedProviders.length
+          ? failedProviders.map((provider) => provider.error).filter(Boolean).join(" ")
+          : null,
+      };
+    },
   });
 }
 

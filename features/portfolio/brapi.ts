@@ -89,6 +89,31 @@ export type BrapiTickerSearchResult = {
   logoUrl: string | null;
 };
 
+export type CachedBrapiQuote = {
+  quote: BrapiQuote;
+  cachedAt: Date;
+};
+
+function decodeCachedQuote(value: unknown) {
+  const parsed = cachedQuoteSchema.safeParse(value);
+  return parsed.success ? { ...parsed.data, asOf: new Date(parsed.data.asOf) } : null;
+}
+
+export async function readCachedBrapiQuotes(tickers: string[]) {
+  const symbols = [...new Set(tickers.map(normalizeBrapiSymbol).filter(Boolean))];
+  const keysBySymbol = new Map(symbols.map((symbol) => [
+    symbol,
+    sharedCacheKey("brapi:quote", symbol),
+  ]));
+  const hits = await getSharedCacheMany([...keysBySymbol.values()], decodeCachedQuote);
+  return new Map<string, CachedBrapiQuote>(symbols.flatMap((symbol) => {
+    const hit = hits.get(keysBySymbol.get(symbol)!);
+    return hit
+      ? [[symbol, { quote: hit.value, cachedAt: new Date(hit.cachedAt) }] as const]
+      : [];
+  }));
+}
+
 export function preferredBrapiLogoUrl({
   metadataLogoUrl,
   quoteLogoUrl,
@@ -295,14 +320,10 @@ export async function fetchBrapiQuotes({
     symbol,
     sharedCacheKey("brapi:quote", symbol),
   ]));
-  const decodeQuote = (value: unknown) => {
-    const parsed = cachedQuoteSchema.safeParse(value);
-    return parsed.success ? { ...parsed.data, asOf: new Date(parsed.data.asOf) } : null;
-  };
   const readCached = async (requested: string[], minimumCachedAt = 0) => {
     const hits = await getSharedCacheMany(
       requested.map((symbol) => keysBySymbol.get(symbol)!),
-      decodeQuote,
+      decodeCachedQuote,
     );
     return new Map(requested.flatMap((symbol) => {
       const hit = hits.get(keysBySymbol.get(symbol)!);

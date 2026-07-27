@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1254 1254" role="img" aria-labelledby="title desc" shape-rendering="geometricPrecision">
+  <title id="title">UOVP logo</title>
+  <desc id="desc">Smooth gold UOVP closed-eye logo on a transparent background.</desc>
+  <defs>
+    <linearGradient id="gold" gradientUnits="userSpaceOnUse" x1="260" y1="360" x2="1000" y2="910">
+      <stop offset="0" stop-color="#F9CB50"/>
+      <stop offset="0.32" stop-color="#EFB42D"/>
+      <stop offset="0.58" stop-color="#FFD66A"/>
+      <stop offset="0.82" stop-color="#E7AA25"/>
+      <stop offset="1" stop-color="#F4BE3C"/>
+    </linearGradient>
+  </defs>
+
+  <g fill="url(#gold)" fill-rule="evenodd" clip-rule="evenodd">
+    <!-- Closed eyelid -->
+    <path d="
+      M 262 500
+      C 360 394, 491 343, 627 343
+      C 763 343, 894 394, 992 500
+      C 947 493, 914 503, 873 529
+      C 785 585, 730 628, 627 628
+      C 524 628, 469 585, 381 529
+      C 340 503, 307 493, 262 500
+      Z"/>
+
+    <!-- First smooth lower arc -->
+    <path d="
+      M 278 510
+      C 380 548, 470 654, 627 654
+      C 784 654, 874 548, 976 510
+      C 889 578, 815 675, 627 675
+      C 439 675, 365 578, 278 510
+      Z"/>
+
+    <!-- Second smooth lower arc -->
+    <path d="
+      M 291 522
+      C 389 595, 472 690, 627 690
+      C 782 690, 865 595, 963 522
+      C 878 618, 797 711, 627 711
+      C 457 711, 376 618, 291 522
+      Z"/>
+
+    <!-- U -->
+    <path d="
+      M 250 753 H 281 V 848
+      C 281 863, 292 872, 307 872
+      H 360
+      C 375 872, 385 863, 385 848
+      V 753 H 416 V 851
+      C 416 879, 396 899, 368 899
+      H 298
+      C 270 899, 250 879, 250 851
+      Z"/>
+
+    <!-- O -->
+    <path d="
+      M 496 753 H 579
+      C 609 753, 628 772, 628 802
+      V 850
+      C 628 880, 609 899, 579 899
+      H 496
+      C 466 899, 447 880, 447 850
+      V 802
+      C 447 772, 466 753, 496 753
+      Z
+
+      M 502 782
+      C 487 782, 478 791, 478 806
+      V 846
+      C 478 861, 487 870, 502 870
+      H 573
+      C 588 870, 597 861, 597 846
+      V 806
+      C 597 791, 588 782, 573 782
+      Z"/>
+
+    <!-- V -->
+    <path d="M 639 753 H 676 L 738 868 L 800 753 H 836 L 755 899 H 721 Z"/>
+
+    <!-- P -->
+    <path d="
+      M 848 753 H 965
+      C 992 753, 1008 770, 1008 797
+      V 817
+      C 1008 844, 992 861, 965 861
+      H 879 V 899 H 848 Z
+
+      M 879 782 V 832 H 960
+      C 971 832, 977 825, 977 815
+      V 799
+      C 977 789, 971 782, 960 782
+      Z"/>
+  </g>
+</svg>

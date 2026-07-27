@@ -26,6 +26,8 @@ import {
 import { logoutAction } from "@/features/auth/actions";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { InstallProvider } from "@/components/pwa/install-provider";
+import { AutomaticRefreshCoordinator } from "@/components/layout/automatic-refresh-coordinator";
 
 const navigation = [
   {
@@ -316,13 +318,14 @@ export function AppShell({ user, children }: { user: { name?: string | null; ema
   }, [mobileOpen]);
 
   return (
-    <div className="min-h-screen">
-      <div ref={backgroundRef}>
-        <div className="fixed inset-y-0 left-0 z-40 hidden lg:block">
-          <Sidebar user={user} />
-        </div>
-        <div className="lg:pl-56 min-[2048px]:pl-64">
-          <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b bg-[color-mix(in_srgb,var(--background)_88%,transparent)] px-4 backdrop-blur lg:hidden">
+    <InstallProvider>
+      <div className="min-h-screen">
+        <div ref={backgroundRef}>
+          <div className="fixed inset-y-0 left-0 z-40 hidden lg:block">
+            <Sidebar user={user} />
+          </div>
+          <div className="lg:pl-56 min-[2048px]:pl-64">
+          <header className="sticky top-0 z-30 flex h-[calc(3.5rem+env(safe-area-inset-top))] items-center justify-between border-b bg-[color-mix(in_srgb,var(--background)_88%,transparent)] px-4 pt-[env(safe-area-inset-top)] backdrop-blur lg:hidden">
             <Link href="/home" className="flex min-h-11 items-center gap-2" aria-label="Ir para o painel">
               <span className="grid size-8 place-items-center rounded-full border border-[var(--primary)]/50 bg-[var(--primary)]/10 text-sm font-bold text-[var(--primary)]">U</span>
               <span className="font-semibold tracking-[0.14em]">UOVP</span>
@@ -331,7 +334,14 @@ export function AppShell({ user, children }: { user: { name?: string | null; ema
               <UserRound className="size-5" />
             </Link>
           </header>
-          <main className="@container mx-auto min-h-screen max-w-[1480px] px-3 pb-[calc(6rem+env(safe-area-inset-bottom))] pt-4 sm:px-5 sm:pt-6 lg:p-6 min-[1600px]:p-8 min-[2048px]:p-8">
+          <main
+            className={cn(
+              "@container mx-auto min-h-screen px-3 pb-[calc(6rem+env(safe-area-inset-bottom))] pt-4 sm:px-5 sm:pt-6 lg:p-6 min-[1600px]:p-8 min-[2048px]:p-8",
+              pathname.startsWith("/carteira")
+                ? "max-w-[1680px]"
+                : "max-w-[1480px]",
+            )}
+          >
             {children}
           </main>
         </div>
@@ -373,30 +383,32 @@ export function AppShell({ user, children }: { user: { name?: string | null; ema
             <MoreHorizontal className="size-5" aria-hidden="true" />
             <span>Mais</span>
           </button>
-        </nav>
-      </div>
-      {mobileOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-end bg-black/65 backdrop-blur-[2px] lg:hidden"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Mais opções"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setMobileOpen(false);
-          }}
-        >
-          <div id="mobile-navigation" ref={drawerRef} tabIndex={-1} className="w-full">
-            <MobileMoreMenu
-              user={user}
-              pathname={pathname}
-              resolvedTheme={resolvedTheme}
-              themeMounted={themeMounted}
-              setTheme={setTheme}
-              onNavigate={() => setMobileOpen(false)}
-            />
-          </div>
+          </nav>
         </div>
-      )}
-    </div>
+      {mobileOpen && (
+          <div
+            className="fixed inset-0 z-50 flex items-end bg-black/65 backdrop-blur-[2px] lg:hidden"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Mais opções"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) setMobileOpen(false);
+            }}
+          >
+            <div id="mobile-navigation" ref={drawerRef} tabIndex={-1} className="w-full">
+              <MobileMoreMenu
+                user={user}
+                pathname={pathname}
+                resolvedTheme={resolvedTheme}
+                themeMounted={themeMounted}
+                setTheme={setTheme}
+                onNavigate={() => setMobileOpen(false)}
+              />
+            </div>
+          </div>
+        )}
+        <AutomaticRefreshCoordinator />
+      </div>
+    </InstallProvider>
   );
 }
