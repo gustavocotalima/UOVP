@@ -1,5 +1,8 @@
 import { prisma } from "@/lib/prisma";
-import { resolvePluggyInstitutionLogo } from "./institution-logo";
+import {
+  resolvePluggyInstitutionLogo,
+  resolvePluggyInstitutionName,
+} from "./institution-logo";
 
 type CurrencyAmount = {
   amount: string | number;
@@ -88,6 +91,12 @@ export async function getOpenFinanceData(userId: string) {
       item.connectorImageUrl,
       bankCodesByItem.get(item.pluggyItemId) ?? [],
     );
+  const itemInstitutionName = (item: (typeof items)[number]) =>
+    resolvePluggyInstitutionName(
+      item.institutionName,
+      item.connectorName,
+      bankCodesByItem.get(item.pluggyItemId) ?? [],
+    );
   const visibleItems = items.filter(
     (item) =>
       item.status !== "DELETED"
@@ -99,7 +108,7 @@ export async function getOpenFinanceData(userId: string) {
       id: account.id,
       pluggyAccountId: account.pluggyAccountId,
       itemId: item.pluggyItemId,
-      institution: item.institutionName || item.connectorName,
+      institution: itemInstitutionName(item),
       institutionImageUrl: itemLogo(item),
       type: account.type,
       subtype: account.subtype,
@@ -129,7 +138,7 @@ export async function getOpenFinanceData(userId: string) {
   const investments = visibleItems.flatMap((item) =>
     item.investments.map((investment) => ({
       id: investment.id,
-      institution: item.institutionName || item.connectorName,
+      institution: itemInstitutionName(item),
       investmentInstitution: investment.institutionName,
       institutionImageUrl: itemLogo(item),
       name: investment.name,
@@ -199,7 +208,7 @@ export async function getOpenFinanceData(userId: string) {
     items: visibleItems.map((item) => ({
       id: item.id,
       pluggyItemId: item.pluggyItemId,
-      connectorName: item.institutionName || item.connectorName,
+      connectorName: itemInstitutionName(item),
       connectorImageUrl: itemLogo(item),
       connectorPrimaryColor: item.connectorPrimaryColor,
       status: item.status,
@@ -217,7 +226,7 @@ export async function getOpenFinanceData(userId: string) {
       .filter((item) => item.status === "DELETED" && item.disconnectionResolution === "PENDING")
       .map((item) => ({
         id: item.id,
-        connectorName: item.institutionName || item.connectorName,
+        connectorName: itemInstitutionName(item),
         connectorImageUrl: itemLogo(item),
         disconnectedAt: item.disconnectedAt?.toISOString() ?? item.updatedAt.toISOString(),
         accountCount: item.accounts.length,

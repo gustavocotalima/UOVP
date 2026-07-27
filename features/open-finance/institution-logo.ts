@@ -50,6 +50,53 @@ const COMPE_TO_PLUGGY_ICON: Record<string, string> = {
   "756": "228.svg",
 };
 
+const COMPE_TO_INSTITUTION_NAME: Record<string, string> = {
+  "001": "Banco do Brasil",
+  "003": "Banco da Amazônia",
+  "004": "Banco do Nordeste",
+  "021": "Banestes",
+  "033": "Santander",
+  "041": "Banrisul",
+  "047": "Banese",
+  "070": "BRB",
+  "077": "Inter",
+  "082": "Banco Topázio",
+  "085": "Ailos",
+  "104": "Caixa",
+  "133": "Cresol",
+  "136": "Unicred",
+  "208": "BTG Pactual",
+  "212": "Banco Original",
+  "213": "Banco Arbi",
+  "218": "Banco BS2",
+  "237": "Bradesco",
+  "243": "Banco Master",
+  "260": "Nubank",
+  "290": "PagBank",
+  "318": "Banco BMG",
+  "323": "Mercado Pago",
+  "330": "Banco Bari",
+  "335": "Digio",
+  "336": "C6 Bank",
+  "341": "Itaú",
+  "348": "XP Banking",
+  "364": "Efí",
+  "376": "J.P. Morgan",
+  "380": "PicPay",
+  "389": "Mercantil",
+  "403": "Cora",
+  "422": "Safra",
+  "604": "Banco Industrial do Brasil",
+  "623": "Banco PAN",
+  "633": "Banco Rendimento",
+  "637": "Banco Sofisa",
+  "654": "Digimais",
+  "707": "Daycoval",
+  "735": "Neon",
+  "748": "Sicredi",
+  "756": "Sicoob",
+};
+
 function normalizeBankCode(value: string | null | undefined) {
   const digits = value?.replace(/\D/g, "");
   if (!digits) return null;
@@ -65,10 +112,36 @@ function isMeuPluggyPlaceholder(value: string | null | undefined) {
   }
 }
 
+function isGenericPluggyName(value: string | null | undefined) {
+  const normalized = value?.trim().toLocaleLowerCase("pt-BR").replace(/\s+/g, "");
+  return !normalized || normalized === "meupluggy" || normalized === "pluggy";
+}
+
 export function pluggyInstitutionIconForBankCode(bankCode: string | null | undefined) {
   const normalized = normalizeBankCode(bankCode);
   const icon = normalized ? COMPE_TO_PLUGGY_ICON[normalized] : null;
   return icon ? `${PLUGGY_ICON_BASE}/${icon}` : null;
+}
+
+export function pluggyInstitutionNameForBankCode(bankCode: string | null | undefined) {
+  const normalized = normalizeBankCode(bankCode);
+  return normalized ? COMPE_TO_INSTITUTION_NAME[normalized] ?? null : null;
+}
+
+export function resolvePluggyInstitutionName(
+  institutionName: string | null | undefined,
+  connectorName: string | null | undefined,
+  bankCodes: Array<string | null | undefined>,
+) {
+  if (!isGenericPluggyName(institutionName)) return institutionName!.trim();
+
+  for (const bankCode of bankCodes) {
+    const name = pluggyInstitutionNameForBankCode(bankCode);
+    if (name) return name;
+  }
+
+  if (!isGenericPluggyName(connectorName)) return connectorName!.trim();
+  return institutionName?.trim() || connectorName?.trim() || "Instituição";
 }
 
 export function resolvePluggyInstitutionLogo(

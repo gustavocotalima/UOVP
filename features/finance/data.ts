@@ -2,7 +2,10 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { BUDGET_CATEGORIES, type BudgetCategoryKey } from "@/features/budget/constants";
 import { getPluggyCredentialStatus } from "@/features/open-finance/pluggy-credentials";
-import { resolvePluggyInstitutionLogo } from "@/features/open-finance/institution-logo";
+import {
+  resolvePluggyInstitutionLogo,
+  resolvePluggyInstitutionName,
+} from "@/features/open-finance/institution-logo";
 import { DEFAULT_FINANCE_TAGS } from "./classification";
 import type { FinanceData, FinanceGoalRecord, FinanceTransactionDto } from "./types";
 
@@ -112,7 +115,18 @@ export function mapFinanceTransaction(
           ],
         )
       : transaction.account.institutionImageUrl,
-    institutionName: transaction.account.institutionName,
+    institutionName: transaction.source === "PLUGGY"
+      ? resolvePluggyInstitutionName(
+          transaction.account.institutionName,
+          null,
+          [
+            transaction.account.bankCode,
+            ...(transaction.account.providerItemId
+              ? bankCodesByProviderItem.get(transaction.account.providerItemId) ?? []
+              : []),
+          ],
+        )
+      : transaction.account.institutionName,
     source: transaction.source,
     kind: transaction.kind,
     description: transaction.description,
@@ -494,7 +508,18 @@ export async function getFinanceData(
       type: account.type,
       subtype: account.subtype,
       name: account.name,
-      institutionName: account.institutionName,
+      institutionName: account.source === "PLUGGY"
+        ? resolvePluggyInstitutionName(
+            account.institutionName,
+            null,
+            [
+              account.bankCode,
+              ...(account.providerItemId
+                ? bankCodesByProviderItem.get(account.providerItemId) ?? []
+                : []),
+            ],
+          )
+        : account.institutionName,
       institutionImageUrl: account.source === "PLUGGY"
         ? resolvePluggyInstitutionLogo(
             account.institutionImageUrl,
