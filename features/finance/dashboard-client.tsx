@@ -195,7 +195,7 @@ export function FinanceDashboardClient({ data }: { data: FinanceData }) {
 function Summary({ label, value, tone = "default" }: { label: string; value: number; tone?: "default" | "success" | "danger" }) {
   return (
     <Card>
-      <CardContent className="p-5">
+      <CardContent className="p-5 text-center @2xl:text-left">
         <p className="text-xs text-[var(--muted-foreground)]">{label}</p>
         <p className={cn("mt-2 text-2xl font-semibold tabular-nums", tone === "success" && "text-[var(--success)]", tone === "danger" && "text-[var(--danger)]")}>{formatMoney(value)}</p>
       </CardContent>

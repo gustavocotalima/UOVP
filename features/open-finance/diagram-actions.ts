@@ -13,6 +13,7 @@ import {
 import { bumpPortfolioAndInvalidateDrafts } from "@/features/portfolio/invalidation";
 import { reconcilePluggyInvestmentsForUser } from "./diagram-sync";
 import { markPluggyItemDisconnected, resolvePluggyItemDisconnection } from "./disconnection";
+import { PLUGGY_DIAGRAM_EXCLUSION_REASON } from "./diagram-exclusion";
 import { deletePluggyItem, PluggyApiError } from "./pluggy";
 import { requirePluggyCredentials } from "./pluggy-credentials";
 
@@ -99,7 +100,7 @@ export async function excludePluggyDiagramLinkAction(linkId: string) {
       data: {
         status: "EXCLUDED",
         classificationSource: "USER_OVERRIDE",
-        reviewReason: "Excluído pelo usuário.",
+        reviewReason: PLUGGY_DIAGRAM_EXCLUSION_REASON.USER,
       },
     });
     if (link.holding?.includedInTotals) {

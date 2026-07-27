@@ -7,6 +7,10 @@ import {
   isPluggyPositionSold,
   normalizePluggyTicker,
 } from "@/features/open-finance/diagram-classification";
+import {
+  PLUGGY_DIAGRAM_EXCLUSION_REASON,
+  shouldReconcileExcludedPluggyPosition,
+} from "@/features/open-finance/diagram-exclusion";
 
 function investment(overrides: Partial<Parameters<typeof classifyPluggyInvestment>[0]> = {}) {
   return {
@@ -124,5 +128,28 @@ describe("Pluggy diagram classification", () => {
     expect(isPluggyPositionActive({ status: "ACTIVE", providerAvailable: true })).toBe(true);
     expect(isPluggyPositionActive({ status: "PENDING", providerAvailable: true })).toBe(false);
     expect(isPluggyPositionActive({ status: "ACTIVE", providerAvailable: false })).toBe(false);
+  });
+
+  it("reactivates only exclusions caused by removing a connection", () => {
+    expect(shouldReconcileExcludedPluggyPosition({
+      status: "EXCLUDED",
+      reviewReason: PLUGGY_DIAGRAM_EXCLUSION_REASON.CONNECTION_REMOVE,
+    })).toBe(true);
+    expect(shouldReconcileExcludedPluggyPosition({
+      status: "EXCLUDED",
+      reviewReason: PLUGGY_DIAGRAM_EXCLUSION_REASON.CONNECTION_KEEP_MANUAL,
+    })).toBe(false);
+    expect(shouldReconcileExcludedPluggyPosition({
+      status: "EXCLUDED",
+      reviewReason: PLUGGY_DIAGRAM_EXCLUSION_REASON.USER,
+    })).toBe(false);
+    expect(shouldReconcileExcludedPluggyPosition({
+      status: "EXCLUDED",
+      reviewReason: null,
+    })).toBe(false);
+    expect(shouldReconcileExcludedPluggyPosition({
+      status: "MAPPED",
+      reviewReason: null,
+    })).toBe(true);
   });
 });
