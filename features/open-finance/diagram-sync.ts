@@ -16,6 +16,7 @@ import {
   type DiagramClassification,
 } from "./diagram-classification";
 import { shouldReconcileExcludedPluggyPosition } from "./diagram-exclusion";
+import { resolvePluggyInvestmentIssuer } from "./institution-logo";
 
 type InvestmentWithItem = Prisma.PluggyInvestmentGetPayload<{
   include: {
@@ -54,10 +55,12 @@ function isMarketInstrument(instrumentType: InstrumentType | null) {
 }
 
 function providerIssuer(investment: InvestmentWithItem) {
-  return investment.issuer
-    ?? investment.institutionName
-    ?? investment.item.institutionName
-    ?? investment.item.connectorName;
+  return resolvePluggyInvestmentIssuer(
+    investment.issuer,
+    investment.institutionName,
+    investment.item.institutionName,
+    investment.item.connectorName,
+  );
 }
 
 function fixedParentIdentity(

@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import Decimal from "decimal.js";
+import { resolvePluggyInvestmentIssuer } from "@/features/open-finance/institution-logo";
 import { INVESTMENT_CLASSES, type InvestmentClassKey } from "./constants";
 import { aggregateHoldingValue, holdingCurrentValue, holdingUnitPriceBrl } from "./asset-groups";
 import { aggregateAveragePrices, calculateHoldingAveragePrice } from "./average-price";
@@ -27,7 +28,15 @@ export async function getPortfolioData(userId: string) {
             pluggyDiagramLink: {
               include: {
                 investment: {
-                  include: { _count: { select: { transactions: true } } },
+                  include: {
+                    item: {
+                      select: {
+                        institutionName: true,
+                        connectorName: true,
+                      },
+                    },
+                    _count: { select: { transactions: true } },
+                  },
                 },
               },
             },
@@ -162,7 +171,14 @@ export async function getPortfolioData(userId: string) {
           catalogItemId: holding.catalogItemId,
           typeName: holding.catalogItem?.name ?? holding.customTypeName ?? "Outro",
           customTypeName: holding.customTypeName,
-          issuer: holding.issuer,
+          issuer: holding.pluggyDiagramLink
+            ? resolvePluggyInvestmentIssuer(
+                holding.pluggyDiagramLink.investment.issuer,
+                holding.pluggyDiagramLink.investment.institutionName,
+                holding.pluggyDiagramLink.investment.item.institutionName,
+                holding.pluggyDiagramLink.investment.item.connectorName,
+              )
+            : holding.issuer,
           productName: holding.productName,
           pricingSource: holding.pricingSource,
           positionSource: holding.positionSource,
@@ -214,9 +230,12 @@ export async function getPortfolioData(userId: string) {
     integrationReview: integrationReview.map((link) => ({
       id: link.id,
       investmentName: link.investment.name,
-      institution: link.investment.institutionName
-        ?? link.investment.item.institutionName
-        ?? link.investment.item.connectorName,
+      institution: resolvePluggyInvestmentIssuer(
+        null,
+        link.investment.institutionName,
+        link.investment.item.institutionName,
+        link.investment.item.connectorName,
+      ),
       providerType: link.investment.type,
       providerSubtype: link.investment.subtype,
       balance: link.investment.balance.toString(),
@@ -240,7 +259,12 @@ export async function getPortfolioData(userId: string) {
       institutionNumber: link.investment.institutionNumber,
       insurerName: link.investment.insurerName,
       insurerCnpj: link.investment.insurerCnpj,
-      issuer: link.investment.issuer,
+      issuer: resolvePluggyInvestmentIssuer(
+        link.investment.issuer,
+        link.investment.institutionName,
+        link.investment.item.institutionName,
+        link.investment.item.connectorName,
+      ),
       issuerCnpj: link.investment.issuerCnpj,
       rate: link.investment.rate?.toString() ?? null,
       rateType: link.investment.rateType,

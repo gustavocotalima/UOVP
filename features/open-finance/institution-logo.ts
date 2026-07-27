@@ -117,6 +117,22 @@ function isGenericPluggyName(value: string | null | undefined) {
   return !normalized || normalized === "meupluggy" || normalized === "pluggy";
 }
 
+export function resolvePluggyInvestmentIssuer(
+  issuer: string | null | undefined,
+  investmentInstitutionName: string | null | undefined,
+  itemInstitutionName: string | null | undefined,
+  connectorName: string | null | undefined,
+) {
+  const candidates = [
+    issuer,
+    investmentInstitutionName,
+    itemInstitutionName,
+    connectorName,
+  ];
+  return candidates.find((candidate) => !isGenericPluggyName(candidate))?.trim()
+    ?? "Instituição";
+}
+
 export function pluggyInstitutionIconForBankCode(bankCode: string | null | undefined) {
   const normalized = normalizeBankCode(bankCode);
   const icon = normalized ? COMPE_TO_PLUGGY_ICON[normalized] : null;
