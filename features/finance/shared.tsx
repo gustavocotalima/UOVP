@@ -41,7 +41,10 @@ export function MonthNavigator({
   }
 
   return (
-    <div className={cn("flex items-center gap-2", !compact && "rounded-2xl border bg-[var(--card)] p-1.5")}>
+    <div className={cn(
+      "flex items-center gap-2",
+      !compact && "w-full justify-between rounded-2xl border bg-[var(--card)] p-1.5 sm:w-auto",
+    )}>
       <Button variant="ghost" size="icon" aria-label="Mês anterior" onClick={() => move(-1)}>
         <ChevronLeft className="size-4" />
       </Button>

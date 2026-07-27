@@ -1353,7 +1353,7 @@ export function AssetsPanel({
                     <th className="whitespace-nowrap px-3 py-3">Nota</th>
                     <th className="whitespace-nowrap px-3 py-3">Quantidade</th>
                     <th className="whitespace-nowrap px-3 py-3">Atualizado</th>
-                    <th className="whitespace-nowrap px-3 py-3 text-right">Ações</th>
+                    <th className="sticky right-0 z-10 whitespace-nowrap bg-[var(--card)] px-3 py-3 text-right">Ações</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1419,7 +1419,7 @@ export function AssetsPanel({
                               </span>
                             )}
                           </td>
-                          <td className="px-3"><div className="flex justify-end"><Button variant="outline" size="sm" onClick={() => edit(asset)} aria-label={`Editar ${asset.ticker}`}><Pencil className="size-4" /> Editar</Button></div></td>
+                          <td className="sticky right-0 z-10 bg-[var(--card)] px-3"><div className="flex justify-end"><Button variant="outline" size="sm" onClick={() => edit(asset)} aria-label={`Editar ${asset.ticker}`}><Pencil className="size-4" /> Editar</Button></div></td>
                         </tr>
                         {expandable && expanded && (
                           <tr className="border-b bg-[color-mix(in_srgb,var(--muted)_42%,transparent)]">
