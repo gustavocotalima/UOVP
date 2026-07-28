@@ -9,6 +9,7 @@ import {
   withSharedCacheCoalescing,
   type MarketCacheMode,
 } from "@/lib/shared-cache";
+import { usableBrapiLogoUrl } from "./market-logo";
 
 const BRAPI_QUOTE_URL = "https://brapi.dev/api/v2/stocks/quote";
 const BRAPI_TICKERS_URL = "https://brapi.dev/api/v2/tickers";
@@ -123,7 +124,9 @@ export function preferredBrapiLogoUrl({
   quoteLogoUrl: string | null | undefined;
   existingLogoUrl: string | null | undefined;
 }) {
-  return metadataLogoUrl ?? quoteLogoUrl ?? existingLogoUrl ?? null;
+  return usableBrapiLogoUrl(metadataLogoUrl)
+    ?? usableBrapiLogoUrl(quoteLogoUrl)
+    ?? usableBrapiLogoUrl(existingLogoUrl);
 }
 
 export class BrapiApiError extends Error {
@@ -203,7 +206,7 @@ export async function searchBrapiTickers({
       subType: result.subType ?? null,
       currency: result.currency?.toUpperCase() || "BRL",
       lastPrice: result.quote?.lastPrice ?? null,
-      logoUrl: result.logoUrl ?? null,
+      logoUrl: usableBrapiLogoUrl(result.logoUrl),
     })).sort((left, right) => {
       const relevance = (symbol: string) => symbol === normalizedQuery ? 0 : symbol.startsWith(normalizedQuery) ? 1 : 2;
       return relevance(left.symbol) - relevance(right.symbol) || left.symbol.localeCompare(right.symbol);
@@ -375,7 +378,7 @@ export async function fetchBrapiQuotes({
         name: result.data.longName || result.data.shortName || result.symbol,
         price,
         currency: result.data.currency?.toUpperCase() || "BRL",
-        logoUrl: result.data.logourl ?? null,
+        logoUrl: usableBrapiLogoUrl(result.data.logourl),
         asOf: dateOrFallback(result.data.regularMarketTime, requestedAt),
       }];
     });

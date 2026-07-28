@@ -35,6 +35,7 @@ import type { YahooSearchKind, YahooTickerSearchResult } from "./yahoo-finance";
 import { FIXED_INCOME_INDEXATIONS, FIXED_INCOME_INDEXATION_META, INSTRUMENT_TYPES, INSTRUMENT_TYPE_META, INVESTMENT_CLASSES, INVESTMENT_CLASS_META, MOCK_ASSET_CATALOG, RATE_CONVENTIONS, RATE_CONVENTION_META, type FixedIncomeIndexationKey, type InstrumentTypeKey, type InvestmentClassKey, type RateConventionKey } from "./constants";
 import type { AssetDto, AssetHoldingDto, DiagramQuestionDto, PortfolioDto } from "./types";
 import { excludePluggyDiagramLinkAction, reviewPluggyDiagramLinkAction } from "@/features/open-finance/diagram-actions";
+import { usableBrapiLogoUrl } from "./market-logo";
 
 type FormAsset = {
   id?: string;
@@ -367,7 +368,8 @@ function PluggyReviewSourceData({ review, timeZone }: { review: ReviewForm; time
 }
 
 function assetLogoUrl(asset: AssetDto) {
-  if (asset.logoUrl) return asset.logoUrl;
+  const storedLogoUrl = usableBrapiLogoUrl(asset.logoUrl);
+  if (storedLogoUrl) return storedLogoUrl;
   if (asset.instrumentType !== "ETF" && !["BRAZILIAN_STOCKS", "REAL_ESTATE_FUNDS"].includes(asset.investmentClass)) return null;
   const symbol = asset.ticker.trim().toUpperCase().replace(/\.SA$/, "").replace(/(\d)F$/, "$1");
   return symbol ? `https://icons.brapi.dev/icons/${encodeURIComponent(symbol)}.svg` : null;

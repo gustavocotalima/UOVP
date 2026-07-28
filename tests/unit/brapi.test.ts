@@ -91,6 +91,36 @@ describe("integração brapi", () => {
     })).toBe("https://icons.brapi.dev/icons/EMBR3.svg");
   });
 
+  it("ignora o placeholder genérico da brapi e preserva o logo específico existente", () => {
+    expect(preferredBrapiLogoUrl({
+      metadataLogoUrl: "https://icons.brapi.dev/icons/BRAPI.svg",
+      quoteLogoUrl: "https://icons.brapi.dev/icons/brapi.svg",
+      existingLogoUrl: "https://icons.brapi.dev/icons/SAPR4.svg",
+    })).toBe("https://icons.brapi.dev/icons/SAPR4.svg");
+  });
+
+  it("remove o placeholder genérico retornado pelo catálogo", async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({
+      results: [{
+        symbol: "SAPR4",
+        name: "CIA SANEAMENTO DO PARANA - SANEPAR",
+        longName: "Companhia de Saneamento do Parana - Sanepar",
+        assetType: "stock",
+        subType: "stock",
+        exchange: "B3",
+        currency: "BRL",
+        logoUrl: "https://icons.brapi.dev/icons/BRAPI.svg",
+      }],
+    }), { status: 200, headers: { "Content-Type": "application/json" } })) as unknown as typeof fetch;
+
+    const results = await searchBrapiTickers({ query: "SAPR4", fetcher });
+
+    expect(results).toEqual([expect.objectContaining({
+      symbol: "SAPR4",
+      logoUrl: null,
+    })]);
+  });
+
   it("filtra o catálogo por fundos imobiliários no autocomplete de FIIs", async () => {
     const fetcher = vi.fn(async () => new Response(JSON.stringify({
       results: [{
