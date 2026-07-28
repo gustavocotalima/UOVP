@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
@@ -65,6 +66,26 @@ const mobileMoreNavigation = navigation.flatMap((group) => group.items).filter(
 
 const subscribeToHydration = () => () => undefined;
 
+function BrandMark({ compact = false }: { compact?: boolean }) {
+  return (
+    <span
+      className={cn(
+        "grid shrink-0 place-items-center overflow-hidden rounded-full border border-[#d2ad50]/60 bg-[#d2ad50]/10",
+        compact ? "size-8" : "size-10",
+      )}
+      aria-hidden="true"
+    >
+      <Image
+        src="/UOVP_logo.svg"
+        alt=""
+        width={64}
+        height={64}
+        className="size-full scale-[1.35] object-contain"
+      />
+    </span>
+  );
+}
+
 function Sidebar({ user, onNavigate }: { user: { name?: string | null; email?: string | null }; onNavigate?: () => void }) {
   const pathname = usePathname();
   const { resolvedTheme, setTheme } = useTheme();
@@ -73,7 +94,7 @@ function Sidebar({ user, onNavigate }: { user: { name?: string | null; email?: s
   return (
     <aside className="flex h-full w-56 flex-col border-r bg-[#11120f] p-4 text-[#f4f3ed] min-[2048px]:w-64">
       <Link href="/home" onClick={onNavigate} className="mb-8 flex items-center gap-3 rounded-xl px-2 py-2">
-        <span className="grid size-10 place-items-center rounded-full border border-[#d2ad50]/60 bg-[#d2ad50]/10 text-[#d2ad50]">U</span>
+        <BrandMark />
         <span>
           <strong className="block text-lg tracking-[0.16em]">UOVP</strong>
           <small className="block max-w-40 text-[9px] leading-tight tracking-[0.08em] text-white/45">Uma Outra Verdade Possível</small>
@@ -327,7 +348,7 @@ export function AppShell({ user, children }: { user: { name?: string | null; ema
           <div className="lg:pl-56 min-[2048px]:pl-64">
           <header className="sticky top-0 z-30 flex h-[calc(3.5rem+env(safe-area-inset-top))] items-center justify-between border-b bg-[color-mix(in_srgb,var(--background)_88%,transparent)] px-4 pt-[env(safe-area-inset-top)] backdrop-blur lg:hidden">
             <Link href="/home" className="flex min-h-11 items-center gap-2" aria-label="Ir para o painel">
-              <span className="grid size-8 place-items-center rounded-full border border-[var(--primary)]/50 bg-[var(--primary)]/10 text-sm font-bold text-[var(--primary)]">U</span>
+              <BrandMark compact />
               <span className="font-semibold tracking-[0.14em]">UOVP</span>
             </Link>
             <Link href="/perfil" className="grid size-11 place-items-center rounded-xl" aria-label="Abrir perfil">
