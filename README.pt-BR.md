@@ -2,7 +2,7 @@
 
 [English](./README.md)
 
-**Uma Outra Verdade Possível** — uma aplicação financeira pessoal multiusuário para orçamento doméstico, gestão de carteira de investimentos e agregação via Open Finance.
+**Uma Outra Verdade Possível** — uma aplicação financeira pessoal multiusuário para orçamento doméstico, gestão de carteira de investimentos e agregação via Open Finance, baseado no Diagrama do Cerrado da AUVP com asteroides.
 
 A UOVP mantém frontend e backend na mesma aplicação Next.js. Os registros financeiros são persistidos no PostgreSQL, as integrações privadas são isoladas por usuário e as cotações de mercado podem ser compartilhadas em cache sem expor dados das carteiras.
 
