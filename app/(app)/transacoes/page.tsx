@@ -15,5 +15,5 @@ export default async function TransactionsPage({ searchParams }: { searchParams:
   const year = Number(params.year) || current.year;
   const month = Math.min(12, Math.max(1, Number(params.month) || current.month));
   const data = await getFinanceData(userId, year, month, { transactionScope: "PAGINATED" });
-  return <div className="space-y-5 sm:space-y-7"><PageHeader title="Transações" description="Aqui você pode visualizar todas suas transações" actions={<MonthNavigator year={year} month={month} compact />} /><TransactionsClient key={`${year}-${month}`} data={data} /></div>;
+  return <div className="space-y-5 sm:space-y-7"><PageHeader title="Transações" description="Aqui você pode visualizar todas suas transações" actions={<MonthNavigator year={year} month={month} />} /><TransactionsClient key={`${year}-${month}`} data={data} /></div>;
 }
