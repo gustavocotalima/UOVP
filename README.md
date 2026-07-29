@@ -2,7 +2,7 @@
 
 [Português (Brasil)](./README.pt-BR.md)
 
-**Uma Outra Verdade Possível** — a multi-user personal finance application for household budgeting, investment portfolio management, and Open Finance aggregation.
+**Uma Outra Verdade Possível** — a multi-user personal finance application for household budgeting, investment portfolio management, and Open Finance aggregation, based on Diagrama do Cerrado from AUVP.
 
 UOVP keeps the frontend and backend in the same Next.js application. Financial records are persisted in PostgreSQL, private integrations are isolated per user, and market quotes may be cached and shared without exposing portfolio data.
 
