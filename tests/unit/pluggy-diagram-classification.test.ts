@@ -122,6 +122,27 @@ describe("Pluggy diagram classification", () => {
     expect(fundAssetCode(investment({ code: "12.345.678/0001-90" }))).toBe("FND-12345678000190");
   });
 
+  it("preserva reserva de valor somente depois da escolha do usuário", () => {
+    const providerClassification = classifyPluggyInvestment(investment({
+      type: "ETF",
+      subtype: "ETF",
+      code: "GOLD11",
+    }));
+
+    expect(providerClassification.investmentClass).toBeNull();
+    expect(applyExistingAssetClassification(providerClassification, {
+      instrumentType: "ETF",
+      instrumentSource: "USER_OVERRIDE",
+      investmentClass: "STORE_OF_VALUE",
+      fixedIncomeFamilyCode: null,
+      indexation: null,
+    })).toMatchObject({
+      instrumentType: "ETF",
+      investmentClass: "STORE_OF_VALUE",
+      needsReview: false,
+    });
+  });
+
   it("uses TOTAL_WITHDRAWAL—not a zero balance—as the sold signal", () => {
     expect(isPluggyPositionSold({ status: "TOTAL_WITHDRAWAL" })).toBe(true);
     expect(isPluggyPositionSold({ status: "ACTIVE" })).toBe(false);

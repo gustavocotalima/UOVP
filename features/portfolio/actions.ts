@@ -115,6 +115,7 @@ function inferInstrumentType(investmentClass: InvestmentClassKey): InstrumentTyp
   if (investmentClass === "REAL_ESTATE_FUNDS") return "REAL_ESTATE_FUND";
   if (investmentClass === "REITS") return "REIT";
   if (investmentClass === "CRYPTO") return "CRYPTO";
+  if (investmentClass === "STORE_OF_VALUE") return "ETF";
   if (investmentClass === "FIXED_INCOME" || investmentClass === "INTERNATIONAL_FIXED_INCOME") return "FIXED_INCOME";
   return "STOCK";
 }

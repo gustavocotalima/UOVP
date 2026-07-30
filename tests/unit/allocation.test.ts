@@ -30,7 +30,7 @@ describe("alocação de aportes", () => {
   it("preserva precisão em ativos fracionários", () => {
     const result = allocateContribution({
       contribution: 100,
-      targets: { ...DEFAULT_TARGETS, INTERNATIONAL_STOCKS: 0, BRAZILIAN_STOCKS: 0, REAL_ESTATE_FUNDS: 0, REITS: 0, CRYPTO: 100, FIXED_INCOME: 0, INTERNATIONAL_FIXED_INCOME: 0 },
+      targets: { ...DEFAULT_TARGETS, INTERNATIONAL_STOCKS: 0, BRAZILIAN_STOCKS: 0, REAL_ESTATE_FUNDS: 0, REITS: 0, CRYPTO: 100, FIXED_INCOME: 0, STORE_OF_VALUE: 0, INTERNATIONAL_FIXED_INCOME: 0 },
       assets: [{ id: "btc", ticker: "BTC", name: "Bitcoin", investmentClass: "CRYPTO", currentValue: 0, quantity: 0, unitPrice: 300000, score: 10, fractional: true }],
     });
     expect(result.suggestions[0].value.toNumber()).toBe(100);
@@ -47,6 +47,7 @@ describe("alocação de aportes", () => {
         REITS: 0,
         CRYPTO: 10,
         FIXED_INCOME: 20,
+        STORE_OF_VALUE: 0,
         INTERNATIONAL_FIXED_INCOME: 0,
       },
       assets: [

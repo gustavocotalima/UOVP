@@ -5,6 +5,7 @@ export const INVESTMENT_CLASSES = [
   "REITS",
   "CRYPTO",
   "FIXED_INCOME",
+  "STORE_OF_VALUE",
   "INTERNATIONAL_FIXED_INCOME",
 ] as const;
 
@@ -53,6 +54,7 @@ export const INVESTMENT_CLASS_META: Record<
   REITS: { label: "REITs", shortLabel: "REITs", color: "#ec6f66" },
   CRYPTO: { label: "Criptomoedas", shortLabel: "Cripto", color: "#f28e2b" },
   FIXED_INCOME: { label: "Renda fixa", shortLabel: "Renda fixa", color: "#59a14f" },
+  STORE_OF_VALUE: { label: "Reserva de valor", shortLabel: "Reserva", color: "#a7a9ac" },
   INTERNATIONAL_FIXED_INCOME: { label: "Renda fixa internacional", shortLabel: "RF int.", color: "#76b7b2" },
 };
 
@@ -63,6 +65,7 @@ export const DEFAULT_TARGETS: Record<InvestmentClassKey, number> = {
   REITS: 5,
   CRYPTO: 5,
   FIXED_INCOME: 45,
+  STORE_OF_VALUE: 0,
   INTERNATIONAL_FIXED_INCOME: 5,
 };
 
@@ -78,6 +81,7 @@ export const INVESTMENT_PRESETS = [
       REITS: 0,
       CRYPTO: 0,
       FIXED_INCOME: 75,
+      STORE_OF_VALUE: 0,
       INTERNATIONAL_FIXED_INCOME: 10,
     },
   },
@@ -98,6 +102,7 @@ export const INVESTMENT_PRESETS = [
       REITS: 10,
       CRYPTO: 10,
       FIXED_INCOME: 15,
+      STORE_OF_VALUE: 0,
       INTERNATIONAL_FIXED_INCOME: 5,
     },
   },
