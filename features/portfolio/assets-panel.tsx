@@ -395,15 +395,26 @@ function assetLogoUrls(asset: AssetDto) {
 
 function AssetLogo({ asset }: { asset: AssetDto }) {
   const logoUrls = assetLogoUrls(asset);
-  const logoUrlsKey = logoUrls.join("|");
+  return (
+    <AssetLogoCandidates
+      key={logoUrls.join("|")}
+      asset={asset}
+      logoUrls={logoUrls}
+    />
+  );
+}
+
+function AssetLogoCandidates({
+  asset,
+  logoUrls,
+}: {
+  asset: AssetDto;
+  logoUrls: string[];
+}) {
   const [failedLogoUrls, setFailedLogoUrls] = useState<string[]>([]);
   const logoUrl = logoUrls.find((candidate) => !failedLogoUrls.includes(candidate)) ?? null;
   const [loadedLogoUrl, setLoadedLogoUrl] = useState<string | null>(null);
   const logoLoaded = loadedLogoUrl === logoUrl;
-  useEffect(() => {
-    setFailedLogoUrls([]);
-    setLoadedLogoUrl(null);
-  }, [logoUrlsKey]);
   const captureLogoElement = useCallback((image: HTMLImageElement | null) => {
     if (image?.complete) setLoadedLogoUrl(image.naturalWidth > 0 ? logoUrl : null);
   }, [logoUrl]);
@@ -1044,6 +1055,7 @@ export function AssetsPanel({
         REITS: "REITS",
         CRIPTOMOEDAS: "CRYPTO",
         "RENDA FIXA": "FIXED_INCOME",
+        "RESERVA DE VALOR": "STORE_OF_VALUE",
         "RENDA FIXA INTERNACIONAL": "INTERNATIONAL_FIXED_INCOME",
       };
       const normalizeText = (value: unknown) => String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toUpperCase();
@@ -1857,10 +1869,13 @@ export function AssetsPanel({
                           style={tickerListPosition}
                         >
                           {tickerOptions.map((option, index) => {
-                            const logoUrl = option.logoUrl
-                              ?? (option.provider === "YAHOO"
-                                ? financialModelingPrepLogoUrl(option.symbol)
-                                : null);
+                            const logoUrl = option.provider === "BRAPI"
+                              ? usableBrapiLogoUrl(option.logoUrl)
+                                ?? `https://icons.brapi.dev/icons/${encodeURIComponent(option.symbol)}.svg`
+                              : option.logoUrl
+                                ?? (option.provider === "YAHOO"
+                                  ? financialModelingPrepLogoUrl(option.symbol)
+                                  : null);
                             const badge = option.provider === "BRAPI"
                               ? option.subType || option.assetType || "B3"
                               : option.provider === "BINANCE"

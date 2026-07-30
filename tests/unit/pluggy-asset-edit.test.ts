@@ -117,4 +117,37 @@ describe("edição da classificação de ativos Pluggy", () => {
     expect(mocks.tx.assetHolding.update).not.toHaveBeenCalled();
     expect(mocks.tx.assetHolding.create).not.toHaveBeenCalled();
   });
+
+  it("permite que o usuário mova um ETF Pluggy para reserva de valor", async () => {
+    await expect(saveAssetAction({
+      id: "cmrzcyi3305pglw710ptyacct",
+      investmentClass: "STORE_OF_VALUE",
+      instrumentType: "ETF",
+      ticker: "GOLD11",
+      name: "Trend ETF LBMA Ouro",
+      quantity: 90,
+      unitPrice: 20,
+      manualValue: null,
+      currency: "BRL",
+      fractional: false,
+      score: 5,
+      fixedIncomeFamilyCode: null,
+      indexation: null,
+      yahooReitConfirmed: false,
+    })).resolves.toBeUndefined();
+
+    expect(mocks.tx.asset.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        instrumentType: "ETF",
+        investmentClass: "STORE_OF_VALUE",
+        fixedIncomeFamilyCode: null,
+        indexation: null,
+        instrumentSource: "USER_OVERRIDE",
+        exposureSource: "USER_OVERRIDE",
+        groupSource: "AUTO",
+      }),
+    }));
+    expect(mocks.tx.assetHolding.update).not.toHaveBeenCalled();
+    expect(mocks.tx.assetHolding.create).not.toHaveBeenCalled();
+  });
 });

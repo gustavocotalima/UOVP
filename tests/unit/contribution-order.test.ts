@@ -28,4 +28,18 @@ describe("ordenação das sugestões de aporte", () => {
 
     expect(suggestions.map((suggestion) => suggestion.ticker)).toEqual(["ETH", "BTC"]);
   });
+
+  it("posiciona reserva de valor abaixo de renda fixa", () => {
+    const suggestions = sortContributionSuggestions([
+      { investmentClass: "INTERNATIONAL_FIXED_INCOME" as const, ticker: "BND" },
+      { investmentClass: "STORE_OF_VALUE" as const, ticker: "GOLD11" },
+      { investmentClass: "FIXED_INCOME" as const, ticker: "CDB-PRE" },
+    ]);
+
+    expect(suggestions.map((suggestion) => suggestion.ticker)).toEqual([
+      "CDB-PRE",
+      "GOLD11",
+      "BND",
+    ]);
+  });
 });
