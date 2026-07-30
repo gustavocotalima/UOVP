@@ -33,6 +33,7 @@ import { clearBrapiApiKey, requireBrapiApiKey, storeBrapiApiKey } from "./brapi-
 import { ensurePortfolio, getPortfolioData } from "./data";
 import { FIXED_INCOME_INDEXATIONS, INSTRUMENT_TYPES, INVESTMENT_CLASSES, RATE_CONVENTIONS, FIXED_INCOME_INDEXATION_META, type InvestmentClassKey } from "./constants";
 import { DEFAULT_QUESTIONS, defaultQuestionTemplateKey } from "./questions";
+import { allowsFractionalUnits } from "./fractional-assets";
 import {
   classifyYahooReitMetadata,
   fetchAvailableYahooQuotes,
@@ -308,7 +309,15 @@ export async function saveAssetAction(input: AssetInput) {
     investedValue: existingHolding?.investedValue ?? (parsed.manualValue == null ? quantity.mul(effectiveUnitPrice) : new Prisma.Decimal(parsed.manualValue)),
     currentValue: brapiQuote || yahooQuote || binanceQuote || ["BRAPI", "YAHOO", "BINANCE"].includes(existingHolding?.pricingSource ?? "") || parsed.manualValue == null ? null : new Prisma.Decimal(parsed.manualValue),
     currency: brapiQuote?.currency ?? yahooQuote?.currency ?? binanceQuote?.currency ?? existingHolding?.currency ?? parsed.currency.toUpperCase(),
-    fractional: instrumentType === "CRYPTO" ? true : instrumentType === "ETF" ? false : yahooQuote ? true : parsed.fractional,
+    fractional: allowsFractionalUnits({
+      instrumentType,
+      investmentClass: parsed.investmentClass,
+      pricingSource: brapiQuote ? "BRAPI"
+        : yahooQuote ? "YAHOO"
+          : binanceQuote ? "BINANCE"
+            : existingHolding?.pricingSource,
+      fallback: parsed.fractional,
+    }),
     logoUrl: brapiMatch?.logoUrl ?? brapiQuote?.logoUrl ?? yahooQuote?.logoUrl ?? existingHolding?.logoUrl ?? null,
     priceUpdatedAt: brapiQuote?.asOf ?? yahooQuote?.asOf ?? binanceQuote?.asOf ?? existingHolding?.priceUpdatedAt ?? new Date(),
   };
@@ -739,7 +748,15 @@ export async function importPortfolioRowsAction(input: {
         fxUpdatedAt: yahooFx?.asOf ?? (binanceQuote?.fxRateToBrl ? binanceQuote.asOf : null),
         investedValue: row.manualValue == null ? quantity.mul(effectiveUnitPrice) : new Prisma.Decimal(row.manualValue),
         currentValue: brapiQuote || yahooQuote || binanceQuote || row.manualValue == null ? null : new Prisma.Decimal(row.manualValue),
-        fractional: instrumentType === "CRYPTO" ? true : instrumentType === "ETF" ? false : yahooQuote ? true : row.fractional,
+        fractional: allowsFractionalUnits({
+          instrumentType,
+          investmentClass,
+          pricingSource: brapiQuote ? "BRAPI"
+            : yahooQuote ? "YAHOO"
+              : binanceQuote ? "BINANCE"
+                : "MANUAL",
+          fallback: row.fractional,
+        }),
         logoUrl: brapiQuote?.logoUrl ?? yahooQuote?.logoUrl ?? null,
         priceUpdatedAt: brapiQuote?.asOf ?? yahooQuote?.asOf ?? binanceQuote?.asOf ?? new Date(),
       };
@@ -1013,6 +1030,7 @@ async function findMarketHoldings(portfolioId: string) {
       logoUrl: true,
       pricingSource: true,
       positionSource: true,
+      fractional: true,
       priceUpdatedAt: true,
       asset: { select: { id: true, instrumentType: true, investmentClass: true } },
     },
@@ -1195,7 +1213,12 @@ async function applyFreshSharedMarketCache({
             pricingSource: "YAHOO",
             unitPrice: quote.price,
             currentValue: null,
-            fractional: holding.asset.instrumentType !== "ETF",
+            fractional: allowsFractionalUnits({
+              instrumentType: holding.asset.instrumentType,
+              investmentClass: holding.asset.investmentClass,
+              pricingSource: "YAHOO",
+              fallback: holding.fractional,
+            }),
             ...(holding.positionSource === "MANUAL"
               ? { issuer: quote.name, productName: quote.name }
               : {}),
@@ -1387,7 +1410,12 @@ async function refreshMarketPricesForUser(
             pricingSource: "YAHOO",
             unitPrice: quote.price,
             currentValue: null,
-            fractional: holding.asset.instrumentType !== "ETF",
+            fractional: allowsFractionalUnits({
+              instrumentType: holding.asset.instrumentType,
+              investmentClass: holding.asset.investmentClass,
+              pricingSource: "YAHOO",
+              fallback: holding.fractional,
+            }),
             ...(holding.positionSource === "MANUAL"
               ? {
                   issuer: quote.name,
