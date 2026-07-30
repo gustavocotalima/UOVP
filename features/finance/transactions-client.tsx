@@ -685,7 +685,7 @@ function AssignmentSource({ source }: { source: FinanceTransactionDto["budgetCat
 }
 
 function MiniTotal({ label, value, tone }: { label: string; value: number; tone: "success" | "danger" | "default" }) {
-  return <div className="rounded-xl bg-[var(--muted)] px-3 py-2"><p className="text-[10px] text-[var(--muted-foreground)]">{label}</p><p className={cn("mt-1 text-sm font-semibold", tone === "success" && "text-[var(--success)]", tone === "danger" && "text-[var(--danger)]")}>{formatMoney(value)}</p></div>;
+  return <div className="min-w-0 rounded-xl bg-[var(--muted)] px-3 py-2"><p className="text-[10px] text-[var(--muted-foreground)]">{label}</p><p className={cn("mt-1 whitespace-nowrap text-[13px] font-semibold tabular-nums sm:text-sm", tone === "success" && "text-[var(--success)]", tone === "danger" && "text-[var(--danger)]")}>{formatMoney(value)}</p></div>;
 }
 
 function SortHeader({ label, active, direction, onClick }: { label: string; active: boolean; direction: "asc" | "desc"; onClick: () => void }) {

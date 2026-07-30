@@ -6,6 +6,7 @@ import {
 import { prisma } from "@/lib/prisma";
 import type { UserOperationLeaseContext } from "@/lib/operation-security";
 import { FIXED_INCOME_INDEXATION_META } from "@/features/portfolio/constants";
+import { allowsFractionalUnits } from "@/features/portfolio/fractional-assets";
 import { fetchYahooFxRates } from "@/features/portfolio/yahoo-finance";
 import {
   classifyPluggyInvestment,
@@ -144,7 +145,12 @@ function linkedHoldingData(
     providerCurrentValue: investment.balance,
     includedInTotals: investment.providerAvailable && investment.status === "ACTIVE",
     supersededAt: null,
-    fractional: classification.instrumentType === "ETF" ? false : internationalMarket || !market,
+    fractional: allowsFractionalUnits({
+      instrumentType: classification.instrumentType,
+      investmentClass: classification.investmentClass,
+      pricingSource: market ? internationalMarket ? "YAHOO" : "BRAPI" : "PLUGGY",
+      fallback: !market,
+    }),
     rateConvention: classification.rateConvention,
     benchmark: classification.benchmark,
     rateValue: classification.rateValue === null ? null : new Prisma.Decimal(classification.rateValue),

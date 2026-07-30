@@ -6,6 +6,7 @@ import { aggregateHoldingValue, holdingCurrentValue, holdingUnitPriceBrl } from 
 import { aggregateAveragePrices, calculateHoldingAveragePrice } from "./average-price";
 import { fetchBrapiTickerMetadata, normalizeBrapiSymbol } from "./brapi";
 import { DEFAULT_QUESTIONS, defaultQuestionTemplateKey } from "./questions";
+import { allowsFractionalUnits } from "./fractional-assets";
 
 const BRAPI_INSTRUMENTS = new Set(["STOCK", "ETF", "REAL_ESTATE_FUND"]);
 const MARKET_INSTRUMENTS = new Set(["STOCK", "ETF", "REAL_ESTATE_FUND", "REIT"]);
@@ -171,7 +172,12 @@ export async function getPortfolioData(userId: string) {
         currentValue: currentValue.toString(),
         averagePricePaid: averagePrice.price?.toString() ?? null,
         averagePriceCoverage: averagePrice.coverage,
-        fractional: asset.instrumentType === "FIXED_INCOME" ? true : asset.instrumentType === "ETF" ? false : firstHolding?.fractional ?? false,
+        fractional: allowsFractionalUnits({
+          instrumentType: asset.instrumentType,
+          investmentClass: asset.investmentClass,
+          pricingSource: firstHolding?.pricingSource,
+          fallback: firstHolding?.fractional ?? false,
+        }),
         score: asset.score,
         priceUpdatedAt: latestPriceUpdate?.toISOString() ?? null,
         updatedAt: asset.updatedAt.toISOString(),
