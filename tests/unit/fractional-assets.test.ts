@@ -46,8 +46,8 @@ describe("ativos fracionários por mercado", () => {
         REITS: 0,
         CRYPTO: 0,
         FIXED_INCOME: 0,
-        STORE_OF_VALUE: 0,
         INTERNATIONAL_FIXED_INCOME: 0,
+        STORE_OF_VALUE: 0,
       },
       assets: [{
         id: "voo",

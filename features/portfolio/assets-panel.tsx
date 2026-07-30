@@ -1055,8 +1055,8 @@ export function AssetsPanel({
         REITS: "REITS",
         CRIPTOMOEDAS: "CRYPTO",
         "RENDA FIXA": "FIXED_INCOME",
-        "RESERVA DE VALOR": "STORE_OF_VALUE",
         "RENDA FIXA INTERNACIONAL": "INTERNATIONAL_FIXED_INCOME",
+        "RESERVA DE VALOR": "STORE_OF_VALUE",
       };
       const normalizeText = (value: unknown) => String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toUpperCase();
       const normalizeClass = (value: unknown): InvestmentClassKey => {
