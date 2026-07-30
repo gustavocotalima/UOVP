@@ -35,7 +35,7 @@ import type { YahooSearchKind, YahooTickerSearchResult } from "./yahoo-finance";
 import { FIXED_INCOME_INDEXATIONS, FIXED_INCOME_INDEXATION_META, INSTRUMENT_TYPES, INSTRUMENT_TYPE_META, INVESTMENT_CLASSES, INVESTMENT_CLASS_META, MOCK_ASSET_CATALOG, RATE_CONVENTIONS, RATE_CONVENTION_META, type FixedIncomeIndexationKey, type InstrumentTypeKey, type InvestmentClassKey, type RateConventionKey } from "./constants";
 import type { AssetDto, AssetHoldingDto, DiagramQuestionDto, PortfolioDto } from "./types";
 import { excludePluggyDiagramLinkAction, reviewPluggyDiagramLinkAction } from "@/features/open-finance/diagram-actions";
-import { usableBrapiLogoUrl } from "./market-logo";
+import { financialModelingPrepLogoUrl, usableBrapiLogoUrl } from "./market-logo";
 
 type FormAsset = {
   id?: string;
@@ -367,18 +367,43 @@ function PluggyReviewSourceData({ review, timeZone }: { review: ReviewForm; time
   );
 }
 
-function assetLogoUrl(asset: AssetDto) {
+const INTERNATIONAL_MARKET_CLASSES = new Set<InvestmentClassKey>([
+  "INTERNATIONAL_STOCKS",
+  "REITS",
+  "INTERNATIONAL_FIXED_INCOME",
+]);
+
+function assetLogoUrls(asset: AssetDto) {
+  const urls: string[] = [];
   const storedLogoUrl = usableBrapiLogoUrl(asset.logoUrl);
-  if (storedLogoUrl) return storedLogoUrl;
-  if (asset.instrumentType !== "ETF" && !["BRAZILIAN_STOCKS", "REAL_ESTATE_FUNDS"].includes(asset.investmentClass)) return null;
+  if (storedLogoUrl) urls.push(storedLogoUrl);
+
+  const isMarketAsset = ["STOCK", "ETF", "REAL_ESTATE_FUND", "REIT"].includes(asset.instrumentType);
+  if (!isMarketAsset) return urls;
+
   const symbol = asset.ticker.trim().toUpperCase().replace(/\.SA$/, "").replace(/(\d)F$/, "$1");
-  return symbol ? `https://icons.brapi.dev/icons/${encodeURIComponent(symbol)}.svg` : null;
+  const isInternational = INTERNATIONAL_MARKET_CLASSES.has(asset.investmentClass);
+  if (!isInternational && symbol) {
+    urls.push(`https://icons.brapi.dev/icons/${encodeURIComponent(symbol)}.svg`);
+  }
+
+  const fmpSymbol = isInternational ? asset.ticker : symbol ? `${symbol}.SA` : null;
+  const fmpLogoUrl = financialModelingPrepLogoUrl(fmpSymbol);
+  if (fmpLogoUrl) urls.push(fmpLogoUrl);
+  return [...new Set(urls)];
 }
 
 function AssetLogo({ asset }: { asset: AssetDto }) {
-  const logoUrl = assetLogoUrl(asset);
+  const logoUrls = assetLogoUrls(asset);
+  const logoUrlsKey = logoUrls.join("|");
+  const [failedLogoUrls, setFailedLogoUrls] = useState<string[]>([]);
+  const logoUrl = logoUrls.find((candidate) => !failedLogoUrls.includes(candidate)) ?? null;
   const [loadedLogoUrl, setLoadedLogoUrl] = useState<string | null>(null);
   const logoLoaded = loadedLogoUrl === logoUrl;
+  useEffect(() => {
+    setFailedLogoUrls([]);
+    setLoadedLogoUrl(null);
+  }, [logoUrlsKey]);
   const captureLogoElement = useCallback((image: HTMLImageElement | null) => {
     if (image?.complete) setLoadedLogoUrl(image.naturalWidth > 0 ? logoUrl : null);
   }, [logoUrl]);
@@ -403,7 +428,12 @@ function AssetLogo({ asset }: { asset: AssetDto }) {
           onLoad={(event) => {
             if (event.currentTarget.naturalWidth > 0) setLoadedLogoUrl(logoUrl);
           }}
-          onError={() => setLoadedLogoUrl(null)}
+          onError={() => {
+            setLoadedLogoUrl(null);
+            setFailedLogoUrls((current) => logoUrl && !current.includes(logoUrl)
+              ? [...current, logoUrl]
+              : current);
+          }}
         />
       )}
     </span>
@@ -1827,7 +1857,10 @@ export function AssetsPanel({
                           style={tickerListPosition}
                         >
                           {tickerOptions.map((option, index) => {
-                            const logoUrl = option.logoUrl;
+                            const logoUrl = option.logoUrl
+                              ?? (option.provider === "YAHOO"
+                                ? financialModelingPrepLogoUrl(option.symbol)
+                                : null);
                             const badge = option.provider === "BRAPI"
                               ? option.subType || option.assetType || "B3"
                               : option.provider === "BINANCE"
