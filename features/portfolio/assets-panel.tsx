@@ -423,7 +423,7 @@ function AssetLogo({ asset }: { asset: AssetDto }) {
           ref={captureLogoElement}
           src={logoUrl}
           alt={`Logo de ${asset.name}`}
-          className={`absolute inset-[2px] h-[calc(100%-4px)] w-[calc(100%-4px)] rounded-[9px] object-contain ${logoLoaded ? "opacity-100" : "opacity-0"}`}
+          className={`absolute inset-[2px] h-[calc(100%-4px)] w-[calc(100%-4px)] rounded-[9px] bg-white object-contain ${logoLoaded ? "opacity-100" : "opacity-0"}`}
           loading="lazy"
           onLoad={(event) => {
             if (event.currentTarget.naturalWidth > 0) setLoadedLogoUrl(logoUrl);
@@ -577,7 +577,7 @@ export function AssetsPanel({
 
   useEffect(() => {
     const requestId = ++tickerRequestId.current;
-    if (selectedMarketTicker === tickerQuery || tickerQuery.length < 2) return;
+    if (selectedMarketTicker === tickerQuery || tickerQuery.length < 1) return;
 
     const timer = window.setTimeout(async () => {
       setTickerSearchPending(true);
@@ -777,7 +777,7 @@ export function AssetsPanel({
         yahooReitConfirmed: false,
       });
       updateTickerListPosition();
-      if (ticker.length < 2) {
+      if (ticker.length < 1) {
         setTickerOptions([]);
         setTickerSearchError(undefined);
         setTickerSearchPending(false);
@@ -1848,7 +1848,7 @@ export function AssetsPanel({
                       <span className="pointer-events-none absolute right-3 top-3 text-[var(--muted-foreground)]">
                         {tickerSearchPending ? <LoaderCircle className="size-4 animate-spin" /> : <ChevronDown className="size-4" />}
                       </span>
-                      {tickerListOpen && tickerQuery.length >= 2 && tickerListPosition && typeof document !== "undefined" && createPortal(
+                      {tickerListOpen && tickerQuery.length >= 1 && tickerListPosition && typeof document !== "undefined" && createPortal(
                         <div
                           id="market-ticker-options"
                           role="listbox"
@@ -1893,7 +1893,7 @@ export function AssetsPanel({
                                   <img
                                     src={logoUrl}
                                     alt={`Logo de ${option.name}`}
-                                    className="absolute inset-[2px] h-[calc(100%-4px)] w-[calc(100%-4px)] rounded-md object-contain"
+                                    className="absolute inset-[2px] h-[calc(100%-4px)] w-[calc(100%-4px)] rounded-md bg-white object-contain"
                                     loading="lazy"
                                     onError={(event) => { event.currentTarget.hidden = true; }}
                                   />
