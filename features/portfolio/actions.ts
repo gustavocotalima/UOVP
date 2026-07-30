@@ -34,6 +34,7 @@ import { ensurePortfolio, getPortfolioData } from "./data";
 import { FIXED_INCOME_INDEXATIONS, INSTRUMENT_TYPES, INVESTMENT_CLASSES, RATE_CONVENTIONS, FIXED_INCOME_INDEXATION_META, type InvestmentClassKey } from "./constants";
 import { DEFAULT_QUESTIONS, defaultQuestionTemplateKey } from "./questions";
 import { allowsFractionalUnits } from "./fractional-assets";
+import { sortContributionSuggestions } from "./contribution-order";
 import {
   classifyYahooReitMetadata,
   fetchAvailableYahooQuotes,
@@ -1661,24 +1662,26 @@ export async function simulateContributionAction(value: number) {
     include: { suggestions: { include: { asset: true } } },
   });
 
+  const suggestions = simulation.suggestions.map((suggestion) => ({
+    id: suggestion.id,
+    assetId: suggestion.assetId,
+    ticker: suggestion.asset.ticker,
+    name: suggestion.asset.name,
+    investmentClass: suggestion.asset.investmentClass as InvestmentClassKey,
+    instrumentType: suggestion.asset.instrumentType,
+    quantity: suggestion.quantity.toString(),
+    value: suggestion.value.toString(),
+    suggestionPercentage: suggestion.suggestionPercentage.toString(),
+    totalAfterSuggestionPercentage: suggestion.totalAfterSuggestionPercentage.toString(),
+    executed: suggestion.executed,
+    executionStatus: suggestion.executionStatus,
+  }));
+
   return {
     id: simulation.id,
     requestedAmount: simulation.requestedAmount.toString(),
     unallocatedAmount: simulation.unallocatedAmount.toString(),
-    suggestions: simulation.suggestions.map((suggestion) => ({
-      id: suggestion.id,
-      assetId: suggestion.assetId,
-      ticker: suggestion.asset.ticker,
-      name: suggestion.asset.name,
-      investmentClass: suggestion.asset.investmentClass as InvestmentClassKey,
-      instrumentType: suggestion.asset.instrumentType,
-      quantity: suggestion.quantity.toString(),
-      value: suggestion.value.toString(),
-      suggestionPercentage: suggestion.suggestionPercentage.toString(),
-      totalAfterSuggestionPercentage: suggestion.totalAfterSuggestionPercentage.toString(),
-      executed: suggestion.executed,
-      executionStatus: suggestion.executionStatus,
-    })),
+    suggestions: sortContributionSuggestions(suggestions),
   };
 }
 
