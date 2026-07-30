@@ -24,7 +24,7 @@ export async function getPortfolioData(userId: string) {
   const [assets, storedTargets, fixedIncomeFamilies, catalog, integrationReview, preference] = await Promise.all([
     prisma.asset.findMany({
       where: { portfolioId: portfolio.id },
-      orderBy: [{ investmentClass: "asc" }, { ticker: "asc" }],
+      orderBy: { ticker: "asc" },
       include: {
         fixedIncomeFamily: true,
         holdings: {
@@ -91,6 +91,17 @@ export async function getPortfolioData(userId: string) {
       select: { timeZone: true },
     }),
   ]);
+  const investmentClassOrder = new Map(
+    INVESTMENT_CLASSES.map((investmentClass, index) => [investmentClass, index]),
+  );
+  assets.sort((left, right) => {
+    const classComparison = (investmentClassOrder.get(left.investmentClass as InvestmentClassKey) ?? Number.MAX_SAFE_INTEGER)
+      - (investmentClassOrder.get(right.investmentClass as InvestmentClassKey) ?? Number.MAX_SAFE_INTEGER);
+    return classComparison || left.ticker.localeCompare(right.ticker, "pt-BR", {
+      numeric: true,
+      sensitivity: "base",
+    });
+  });
   const missingLogoTickers = assets.flatMap((asset) =>
     BRAPI_INSTRUMENTS.has(asset.instrumentType)
       && asset.holdings.some((holding) => holding.includedInTotals && !holding.logoUrl)

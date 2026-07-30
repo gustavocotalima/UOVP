@@ -9,9 +9,9 @@ import {
 import { classifyPluggyInvestment } from "@/features/open-finance/diagram-classification";
 
 describe("reserva de valor", () => {
-  it("fica abaixo de renda fixa e começa com meta zero", () => {
+  it("fica abaixo de todo o grupo de renda fixa e começa com meta zero", () => {
     expect(INVESTMENT_CLASSES.indexOf("STORE_OF_VALUE"))
-      .toBe(INVESTMENT_CLASSES.indexOf("FIXED_INCOME") + 1);
+      .toBe(INVESTMENT_CLASSES.indexOf("INTERNATIONAL_FIXED_INCOME") + 1);
     expect(INVESTMENT_CLASS_META.STORE_OF_VALUE.label).toBe("Reserva de valor");
     expect(DEFAULT_TARGETS.STORE_OF_VALUE).toBe(0);
     expect(Object.values(DEFAULT_TARGETS).reduce((total, target) => total + target, 0)).toBe(100);
