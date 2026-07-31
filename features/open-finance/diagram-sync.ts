@@ -2,6 +2,7 @@ import {
   Prisma,
   type FixedIncomeIndexation,
   type InstrumentType,
+  type MarketRegion,
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { UserOperationLeaseContext } from "@/lib/operation-security";
@@ -22,7 +23,7 @@ import { resolvePluggyInvestmentIssuer } from "./institution-logo";
 type InvestmentWithItem = Prisma.PluggyInvestmentGetPayload<{
   include: {
     item: { select: { connectorName: true; institutionName: true } };
-    diagramLink: { include: { holding: true } };
+    diagramLink: { include: { holding: { include: { asset: true } } } };
   };
 }>;
 
@@ -78,7 +79,9 @@ function fixedParentIdentity(
 function linkedHoldingData(
   investment: InvestmentWithItem,
   classification: DiagramClassification,
+  marketRegion: MarketRegion | null,
   quoteHolding?: {
+    pricingSource: string;
     unitPrice: Prisma.Decimal;
     logoUrl: string | null;
     brapiAssetType: string | null;
@@ -119,12 +122,23 @@ function linkedHoldingData(
   const fxUpdatedAt = currency === "BRL"
     ? null
     : quoteHolding?.fxUpdatedAt ?? providerFx?.asOf ?? null;
+  const marketPricingSource = marketRegion === "INTERNATIONAL"
+    ? "YAHOO" as const
+    : marketRegion === "BRAZIL"
+      ? "BRAPI" as const
+      : quoteHolding?.pricingSource === "YAHOO"
+        ? "YAHOO" as const
+        : quoteHolding?.pricingSource === "BRAPI"
+          ? "BRAPI" as const
+          : internationalMarket
+            ? "YAHOO" as const
+            : "BRAPI" as const;
   return {
     catalogItemId: classification.catalogItemId,
     customTypeName: classification.catalogItemId ? null : investment.subtype ?? investment.type,
     issuer: providerIssuer(investment),
     productName: investment.name,
-    pricingSource: market ? internationalMarket ? "YAHOO" as const : "BRAPI" as const : "PLUGGY" as const,
+    pricingSource: market ? marketPricingSource : "PLUGGY" as const,
     positionSource: "PLUGGY" as const,
     ticker: market ? normalizePluggyTicker(investment.code) || null : null,
     brapiAssetType: market ? quoteHolding?.brapiAssetType ?? null : null,
@@ -148,7 +162,7 @@ function linkedHoldingData(
     fractional: allowsFractionalUnits({
       instrumentType: classification.instrumentType,
       investmentClass: classification.investmentClass,
-      pricingSource: market ? internationalMarket ? "YAHOO" : "BRAPI" : "PLUGGY",
+      pricingSource: market ? marketPricingSource : "PLUGGY",
       fallback: !market,
     }),
     rateConvention: classification.rateConvention,
@@ -304,7 +318,7 @@ export async function reconcilePluggyInvestmentsForUser(
     where: { item: { userId } },
     include: {
       item: { select: { connectorName: true, institutionName: true } },
-      diagramLink: { include: { holding: true } },
+      diagramLink: { include: { holding: { include: { asset: true } } } },
     },
     orderBy: [{ type: "asc" }, { name: "asc" }],
   });
@@ -318,14 +332,35 @@ export async function reconcilePluggyInvestmentsForUser(
         investmentClass: investment.diagramLink.suggestedInvestmentClass,
         familyCode: investment.diagramLink.suggestedFamilyCode,
         indexation: investment.diagramLink.suggestedIndexation,
+        needsReview: !investment.diagramLink.suggestedInstrumentType
+          || !investment.diagramLink.suggestedInvestmentClass
+          || (investment.diagramLink.suggestedInstrumentType === "FIXED_INCOME"
+            && (!investment.diagramLink.suggestedFamilyCode || !investment.diagramLink.suggestedIndexation))
+          || (investment.diagramLink.suggestedInstrumentType === "ETF"
+            && investment.diagramLink.suggestedInvestmentClass === "STORE_OF_VALUE"
+            && !investment.diagramLink.suggestedMarketRegion),
+        reviewReason: null,
       };
+    } else if (investment.diagramLink?.holding?.asset) {
+      classification = applyExistingAssetClassification(
+        classification,
+        investment.diagramLink.holding.asset,
+      );
     }
+    const storeOfValueMarketRegion = classification.instrumentType === "ETF"
+      && classification.investmentClass === "STORE_OF_VALUE"
+      ? investment.diagramLink?.suggestedMarketRegion
+        ?? investment.diagramLink?.holding?.asset.marketRegion
+      : null;
     if (
       classification.needsReview
       || !classification.instrumentType
       || !classification.investmentClass
       || (classification.instrumentType === "FIXED_INCOME"
         && (!classification.familyCode || !classification.indexation))
+      || (classification.instrumentType === "ETF"
+        && classification.investmentClass === "STORE_OF_VALUE"
+        && !storeOfValueMarketRegion)
     ) {
       return [];
     }
@@ -399,7 +434,10 @@ export async function reconcilePluggyInvestmentsForUser(
           indexation: existingLink.suggestedIndexation,
           needsReview: !existingLink.suggestedInstrumentType || !existingLink.suggestedInvestmentClass
             || (existingLink.suggestedInstrumentType === "FIXED_INCOME"
-              && (!existingLink.suggestedFamilyCode || !existingLink.suggestedIndexation)),
+              && (!existingLink.suggestedFamilyCode || !existingLink.suggestedIndexation))
+            || (existingLink.suggestedInstrumentType === "ETF"
+              && existingLink.suggestedInvestmentClass === "STORE_OF_VALUE"
+              && !existingLink.suggestedMarketRegion),
           reviewReason: null,
         };
       }
@@ -418,22 +456,38 @@ export async function reconcilePluggyInvestmentsForUser(
       if (marketCandidate && existingLink?.classificationSource !== "USER_OVERRIDE") {
         classification = applyExistingAssetClassification(classification, marketCandidate);
       }
+      const marketRegion = classification.instrumentType === "ETF"
+        && classification.investmentClass === "STORE_OF_VALUE"
+        ? existingLink?.classificationSource === "USER_OVERRIDE"
+          ? existingLink.suggestedMarketRegion
+          : marketCandidate?.marketRegion
+            ?? existingLink?.holding?.asset.marketRegion
+        : null;
 
       if (
         classification.needsReview
         || !classification.instrumentType
         || !classification.investmentClass
         || (classification.instrumentType === "FIXED_INCOME" && (!classification.familyCode || !classification.indexation))
+        || (classification.instrumentType === "ETF"
+          && classification.investmentClass === "STORE_OF_VALUE"
+          && !marketRegion)
       ) {
+        const reviewReason = classification.instrumentType === "ETF"
+          && classification.investmentClass === "STORE_OF_VALUE"
+          && !marketRegion
+          ? "Selecione se o ETF de reserva de valor é nacional ou internacional."
+          : classification.reviewReason;
         await tx.pluggyInvestmentDiagramLink.upsert({
           where: { pluggyInvestmentDbId: investment.id },
           update: {
             status: "NEEDS_REVIEW",
             suggestedInstrumentType: classification.instrumentType,
             suggestedInvestmentClass: classification.investmentClass,
+            suggestedMarketRegion: marketRegion,
             suggestedFamilyCode: classification.familyCode,
             suggestedIndexation: classification.indexation,
-            reviewReason: classification.reviewReason,
+            reviewReason,
             lastReconciledAt: new Date(),
           },
           create: {
@@ -442,9 +496,10 @@ export async function reconcilePluggyInvestmentsForUser(
             status: "NEEDS_REVIEW",
             suggestedInstrumentType: classification.instrumentType,
             suggestedInvestmentClass: classification.investmentClass,
+            suggestedMarketRegion: marketRegion,
             suggestedFamilyCode: classification.familyCode,
             suggestedIndexation: classification.indexation,
-            reviewReason: classification.reviewReason,
+            reviewReason,
             lastReconciledAt: new Date(),
           },
         });
@@ -492,6 +547,7 @@ export async function reconcilePluggyInvestmentsForUser(
               portfolioId: portfolio.id,
               investmentClass: classification.investmentClass,
               instrumentType: "FIXED_INCOME",
+              marketRegion: null,
               ticker: identity.ticker,
               name: identity.name,
               fixedIncomeFamilyCode: family.code,
@@ -518,6 +574,7 @@ export async function reconcilePluggyInvestmentsForUser(
               portfolioId: portfolio.id,
               investmentClass: classification.investmentClass,
               instrumentType: "MUTUAL_FUND",
+              marketRegion: null,
               ticker,
               name: investment.name,
               score: 0,
@@ -534,6 +591,7 @@ export async function reconcilePluggyInvestmentsForUser(
             portfolioId: portfolio.id,
             investmentClass: classification.investmentClass,
             instrumentType: classification.instrumentType,
+            marketRegion,
             ticker,
             name: investment.name,
             fixedIncomeFamilyCode: classification.familyCode,
@@ -550,18 +608,25 @@ export async function reconcilePluggyInvestmentsForUser(
         const updateExposure = asset.investmentClass !== classification.investmentClass
           && (userOverride || asset.exposureSource === "AUTO");
         const updateGroup = userOverride || asset.groupSource === "AUTO";
+        const nextMarketRegion = classification.instrumentType === "ETF"
+          && classification.investmentClass === "STORE_OF_VALUE"
+          ? marketRegion
+          : null;
+        const marketRegionChanged = asset.marketRegion !== nextMarketRegion
+          && (userOverride || asset.marketRegion === null || nextMarketRegion === null);
         const nextFamilyCode = classification.familyCode ?? null;
         const nextIndexation = classification.indexation ?? null;
         const groupChanged = updateGroup && (
           asset.fixedIncomeFamilyCode !== nextFamilyCode
           || asset.indexation !== nextIndexation
         );
-        if (updateInstrument || updateExposure || groupChanged) {
+        if (updateInstrument || updateExposure || groupChanged || marketRegionChanged) {
           asset = await tx.asset.update({
             where: { id: asset.id },
             data: {
               ...(updateInstrument ? { instrumentType: classification.instrumentType } : {}),
               ...(updateExposure ? { investmentClass: classification.investmentClass } : {}),
+              ...(marketRegionChanged ? { marketRegion: nextMarketRegion } : {}),
               ...(groupChanged
                 ? {
                     fixedIncomeFamilyCode: nextFamilyCode,
@@ -599,6 +664,7 @@ export async function reconcilePluggyInvestmentsForUser(
               status: "NEEDS_REVIEW",
               suggestedInstrumentType: classification.instrumentType,
               suggestedInvestmentClass: classification.investmentClass,
+              suggestedMarketRegion: marketRegion,
               suggestedFamilyCode: classification.familyCode,
               suggestedIndexation: classification.indexation,
               reviewReason: "Existe uma aplicação manual do mesmo emissor. Confirme se é a mesma posição.",
@@ -610,6 +676,7 @@ export async function reconcilePluggyInvestmentsForUser(
               status: "NEEDS_REVIEW",
               suggestedInstrumentType: classification.instrumentType,
               suggestedInvestmentClass: classification.investmentClass,
+              suggestedMarketRegion: marketRegion,
               suggestedFamilyCode: classification.familyCode,
               suggestedIndexation: classification.indexation,
               reviewReason: "Existe uma aplicação manual do mesmo emissor. Confirme se é a mesma posição.",
@@ -665,6 +732,7 @@ export async function reconcilePluggyInvestmentsForUser(
             status: "NEEDS_REVIEW",
             suggestedInstrumentType: classification.instrumentType,
             suggestedInvestmentClass: classification.investmentClass,
+            suggestedMarketRegion: marketRegion,
             suggestedFamilyCode: classification.familyCode,
             suggestedIndexation: classification.indexation,
             reviewReason: `Não foi possível converter ${holdingCurrency} para BRL.`,
@@ -676,6 +744,7 @@ export async function reconcilePluggyInvestmentsForUser(
             status: "NEEDS_REVIEW",
             suggestedInstrumentType: classification.instrumentType,
             suggestedInvestmentClass: classification.investmentClass,
+            suggestedMarketRegion: marketRegion,
             suggestedFamilyCode: classification.familyCode,
             suggestedIndexation: classification.indexation,
             reviewReason: `Não foi possível converter ${holdingCurrency} para BRL.`,
@@ -688,6 +757,7 @@ export async function reconcilePluggyInvestmentsForUser(
       const data = linkedHoldingData(
         investment,
         classification,
+        marketRegion ?? null,
         quoteHolding,
         resolvedFx,
       );
@@ -725,6 +795,7 @@ export async function reconcilePluggyInvestmentsForUser(
           status: "MAPPED",
           suggestedInstrumentType: classification.instrumentType,
           suggestedInvestmentClass: classification.investmentClass,
+          suggestedMarketRegion: marketRegion,
           suggestedFamilyCode: classification.familyCode,
           suggestedIndexation: classification.indexation,
           reviewReason: null,
@@ -737,6 +808,7 @@ export async function reconcilePluggyInvestmentsForUser(
           status: "MAPPED",
           suggestedInstrumentType: classification.instrumentType,
           suggestedInvestmentClass: classification.investmentClass,
+          suggestedMarketRegion: marketRegion,
           suggestedFamilyCode: classification.familyCode,
           suggestedIndexation: classification.indexation,
           reviewReason: null,

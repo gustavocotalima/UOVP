@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { Prisma, type DiagramType, type FixedIncomeIndexation, type InstrumentType, type InvestmentClass, type RateConvention } from "@prisma/client";
+import { Prisma, type DiagramType, type FixedIncomeIndexation, type InstrumentType, type InvestmentClass, type MarketRegion, type RateConvention } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireUserId } from "@/lib/current-user";
@@ -51,6 +51,7 @@ import {
 
 const investmentClassSchema = z.enum(INVESTMENT_CLASSES);
 const instrumentTypeSchema = z.enum(INSTRUMENT_TYPES);
+const marketRegionSchema = z.enum(["BRAZIL", "INTERNATIONAL"]);
 const assetSchema = z.object({
   id: z.string().cuid().optional(),
   investmentClass: investmentClassSchema,
@@ -65,6 +66,7 @@ const assetSchema = z.object({
   score: z.coerce.number().int().min(-30).max(30).default(0),
   fixedIncomeFamilyCode: z.string().trim().min(2).max(80).nullable().optional(),
   indexation: z.enum(FIXED_INCOME_INDEXATIONS).nullable().optional(),
+  marketRegion: marketRegionSchema.nullable().optional(),
   yahooReitConfirmed: z.boolean().default(false),
 });
 
@@ -129,14 +131,28 @@ function normalizedText(value: string | null | undefined) {
     .toUpperCase();
 }
 
-function usesBrapiQuotes(investmentClass: InvestmentClassKey, instrumentType?: InstrumentType) {
+function usesBrapiQuotes(
+  investmentClass: InvestmentClassKey,
+  instrumentType?: InstrumentType,
+  marketRegion?: z.infer<typeof marketRegionSchema> | null,
+) {
   if (instrumentType === "ETF") {
+    if (investmentClass === "STORE_OF_VALUE") {
+      return marketRegion === "BRAZIL";
+    }
     return !["INTERNATIONAL_STOCKS", "REITS", "INTERNATIONAL_FIXED_INCOME"].includes(investmentClass);
   }
   return investmentClass === "BRAZILIAN_STOCKS" || investmentClass === "REAL_ESTATE_FUNDS";
 }
 
-function usesYahooQuotes(investmentClass: InvestmentClassKey, instrumentType?: InstrumentType) {
+function usesYahooQuotes(
+  investmentClass: InvestmentClassKey,
+  instrumentType?: InstrumentType,
+  marketRegion?: z.infer<typeof marketRegionSchema> | null,
+) {
+  if (instrumentType === "ETF" && investmentClass === "STORE_OF_VALUE") {
+    return marketRegion === "INTERNATIONAL";
+  }
   return ["INTERNATIONAL_STOCKS", "REITS", "INTERNATIONAL_FIXED_INCOME"].includes(investmentClass)
     && ["STOCK", "REIT", "ETF"].includes(instrumentType ?? "");
 }
@@ -172,6 +188,10 @@ export async function saveAssetAction(input: AssetInput) {
   if (instrumentType === "FIXED_INCOME") {
     throw new Error("Use o cadastro de grupo de renda fixa.");
   }
+  const classifiesAsStoreOfValue = instrumentType === "ETF" && parsed.investmentClass === "STORE_OF_VALUE";
+  if (classifiesAsStoreOfValue && !parsed.marketRegion) {
+    throw new Error("Selecione se o ETF de reserva de valor é nacional ou internacional.");
+  }
   const classifiesAsFixedIncome = instrumentType === "ETF" && ["FIXED_INCOME", "INTERNATIONAL_FIXED_INCOME"].includes(parsed.investmentClass);
   if (classifiesAsFixedIncome && (!parsed.fixedIncomeFamilyCode || !parsed.indexation)) {
     throw new Error("Selecione o grupo e a indexação do ETF de renda fixa.");
@@ -190,6 +210,7 @@ export async function saveAssetAction(input: AssetInput) {
     orderBy: { createdAt: "asc" },
   }) : [];
   const existingHolding = existingPositions.find((holding) => holding.positionSource === "MANUAL") ?? null;
+  const existingQuoteHolding = existingHolding ?? existingPositions[0] ?? null;
   const hasPluggyControlledPosition = existingPositions.some((holding) => holding.positionSource === "PLUGGY");
   if (parsed.id && !existingHolding && !hasPluggyControlledPosition) {
     throw new Error("Posição do ativo não encontrada.");
@@ -201,7 +222,12 @@ export async function saveAssetAction(input: AssetInput) {
   let yahooFx: Awaited<ReturnType<typeof fetchYahooFxRates>>[number] | undefined;
   let binanceQuote: BinanceQuote | undefined;
   let binanceMatch: BinanceAssetSearchResult | undefined;
-  if (!parsed.id && usesBrapiQuotes(parsed.investmentClass, instrumentType)) {
+  const selectedPricingSource = classifiesAsStoreOfValue
+    ? parsed.marketRegion === "INTERNATIONAL" ? "YAHOO" : "BRAPI"
+    : null;
+  const mustResolveMarketQuote = !parsed.id
+    || Boolean(selectedPricingSource && existingQuoteHolding?.pricingSource !== selectedPricingSource);
+  if (mustResolveMarketQuote && usesBrapiQuotes(parsed.investmentClass, instrumentType, parsed.marketRegion)) {
     const apiKey = await requireBrapiApiKey(userId);
     const matches = instrumentType === "ETF"
       ? await searchBrapiEtfTickers({ query: parsed.ticker })
@@ -213,7 +239,7 @@ export async function saveAssetAction(input: AssetInput) {
     [brapiQuote] = await fetchBrapiQuotes({ apiKey, tickers: [parsed.ticker] });
     if (!brapiQuote) throw new Error(`A brapi não retornou uma cotação para ${parsed.ticker}.`);
   }
-  if (!parsed.id && usesYahooQuotes(parsed.investmentClass, instrumentType)) {
+  if (mustResolveMarketQuote && usesYahooQuotes(parsed.investmentClass, instrumentType, parsed.marketRegion)) {
     const kind = yahooSearchKind(parsed.investmentClass, instrumentType);
     const matches = await searchYahooTickers({ query: parsed.ticker, kind });
     yahooMatch = matches.find((match) => match.symbol === normalizeYahooSymbol(parsed.ticker));
@@ -265,6 +291,7 @@ export async function saveAssetAction(input: AssetInput) {
   const parentData = {
     investmentClass: parsed.investmentClass as InvestmentClass,
     instrumentType,
+    marketRegion: classifiesAsStoreOfValue ? parsed.marketRegion as MarketRegion : null,
     ticker,
     name: brapiQuote?.name ?? yahooQuote?.name ?? parsed.name,
     fixedIncomeFamilyCode: classifiesAsFixedIncome ? parsed.fixedIncomeFamilyCode : null,
@@ -340,6 +367,51 @@ export async function saveAssetAction(input: AssetInput) {
     const pluggyControlled = await tx.assetHolding.count({
       where: { assetId: parent.id, positionSource: "PLUGGY", includedInTotals: true },
     });
+    if (pluggyControlled) {
+      await tx.pluggyInvestmentDiagramLink.updateMany({
+        where: {
+          userId,
+          holding: { assetId: parent.id },
+        },
+        data: {
+          classificationSource: "USER_OVERRIDE",
+          suggestedInstrumentType: instrumentType,
+          suggestedInvestmentClass: parsed.investmentClass,
+          suggestedMarketRegion: classifiesAsStoreOfValue ? parsed.marketRegion : null,
+          suggestedFamilyCode: classifiesAsFixedIncome ? parsed.fixedIncomeFamilyCode : null,
+          suggestedIndexation: classifiesAsFixedIncome ? parsed.indexation : null,
+          reviewReason: null,
+        },
+      });
+    }
+    if (pluggyControlled && (brapiQuote || yahooQuote)) {
+      await tx.assetHolding.updateMany({
+        where: {
+          assetId: parent.id,
+          positionSource: "PLUGGY",
+          includedInTotals: true,
+        },
+        data: {
+          pricingSource: brapiQuote ? "BRAPI" : "YAHOO",
+          unitPrice,
+          currentValue: null,
+          currency: brapiQuote?.currency ?? yahooQuote!.currency,
+          fxRateToBrl: brapiQuote ? null : fxRateToBrl,
+          fxUpdatedAt: brapiQuote ? null : yahooFx?.asOf ?? null,
+          fractional: allowsFractionalUnits({
+            instrumentType,
+            investmentClass: parsed.investmentClass,
+            pricingSource: brapiQuote ? "BRAPI" : "YAHOO",
+          }),
+          marketExchange: brapiQuote ? null : yahooMatch?.exchange ?? yahooQuote?.exchange ?? null,
+          marketQuoteType: brapiQuote ? null : yahooMatch?.quoteType ?? yahooQuote?.quoteType ?? null,
+          marketSector: brapiQuote ? null : yahooMatch?.sector ?? null,
+          marketIndustry: brapiQuote ? null : yahooMatch?.industry ?? null,
+          logoUrl: brapiMatch?.logoUrl ?? brapiQuote?.logoUrl ?? yahooQuote?.logoUrl ?? null,
+          priceUpdatedAt: brapiQuote?.asOf ?? yahooQuote?.asOf ?? new Date(),
+        },
+      });
+    }
     if (!pluggyControlled) {
       const existingHolding = await tx.assetHolding.findFirst({
         where: {
@@ -409,6 +481,20 @@ export async function saveFixedIncomeGroupAction(input: FixedIncomeGroupInput, i
   const name = `${family.name} · ${indexationMeta.label}`;
 
   await prisma.$transaction(async (tx) => {
+    const duplicate = await tx.asset.findFirst({
+      where: {
+        portfolioId: portfolio.id,
+        fixedIncomeFamilyCode: family.code,
+        indexation: parsed.indexation as FixedIncomeIndexation,
+        instrumentType: "FIXED_INCOME",
+        ...(parsed.id ? { id: { not: parsed.id } } : {}),
+      },
+      select: { id: true },
+    });
+    if (duplicate) {
+      throw new Error(`Já existe o grupo ${name} nesta carteira. Edite o grupo existente.`);
+    }
+
     let parent;
     if (parsed.id) {
       const owned = await tx.asset.findFirst({ where: { id: parsed.id, portfolio: { userId }, instrumentType: "FIXED_INCOME" } });
@@ -427,20 +513,7 @@ export async function saveFixedIncomeGroupAction(input: FixedIncomeGroupInput, i
         },
       });
     } else {
-      const existing = await tx.asset.findFirst({
-        where: { portfolioId: portfolio.id, fixedIncomeFamilyCode: family.code, indexation: parsed.indexation as FixedIncomeIndexation, instrumentType: "FIXED_INCOME" },
-      });
-      parent = existing ? await tx.asset.update({
-        where: { id: existing.id },
-        data: {
-          investmentClass: parsed.investmentClass as InvestmentClass,
-          ticker,
-          name,
-          score: parsed.score,
-          exposureSource: "USER_OVERRIDE",
-          groupSource: "USER_OVERRIDE",
-        },
-      }) : await tx.asset.create({
+      parent = await tx.asset.create({
         data: {
           portfolioId: portfolio.id,
           investmentClass: parsed.investmentClass as InvestmentClass,
@@ -548,6 +621,13 @@ export async function importPortfolioRowsAction(input: {
       if (fixedIncomeEtfs.some((row) => !row.fixedIncomeFamilyCode || !row.indexation)) {
         throw new Error("ETFs de renda fixa precisam informar família e indexação.");
       }
+      const storeOfValueEtfs = parsed.marketRows.filter((row) =>
+        (row.instrumentType ?? inferInstrumentType(row.investmentClass)) === "ETF"
+        && row.investmentClass === "STORE_OF_VALUE",
+      );
+      if (storeOfValueEtfs.some((row) => !row.marketRegion)) {
+        throw new Error("ETFs de reserva de valor precisam informar o mercado nacional ou internacional.");
+      }
 
       const familyCodes = [...new Set([
         ...parsed.fixedIncomeRows.map((row) => row.familyCode),
@@ -609,6 +689,7 @@ export async function importPortfolioRowsAction(input: {
     usesBrapiQuotes(
       row.investmentClass,
       (row.instrumentType ?? inferInstrumentType(row.investmentClass)) as InstrumentType,
+      row.marketRegion,
     ),
   );
   const brapiQuotes = new Map<string, BrapiQuote>();
@@ -630,6 +711,7 @@ export async function importPortfolioRowsAction(input: {
     usesYahooQuotes(
       row.investmentClass,
       (row.instrumentType ?? inferInstrumentType(row.investmentClass)) as InstrumentType,
+      row.marketRegion,
     ),
   );
   const yahooQuotes = new Map<string, YahooQuote>();
@@ -711,9 +793,14 @@ export async function importPortfolioRowsAction(input: {
       const ticker = brapiQuote?.symbol ?? yahooQuote?.symbol ?? binanceQuote?.symbol ?? row.ticker;
       const classifiesAsFixedIncome = instrumentType === "ETF"
         && ["FIXED_INCOME", "INTERNATIONAL_FIXED_INCOME"].includes(row.investmentClass);
+      const classifiesAsStoreOfValue = instrumentType === "ETF"
+        && row.investmentClass === "STORE_OF_VALUE";
       const parentData = {
         investmentClass,
         instrumentType,
+        marketRegion: classifiesAsStoreOfValue
+          ? row.marketRegion as MarketRegion
+          : null,
         ticker,
         name: brapiQuote?.name ?? yahooQuote?.name ?? row.name,
         score: row.score,
@@ -803,23 +890,29 @@ export async function importPortfolioRowsAction(input: {
           instrumentType: "FIXED_INCOME",
         },
       });
-      const parent = existing
-        ? await tx.asset.update({
-            where: { id: existing.id },
-            data: { investmentClass: row.investmentClass as InvestmentClass, ticker, name, score: row.score },
-          })
-        : await tx.asset.create({
-            data: {
-              portfolioId: portfolio.id,
-              investmentClass: row.investmentClass as InvestmentClass,
-              instrumentType: "FIXED_INCOME",
-              ticker,
-              name,
-              fixedIncomeFamilyCode: family.code,
-              indexation,
-              score: row.score,
-            },
-          });
+      if (
+        existing
+        && (
+          existing.investmentClass !== row.investmentClass
+          || existing.score !== row.score
+        )
+      ) {
+        throw new Error(
+          `O grupo ${name} já existe com outra classe ou nota. Edite o grupo existente antes de importar aplicações.`,
+        );
+      }
+      const parent = existing ?? await tx.asset.create({
+        data: {
+          portfolioId: portfolio.id,
+          investmentClass: row.investmentClass as InvestmentClass,
+          instrumentType: "FIXED_INCOME",
+          ticker,
+          name,
+          fixedIncomeFamilyCode: family.code,
+          indexation,
+          score: row.score,
+        },
+      });
       const activeHoldings = await tx.assetHolding.findMany({
         where: {
           assetId: parent.id,
@@ -1031,10 +1124,11 @@ async function findMarketHoldings(portfolioId: string) {
       currentValue: true,
       logoUrl: true,
       pricingSource: true,
+      currency: true,
       positionSource: true,
       fractional: true,
       priceUpdatedAt: true,
-      asset: { select: { id: true, instrumentType: true, investmentClass: true } },
+      asset: { select: { id: true, instrumentType: true, investmentClass: true, marketRegion: true } },
     },
   });
 }
@@ -1047,12 +1141,14 @@ function partitionMarketHoldings(holdings: MarketHolding[]) {
       usesBrapiQuotes(
         holding.asset.investmentClass as InvestmentClassKey,
         holding.asset.instrumentType,
+        holding.asset.marketRegion,
       ),
     ),
     yahoo: holdings.filter((holding) =>
       usesYahooQuotes(
         holding.asset.investmentClass as InvestmentClassKey,
         holding.asset.instrumentType,
+        holding.asset.marketRegion,
       ),
     ),
     binance: holdings.filter((holding) =>

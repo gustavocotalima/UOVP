@@ -12,6 +12,9 @@ const mocks = vi.hoisted(() => {
       update: vi.fn(),
       create: vi.fn(),
     },
+    pluggyInvestmentDiagramLink: {
+      updateMany: vi.fn(),
+    },
   };
   return {
     tx,
@@ -72,6 +75,7 @@ describe("edição da classificação de ativos Pluggy", () => {
       {
         id: "holding-pluggy",
         positionSource: "PLUGGY",
+        pricingSource: "BRAPI",
       },
     ]);
     mocks.tx.asset.findFirst.mockResolvedValue({ id: "cmrzcyi3305pglw710ptyacct" });
@@ -116,6 +120,13 @@ describe("edição da classificação de ativos Pluggy", () => {
     }));
     expect(mocks.tx.assetHolding.update).not.toHaveBeenCalled();
     expect(mocks.tx.assetHolding.create).not.toHaveBeenCalled();
+    expect(mocks.tx.pluggyInvestmentDiagramLink.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        suggestedMarketRegion: null,
+        suggestedFamilyCode: "PUBLIC_TREASURY",
+        suggestedIndexation: "OTHER",
+      }),
+    }));
   });
 
   it("permite que o usuário mova um ETF Pluggy para reserva de valor", async () => {
@@ -133,6 +144,7 @@ describe("edição da classificação de ativos Pluggy", () => {
       score: 5,
       fixedIncomeFamilyCode: null,
       indexation: null,
+      marketRegion: "BRAZIL",
       yahooReitConfirmed: false,
     })).resolves.toBeUndefined();
 
@@ -140,6 +152,7 @@ describe("edição da classificação de ativos Pluggy", () => {
       data: expect.objectContaining({
         instrumentType: "ETF",
         investmentClass: "STORE_OF_VALUE",
+        marketRegion: "BRAZIL",
         fixedIncomeFamilyCode: null,
         indexation: null,
         instrumentSource: "USER_OVERRIDE",
@@ -149,5 +162,34 @@ describe("edição da classificação de ativos Pluggy", () => {
     }));
     expect(mocks.tx.assetHolding.update).not.toHaveBeenCalled();
     expect(mocks.tx.assetHolding.create).not.toHaveBeenCalled();
+    expect(mocks.tx.pluggyInvestmentDiagramLink.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        suggestedMarketRegion: "BRAZIL",
+        suggestedFamilyCode: null,
+        suggestedIndexation: null,
+      }),
+    }));
+  });
+
+  it("exige o mercado ao mover um ETF para reserva de valor", async () => {
+    await expect(saveAssetAction({
+      id: "cmrzcyi3305pglw710ptyacct",
+      investmentClass: "STORE_OF_VALUE",
+      instrumentType: "ETF",
+      ticker: "GOLD11",
+      name: "Trend ETF LBMA Ouro",
+      quantity: 90,
+      unitPrice: 20,
+      manualValue: null,
+      currency: "BRL",
+      fractional: false,
+      score: 5,
+      fixedIncomeFamilyCode: null,
+      indexation: null,
+      marketRegion: null,
+      yahooReitConfirmed: false,
+    })).rejects.toThrow("Selecione se o ETF de reserva de valor é nacional ou internacional.");
+
+    expect(mocks.tx.asset.update).not.toHaveBeenCalled();
   });
 });

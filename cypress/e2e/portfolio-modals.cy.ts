@@ -127,7 +127,8 @@ describe("modais da carteira", () => {
   });
 
   it("cria, expande, pesquisa e mantém um grupo vazio de renda fixa", () => {
-    cy.contains("button:visible", "Renda fixa").click();
+    cy.contains("button:visible", "Adicionar ativo").click();
+    cy.get("#asset-instrument").select("FIXED_INCOME");
     cy.get("#fixed-family").should("contain", "Tesouro Direto").and("not.contain", "Tesouro IPCA+").and("not.contain", "Tesouro Selic");
     cy.get("#fixed-family").select("BANK_DEPOSITS_FGC");
     cy.get("#fixed-indexation").select("PRE_FIXED");

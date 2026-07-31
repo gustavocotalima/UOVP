@@ -51,6 +51,7 @@ type FormAsset = {
   score: number;
   fixedIncomeFamilyCode: string | null;
   indexation: FixedIncomeIndexationKey | null;
+  marketRegion: "BRAZIL" | "INTERNATIONAL" | null;
   yahooReitConfirmed: boolean;
 };
 
@@ -104,6 +105,7 @@ type TickerListPosition = {
 type ReviewForm = PortfolioDto["integrationReview"][number] & {
   instrumentType: InstrumentTypeKey | "";
   investmentClass: InvestmentClassKey | "";
+  marketRegion: "BRAZIL" | "INTERNATIONAL" | "";
   familyCode: string;
   indexation: FixedIncomeIndexationKey | "";
   score: number;
@@ -132,6 +134,7 @@ const emptyAsset: FormAsset = {
   score: 0,
   fixedIncomeFamilyCode: null,
   indexation: null,
+  marketRegion: null,
   yahooReitConfirmed: false,
 };
 
@@ -143,6 +146,11 @@ function currentValue(asset: AssetDto) {
 
 function marketTickerSearchFor(form: FormAsset | null): MarketTickerSearch | null {
   if (!form || form.id) return null;
+  if (form.instrumentType === "ETF" && form.investmentClass === "STORE_OF_VALUE") {
+    if (form.marketRegion === "BRAZIL") return { provider: "BRAPI", kind: "ETF" };
+    if (form.marketRegion === "INTERNATIONAL") return { provider: "YAHOO", kind: "ETF" };
+    return null;
+  }
   const internationalClass = ["INTERNATIONAL_STOCKS", "REITS", "INTERNATIONAL_FIXED_INCOME"].includes(form.investmentClass);
   if (form.instrumentType === "ETF") {
     return internationalClass
@@ -559,8 +567,9 @@ export function AssetsPanel({
     value: assets.filter((asset) => asset.investmentClass === investmentClass).reduce((sum, asset) => sum + currentValue(asset), 0),
   })).filter((item) => item.value > 0);
   const hasRefreshableQuotes = assets.some((asset) =>
-    asset.holdings.some((holding) => holding.pricingSource === "BRAPI")
+    asset.holdings.some((holding) => ["BRAPI", "YAHOO"].includes(holding.pricingSource))
     || (asset.instrumentType === "CRYPTO" && asset.investmentClass === "CRYPTO" && asset.holdings.some((holding) => Boolean(holding.ticker)))
+    || (asset.instrumentType === "ETF" && asset.investmentClass === "STORE_OF_VALUE" && asset.marketRegion !== null)
     || (
       ["INTERNATIONAL_STOCKS", "REITS", "INTERNATIONAL_FIXED_INCOME"].includes(asset.investmentClass)
       && ["STOCK", "REIT", "ETF"].includes(asset.instrumentType)
@@ -577,6 +586,8 @@ export function AssetsPanel({
   const marketTickerProvider = marketTickerSearch?.provider;
   const marketTickerKind = marketTickerSearch?.kind;
   const usesMarketTickerSearch = marketTickerSearch !== null;
+  const requiresStoreOfValueMarket = form?.instrumentType === "ETF"
+    && form.investmentClass === "STORE_OF_VALUE";
   const tickerQuery = marketTickerSearch && form ? form.ticker.trim() : "";
   const hasSelectedMarketTicker = !usesMarketTickerSearch || selectedMarketTicker === form?.ticker;
   const selectedYahooTicker = tickerOptions.find((option) =>
@@ -673,6 +684,7 @@ export function AssetsPanel({
       score: asset.score,
       fixedIncomeFamilyCode: asset.fixedIncomeFamilyCode,
       indexation: asset.indexation,
+      marketRegion: asset.marketRegion,
       yahooReitConfirmed: false,
     });
     setFormAnswers(Object.fromEntries(applicable.map((question) => [
@@ -967,6 +979,7 @@ export function AssetsPanel({
       ...item,
       instrumentType: item.suggestedInstrumentType ?? "",
       investmentClass: item.suggestedInvestmentClass ?? "",
+      marketRegion: item.suggestedMarketRegion ?? "",
       familyCode: item.suggestedFamilyCode ?? "",
       indexation: item.suggestedIndexation ?? (item.providerType === "FIXED_INCOME" ? "PRE_FIXED" : ""),
       score: 0,
@@ -990,6 +1003,11 @@ export function AssetsPanel({
       setMessage("Selecione a família e a indexação da renda fixa.");
       return;
     }
+    const storeOfValue = instrumentType === "ETF" && investmentClass === "STORE_OF_VALUE";
+    if (storeOfValue && !review.marketRegion) {
+      setMessage("Selecione se o ETF de reserva de valor é nacional ou internacional.");
+      return;
+    }
     setMessage(undefined);
     startTransition(async () => {
       try {
@@ -997,6 +1015,7 @@ export function AssetsPanel({
           linkId: review.id,
           instrumentType,
           investmentClass,
+          marketRegion: storeOfValue && review.marketRegion ? review.marketRegion : null,
           familyCode: review.familyCode || null,
           indexation: review.indexation || null,
           score: review.score,
@@ -1062,6 +1081,12 @@ export function AssetsPanel({
       const normalizeClass = (value: unknown): InvestmentClassKey => {
         const normalized = normalizeText(value || "BRAZILIAN_STOCKS");
         return classAliases[normalized] ?? normalized as InvestmentClassKey;
+      };
+      const normalizeMarketRegion = (value: unknown): FormAsset["marketRegion"] => {
+        const normalized = normalizeText(value);
+        if (["BRASIL", "BRAZIL", "BR", "NACIONAL"].includes(normalized)) return "BRAZIL";
+        if (["INTERNACIONAL", "INTERNATIONAL", "EXTERIOR"].includes(normalized)) return "INTERNATIONAL";
+        return null;
       };
       const normalizeIndexation = (value: unknown): FixedIncomeIndexationKey | null => {
         const normalized = normalizeText(value).replace(/[ -]/g, "_");
@@ -1134,6 +1159,7 @@ export function AssetsPanel({
           instrumentType,
           fixedIncomeFamilyCode: family?.code ?? null,
           indexation: normalizeIndexation(read(row, "indexacao", "Indexação", "indexation")),
+          marketRegion: normalizeMarketRegion(read(row, "mercado", "Mercado", "marketRegion")),
           quantity: Number(read(row, "quantidade", "Quantidade", "quantity") ?? 0),
           unitPrice: Number(read(row, "preco", "Preço", "unitPrice") ?? 0),
           manualValue: read(row, "valor", "Valor", "manualValue") == null ? null : Number(read(row, "valor", "Valor", "manualValue")),
@@ -1197,7 +1223,6 @@ export function AssetsPanel({
               </Button>
               <Button variant="outline" onClick={() => exportPortfolioXlsx(assets)} disabled={!assets.length}><Download className="size-4" /> Exportar XLSX</Button>
               <Button variant="outline" onClick={() => fileInput.current?.click()}><Upload className="size-4" /> Importar XLSX</Button>
-              <Button variant="outline" onClick={() => setFixedGroupForm({ ...emptyFixedGroup })}><Plus className="size-4" /> Renda fixa</Button>
               <Button onClick={startAdding}><Plus className="size-4" /> Adicionar ativo</Button>
             </div>
             <div className="flex gap-2 @5xl:hidden">
@@ -1219,10 +1244,6 @@ export function AssetsPanel({
                     mobileActions.current?.removeAttribute("open");
                     fileInput.current?.click();
                   }}><Upload className="size-4" /> Importar XLSX</button>
-                  <button type="button" className="flex min-h-11 items-center gap-2 rounded-xl px-3 text-left text-sm hover:bg-[var(--muted)]" onClick={() => {
-                    mobileActions.current?.removeAttribute("open");
-                    setFixedGroupForm({ ...emptyFixedGroup });
-                  }}><Plus className="size-4" /> Renda fixa</button>
                 </div>
               </details>
             </div>
@@ -1282,6 +1303,15 @@ export function AssetsPanel({
                           <div className="mt-2 flex flex-wrap items-center gap-2">
                             <span className="inline-flex rounded-full px-2 py-1 text-[11px]" style={{ background: `${INSTRUMENT_TYPE_META[asset.instrumentType].color}20`, color: INSTRUMENT_TYPE_META[asset.instrumentType].color }}>{INSTRUMENT_TYPE_META[asset.instrumentType].label}</span>
                             <span className="text-[11px] text-[var(--muted-foreground)]">{INVESTMENT_CLASS_META[asset.investmentClass].shortLabel}</span>
+                            {asset.instrumentType === "ETF" && asset.investmentClass === "STORE_OF_VALUE" && (
+                              <span className="text-[11px] text-[var(--muted-foreground)]">
+                                {asset.marketRegion === "INTERNATIONAL"
+                                  ? "Internacional"
+                                  : asset.marketRegion === "BRAZIL"
+                                    ? "Nacional"
+                                    : "Revisar mercado"}
+                              </span>
+                            )}
                             {asset.awaitingSyncContribution && <span className="inline-flex items-center gap-1 text-[11px] text-[var(--primary)]"><Clock3 className="size-3" /> Aguardando sync</span>}
                           </div>
                         </div>
@@ -1440,6 +1470,15 @@ export function AssetsPanel({
                           <td className="px-3">
                             <span className="inline-flex rounded-full px-2 py-1 text-xs" style={{ background: `${INSTRUMENT_TYPE_META[asset.instrumentType].color}20`, color: INSTRUMENT_TYPE_META[asset.instrumentType].color }}>{INSTRUMENT_TYPE_META[asset.instrumentType].label}</span>
                             <span className="mt-1 block whitespace-nowrap text-[10px] text-[var(--muted-foreground)]">{INVESTMENT_CLASS_META[asset.investmentClass].shortLabel}</span>
+                            {asset.instrumentType === "ETF" && asset.investmentClass === "STORE_OF_VALUE" && (
+                              <span className="mt-0.5 block whitespace-nowrap text-[10px] text-[var(--muted-foreground)]">
+                                {asset.marketRegion === "INTERNATIONAL"
+                                  ? "Internacional"
+                                  : asset.marketRegion === "BRAZIL"
+                                    ? "Nacional"
+                                    : "Revisar mercado"}
+                              </span>
+                            )}
                             {asset.instrumentType === "ETF" && asset.fixedIncomeFamilyName && asset.indexation && <span className="mt-0.5 block max-w-28 truncate text-[10px] text-[var(--muted-foreground)]" title={`${asset.fixedIncomeFamilyName} · ${FIXED_INCOME_INDEXATION_META[asset.indexation].label}`}>{asset.fixedIncomeFamilyName} · {FIXED_INCOME_INDEXATION_META[asset.indexation].label}</span>}
                           </td>
                           <td className="whitespace-nowrap px-3">{formatMoney(asset.currentValue)}</td>
@@ -1666,18 +1705,55 @@ export function AssetsPanel({
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="review-instrument">Instrumento</Label>
-                <Select id="review-instrument" className="w-full" value={reviewForm.instrumentType} onChange={(event) => setReviewForm({ ...reviewForm, instrumentType: event.target.value as InstrumentTypeKey | "" })} required>
+                <Select id="review-instrument" className="w-full" value={reviewForm.instrumentType} onChange={(event) => {
+                  const instrumentType = event.target.value as InstrumentTypeKey | "";
+                  setReviewForm({
+                    ...reviewForm,
+                    instrumentType,
+                    marketRegion: instrumentType === "ETF" && reviewForm.investmentClass === "STORE_OF_VALUE"
+                      ? reviewForm.marketRegion
+                      : "",
+                  });
+                }} required>
                   <option value="">Selecione</option>
                   {INSTRUMENT_TYPES.map((instrumentType) => <option key={instrumentType} value={instrumentType}>{INSTRUMENT_TYPE_META[instrumentType].label}</option>)}
                 </Select>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="review-exposure">Classe para metas e cálculos</Label>
-                <Select id="review-exposure" className="w-full" value={reviewForm.investmentClass} onChange={(event) => setReviewForm({ ...reviewForm, investmentClass: event.target.value as InvestmentClassKey | "" })} required>
+                <Select id="review-exposure" className="w-full" value={reviewForm.investmentClass} onChange={(event) => {
+                  const investmentClass = event.target.value as InvestmentClassKey | "";
+                  setReviewForm({
+                    ...reviewForm,
+                    investmentClass,
+                    marketRegion: reviewForm.instrumentType === "ETF" && investmentClass === "STORE_OF_VALUE"
+                      ? reviewForm.marketRegion
+                      : "",
+                  });
+                }} required>
                   <option value="">Selecione</option>
                   {INVESTMENT_CLASSES.map((investmentClass) => <option key={investmentClass} value={investmentClass}>{INVESTMENT_CLASS_META[investmentClass].label}</option>)}
                 </Select>
               </div>
+              {reviewForm.instrumentType === "ETF" && reviewForm.investmentClass === "STORE_OF_VALUE" && (
+                <div className="space-y-2 sm:col-span-2">
+                  <Label htmlFor="review-market-region">Mercado do ETF</Label>
+                  <Select
+                    id="review-market-region"
+                    className="w-full"
+                    value={reviewForm.marketRegion}
+                    onChange={(event) => setReviewForm({
+                      ...reviewForm,
+                      marketRegion: event.target.value as ReviewForm["marketRegion"],
+                    })}
+                    required
+                  >
+                    <option value="">Selecione</option>
+                    <option value="BRAZIL">Nacional (B3 · brapi)</option>
+                    <option value="INTERNATIONAL">Internacional (Yahoo Finance)</option>
+                  </Select>
+                </div>
+              )}
               {(reviewForm.instrumentType === "FIXED_INCOME" || (reviewForm.instrumentType === "ETF" && ["FIXED_INCOME", "INTERNATIONAL_FIXED_INCOME"].includes(reviewForm.investmentClass))) && (
                 <>
                   <div className="space-y-2">
@@ -1719,7 +1795,10 @@ export function AssetsPanel({
             <Button
               type="submit"
               form="asset-modal-form"
-              disabled={pending || !hasSelectedMarketTicker || Boolean(requiresYahooReitConfirmation && !form.yahooReitConfirmed)}
+              disabled={pending
+                || !hasSelectedMarketTicker
+                || Boolean(requiresStoreOfValueMarket && !form.marketRegion)
+                || Boolean(requiresYahooReitConfirmation && !form.yahooReitConfirmed)}
             >
               {pending ? "Salvando…" : form.id ? "Atualizar e fechar" : "Adicionar"}
             </Button>
@@ -1762,6 +1841,9 @@ export function AssetsPanel({
                   investmentClass,
                   fixedIncomeFamilyCode: keepsFixedGroup ? form.fixedIncomeFamilyCode : null,
                   indexation: keepsFixedGroup ? form.indexation ?? "OTHER" : null,
+                  marketRegion: instrumentType === "ETF" && investmentClass === "STORE_OF_VALUE"
+                    ? form.marketRegion
+                    : null,
                   yahooReitConfirmed: false,
                 });
                 setFormAnswers(questionType
@@ -1801,12 +1883,53 @@ export function AssetsPanel({
                   instrumentType: ["ETF", "MUTUAL_FUND"].includes(form.instrumentType) ? form.instrumentType : classInstrument[investmentClass] ?? "STOCK",
                   fixedIncomeFamilyCode: keepsFixedGroup ? form.fixedIncomeFamilyCode : null,
                   indexation: keepsFixedGroup ? form.indexation ?? "OTHER" : null,
+                  marketRegion: investmentClass === "STORE_OF_VALUE" && form.investmentClass === "STORE_OF_VALUE"
+                    ? form.marketRegion
+                    : null,
                   yahooReitConfirmed: false,
                 });
               }}>
                 {INVESTMENT_CLASSES.map((investmentClass) => <option key={investmentClass} value={investmentClass}>{INVESTMENT_CLASS_META[investmentClass].label}</option>)}
               </Select>
             </div>
+
+            {requiresStoreOfValueMarket && (
+              <div className="space-y-2">
+                <Label htmlFor="asset-market-region">Mercado do ETF</Label>
+                <Select
+                  id="asset-market-region"
+                  className="w-full"
+                  value={form.marketRegion ?? ""}
+                  onChange={(event) => {
+                    const marketRegion = event.target.value as FormAsset["marketRegion"];
+                    setSelectedMarketTicker(undefined);
+                    setTickerOptions([]);
+                    setTickerListOpen(false);
+                    setForm({
+                      ...form,
+                      marketRegion,
+                      ...(form.id
+                        ? {}
+                        : {
+                            ticker: "",
+                            name: "",
+                            unitPrice: 0,
+                            currency: marketRegion === "INTERNATIONAL" ? "USD" : "BRL",
+                            fractional: marketRegion === "INTERNATIONAL",
+                          }),
+                    });
+                  }}
+                  required
+                >
+                  <option value="">Selecione o mercado</option>
+                  <option value="BRAZIL">Nacional (B3 · brapi)</option>
+                  <option value="INTERNATIONAL">Internacional (Yahoo Finance)</option>
+                </Select>
+                <p className="text-xs text-[var(--muted-foreground)]">
+                  O mercado define a fonte da cotação, a moeda e se o aporte pode usar frações.
+                </p>
+              </div>
+            )}
 
             {form.instrumentType === "ETF" && ["FIXED_INCOME", "INTERNATIONAL_FIXED_INCOME"].includes(form.investmentClass) && (
               <div className="grid gap-4 sm:grid-cols-2">
@@ -1959,7 +2082,15 @@ export function AssetsPanel({
                     </div>
                   ) : (
                     <>
-                      <Input id="asset-ticker" placeholder="Ex: PETR4" value={form.ticker} onChange={(event) => changeTicker(event.target.value)} list="mock-tickers" disabled={Boolean(form.id)} required />
+                      <Input
+                        id="asset-ticker"
+                        placeholder={requiresStoreOfValueMarket && !form.marketRegion ? "Selecione o mercado primeiro" : "Ex: PETR4"}
+                        value={form.ticker}
+                        onChange={(event) => changeTicker(event.target.value)}
+                        list="mock-tickers"
+                        disabled={Boolean(form.id) || Boolean(requiresStoreOfValueMarket && !form.marketRegion)}
+                        required
+                      />
                       <datalist id="mock-tickers">{MOCK_ASSET_CATALOG.filter((asset) => asset.investmentClass === form.investmentClass).map((asset) => <option key={asset.ticker} value={asset.ticker}>{asset.name}</option>)}</datalist>
                     </>
                   )}

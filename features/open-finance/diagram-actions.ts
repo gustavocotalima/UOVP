@@ -21,6 +21,7 @@ const reviewSchema = z.object({
   linkId: z.string().cuid(),
   instrumentType: z.enum(INSTRUMENT_TYPES),
   investmentClass: z.enum(INVESTMENT_CLASSES),
+  marketRegion: z.enum(["BRAZIL", "INTERNATIONAL"]).nullable().optional(),
   familyCode: z.string().trim().min(2).max(80).nullable().optional(),
   indexation: z.enum(FIXED_INCOME_INDEXATIONS).nullable().optional(),
   score: z.coerce.number().int().min(-30).max(30).default(0),
@@ -32,6 +33,16 @@ const reviewSchema = z.object({
     context.addIssue({
       code: "custom",
       message: "Selecione a família e a indexação da renda fixa.",
+    });
+  }
+  if (
+    value.instrumentType === "ETF"
+    && value.investmentClass === "STORE_OF_VALUE"
+    && !value.marketRegion
+  ) {
+    context.addIssue({
+      code: "custom",
+      message: "Selecione se o ETF de reserva de valor é nacional ou internacional.",
     });
   }
 });
@@ -50,6 +61,8 @@ export async function reviewPluggyDiagramLinkAction(input: PluggyDiagramReviewIn
     const family = await prisma.fixedIncomeFamily.findUnique({ where: { code: parsed.familyCode } });
     if (!family) throw new Error("Família de renda fixa não encontrada.");
   }
+  const classifiesAsStoreOfValue = parsed.instrumentType === "ETF"
+    && parsed.investmentClass === "STORE_OF_VALUE";
   await prisma.pluggyInvestmentDiagramLink.update({
     where: { id: link.id },
     data: {
@@ -57,6 +70,9 @@ export async function reviewPluggyDiagramLinkAction(input: PluggyDiagramReviewIn
       classificationSource: "USER_OVERRIDE",
       suggestedInstrumentType: parsed.instrumentType,
       suggestedInvestmentClass: parsed.investmentClass,
+      suggestedMarketRegion: classifiesAsStoreOfValue
+        ? parsed.marketRegion
+        : null,
       suggestedFamilyCode: parsed.familyCode ?? null,
       suggestedIndexation: parsed.indexation ?? null,
       reviewReason: null,
@@ -74,6 +90,9 @@ export async function reviewPluggyDiagramLinkAction(input: PluggyDiagramReviewIn
       where: { id: assetId },
       data: {
         score: parsed.score,
+        marketRegion: classifiesAsStoreOfValue
+          ? parsed.marketRegion
+          : null,
         instrumentSource: "USER_OVERRIDE",
         exposureSource: "USER_OVERRIDE",
         groupSource: parsed.familyCode ? "USER_OVERRIDE" : "AUTO",

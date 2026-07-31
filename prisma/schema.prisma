@@ -28,6 +28,11 @@ enum InstrumentType {
   MUTUAL_FUND
 }
 
+enum MarketRegion {
+  BRAZIL
+  INTERNATIONAL
+}
+
 enum PricingSource {
   MANUAL
   BRAPI
@@ -297,6 +302,7 @@ model Asset {
   portfolioId           String
   investmentClass       InvestmentClass
   instrumentType        InstrumentType
+  marketRegion          MarketRegion?
   ticker                String
   name                  String
   fixedIncomeFamilyCode String?
@@ -871,6 +877,7 @@ model PluggyInvestmentDiagramLink {
   classificationSource     ClassificationSource       @default(AUTO)
   suggestedInvestmentClass InvestmentClass?
   suggestedInstrumentType  InstrumentType?
+  suggestedMarketRegion    MarketRegion?
   suggestedFamilyCode      String?
   suggestedIndexation      FixedIncomeIndexation?
   reviewReason             String?
