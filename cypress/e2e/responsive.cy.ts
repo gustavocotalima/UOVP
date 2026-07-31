@@ -97,8 +97,8 @@ describe("layout responsivo", () => {
     cy.waitForHydration();
     cy.get("[data-assets-panel-hydrated='true']", { timeout: 15_000 });
 
-    cy.contains("summary", "Mais").click();
-    cy.get("details[open]").contains("button", "Renda fixa").click();
+    cy.contains("button:visible", "Adicionar ativo").click();
+    cy.get("#asset-instrument").select("FIXED_INCOME");
     cy.get("#fixed-family").select("BANK_DEPOSITS_FGC");
     cy.get("#fixed-indexation").select("PRE_FIXED");
     cy.get("#fixed-score").type("{selectall}7");

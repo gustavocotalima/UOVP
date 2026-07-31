@@ -84,4 +84,16 @@ describe("reserva de valor", () => {
     expect(targetsMigration).toContain('INSERT INTO "InvestmentTarget"');
     expect(migrations).not.toMatch(/(?:UPDATE|DELETE FROM)\s+"Asset"/i);
   });
+
+  it("persiste o mercado dos ETFs de reserva de valor sem classificar o legado automaticamente", () => {
+    const marketMigration = readFileSync(
+      new URL("../../prisma/migrations/20260730020000_store_of_value_market_region/migration.sql", import.meta.url),
+      "utf8",
+    );
+
+    expect(marketMigration).toContain('ADD COLUMN "marketRegion"');
+    expect(marketMigration).toContain('ADD COLUMN "suggestedMarketRegion"');
+    expect(marketMigration).not.toContain('UPDATE "Asset"');
+    expect(marketMigration).not.toContain('UPDATE "PluggyInvestmentDiagramLink"');
+  });
 });

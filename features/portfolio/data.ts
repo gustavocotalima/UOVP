@@ -104,6 +104,8 @@ export async function getPortfolioData(userId: string) {
   });
   const missingLogoTickers = assets.flatMap((asset) =>
     BRAPI_INSTRUMENTS.has(asset.instrumentType)
+      && !["INTERNATIONAL_STOCKS", "REITS", "INTERNATIONAL_FIXED_INCOME"].includes(asset.investmentClass)
+      && (asset.investmentClass !== "STORE_OF_VALUE" || asset.marketRegion === "BRAZIL")
       && asset.holdings.some((holding) => holding.includedInTotals && !holding.logoUrl)
       ? [asset.ticker]
       : [],
@@ -170,6 +172,7 @@ export async function getPortfolioData(userId: string) {
         fixedIncomeFamilyName: asset.fixedIncomeFamily?.name ?? null,
         fixedIncomeFamilyShortCode: asset.fixedIncomeFamily?.shortCode ?? null,
         indexation: asset.indexation,
+        marketRegion: asset.marketRegion,
         logoUrl: firstHolding?.logoUrl ?? marketMetadata?.logoUrl ?? null,
         currency: firstHolding?.currency ?? "BRL",
         quantity: asset.instrumentType === "FIXED_INCOME"
@@ -339,6 +342,7 @@ export async function getPortfolioData(userId: string) {
       })),
       suggestedInstrumentType: link.suggestedInstrumentType,
       suggestedInvestmentClass: link.suggestedInvestmentClass as InvestmentClassKey | null,
+      suggestedMarketRegion: link.suggestedMarketRegion,
       suggestedFamilyCode: link.suggestedFamilyCode,
       suggestedIndexation: link.suggestedIndexation,
       reviewReason: link.reviewReason,

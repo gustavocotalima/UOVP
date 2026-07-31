@@ -66,6 +66,7 @@ export type AssetDto = {
   fixedIncomeFamilyName: string | null;
   fixedIncomeFamilyShortCode: string | null;
   indexation: FixedIncomeIndexationKey | null;
+  marketRegion: "BRAZIL" | "INTERNATIONAL" | null;
   logoUrl: string | null;
   currency: string;
   quantity: string;
@@ -162,6 +163,7 @@ export type PortfolioDto = {
     }>;
     suggestedInstrumentType: InstrumentTypeKey | null;
     suggestedInvestmentClass: InvestmentClassKey | null;
+    suggestedMarketRegion: "BRAZIL" | "INTERNATIONAL" | null;
     suggestedFamilyCode: string | null;
     suggestedIndexation: FixedIncomeIndexationKey | null;
     reviewReason: string | null;
