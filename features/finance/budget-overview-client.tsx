@@ -31,9 +31,8 @@ export function BudgetOverviewClient({ data }: { data: FinanceData }) {
           {period.missingFxCount} transação(ões) aguardam conversão para BRL e não entram nos totais.
         </div>
       )}
-      <section className="grid gap-3 @2xl:grid-cols-2 @6xl:grid-cols-4 @5xl:gap-4">
-        <SummaryCard icon={TrendingUp} label="Entradas brutas" value={period.grossIncome} detail="Todas as entradas reportáveis do mês" />
-        <SummaryCard icon={TrendingUp} label="Renda considerada nas metas" value={period.budgetBaseIncome} detail="Entradas sem meta atribuída" />
+      <section className="grid gap-3 @2xl:grid-cols-2 @6xl:grid-cols-3 @5xl:gap-4">
+        <SummaryCard icon={TrendingUp} label="Entradas líquidas" value={period.budgetBaseIncome} detail="Entradas disponíveis para o orçamento" />
         <SummaryCard icon={TrendingDown} label="Despesas líquidas" value={period.spent} detail={`${formatPercent(period.budgetBaseIncome > 0 ? period.spent / period.budgetBaseIncome * 100 : 0)} da renda-base utilizada`} danger />
         <SummaryCard icon={WalletCards} label="Saldo Restante" value={period.balance} detail="Valor livre para uso" danger={period.balance < 0} />
       </section>

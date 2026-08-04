@@ -27,7 +27,7 @@ export function FinanceDashboardClient({ data }: { data: FinanceData }) {
       month: new Intl.DateTimeFormat("pt-BR", { month: "short", timeZone: "UTC" })
         .format(new Date(Date.UTC(item.year, item.month - 1, 1)))
         .replace(".", ""),
-      income: item.grossIncome,
+      income: item.netIncome,
       spent: item.spent,
       balance: item.balance,
     })),
@@ -47,12 +47,11 @@ export function FinanceDashboardClient({ data }: { data: FinanceData }) {
           Há valores em moeda estrangeira aguardando conversão. Eles não foram incluídos nos totais em BRL.
         </div>
       )}
-      <section className="grid gap-3 @2xl:grid-cols-2 @5xl:grid-cols-3 @7xl:grid-cols-5 @5xl:gap-4">
-        <Summary label="Resultado do período" value={period.balance} tone={period.balance < 0 ? "danger" : "default"} />
-        <Summary label="Entradas brutas" value={period.grossIncome} tone="success" />
-        <Summary label="Renda considerada nas metas" value={period.budgetBaseIncome} />
-        <Summary label="Despesas líquidas" value={period.spent} tone="danger" />
+      <section className="grid gap-3 @2xl:grid-cols-2 @5xl:grid-cols-4 @5xl:gap-4">
         <Summary label="Saldo em conta" value={accountTotals.bankBalance} />
+        <Summary label="Entradas líquidas" value={period.budgetBaseIncome} tone="success" />
+        <Summary label="Despesas líquidas" value={period.spent} tone="danger" />
+        <Summary label="Resultado do período" value={period.balance} tone={period.balance < 0 ? "danger" : "default"} />
       </section>
 
       <section className="grid gap-4 @6xl:grid-cols-[1.55fr_1fr] @6xl:gap-6">
@@ -60,7 +59,7 @@ export function FinanceDashboardClient({ data }: { data: FinanceData }) {
           <CardHeader className="gap-4 @2xl:flex-row @2xl:items-start @2xl:justify-between">
             <div>
               <CardTitle>Histórico financeiro</CardTitle>
-              <p className="mt-1 text-sm text-[var(--muted-foreground)]">Entradas brutas e despesas líquidas dos últimos meses</p>
+              <p className="mt-1 text-sm text-[var(--muted-foreground)]">Entradas e despesas líquidas dos últimos meses</p>
             </div>
             <div className="flex rounded-xl bg-[var(--muted)] p-1">
               {([3, 6, 12] as const).map((value) => (
@@ -94,7 +93,7 @@ export function FinanceDashboardClient({ data }: { data: FinanceData }) {
                   <XAxis dataKey="month" stroke="var(--muted-foreground)" axisLine={false} tickLine={false} />
                   <YAxis stroke="var(--muted-foreground)" axisLine={false} tickLine={false} tickFormatter={(value) => `${Math.round(value / 1000)}k`} />
                   <Tooltip formatter={(value) => formatMoney(Number(value))} contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12 }} />
-                  <Area type="monotone" dataKey="income" name="Entradas brutas" stroke="#76bc8e" fill="url(#finance-income)" strokeWidth={2.5} />
+                  <Area type="monotone" dataKey="income" name="Entradas líquidas" stroke="#76bc8e" fill="url(#finance-income)" strokeWidth={2.5} />
                   <Area type="monotone" dataKey="spent" name="Despesas líquidas" stroke="#d2ad50" fill="url(#finance-spent)" strokeWidth={2.5} />
                 </AreaChart>
               </ResponsiveContainer>

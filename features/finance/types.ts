@@ -105,7 +105,7 @@ export type FinanceGoalRecord = Record<BudgetCategoryKey, number>;
 export type FinanceHistoryPointDto = {
   year: number;
   month: number;
-  grossIncome: number;
+  netIncome: number;
   spent: number;
   balance: number;
 };
