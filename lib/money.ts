@@ -14,7 +14,7 @@ export function formatCurrency(value: Decimal.Value, currencyCode: string) {
   return new Intl.NumberFormat("pt-BR", {
     style: "currency",
     currency: currencyCode,
-    currencyDisplay: currencyCode === "BRL" ? "symbol" : "code",
+    currencyDisplay: currencyCode === "BRL" || currencyCode === "USD" ? "symbol" : "code",
   }).format(new Decimal(value).toNumber());
 }
 

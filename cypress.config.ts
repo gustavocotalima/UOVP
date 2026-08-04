@@ -5,6 +5,13 @@ import { createHash, randomBytes } from "node:crypto";
 async function cleanupCypressUsers() {
   const prisma = new PrismaClient();
   try {
+    await prisma.authRateLimit.deleteMany({
+      where: {
+        scope: {
+          in: ["register-global", "register-ip", "login-global", "login-ip"],
+        },
+      },
+    });
     await prisma.user.deleteMany({
       where: {
         OR: [

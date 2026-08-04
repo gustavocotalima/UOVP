@@ -430,6 +430,9 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
                       </button>
                       <div className="text-right">
                         <strong className={cn("whitespace-nowrap text-sm", transaction.kind === "INCOME" && "text-[var(--success)]")}>{formatCurrency(transaction.amount, transaction.currencyCode)}</strong>
+                        {transaction.currencyCode !== "BRL" && transaction.reportingAmountBrl !== null && (
+                          <span className="mt-1 block text-[10px] text-[var(--muted-foreground)]">{formatCurrency(transaction.reportingAmountBrl, "BRL")}</span>
+                        )}
                         <ChevronDown className={cn("ml-auto mt-2 size-4 transition", expanded && "rotate-180")} aria-hidden="true" />
                       </div>
                     </div>

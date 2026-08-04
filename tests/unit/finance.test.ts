@@ -45,6 +45,7 @@ const bank: FinancialAccountDto = {
   currencyCode: "BRL",
   sortOrder: 0,
   providerUpdatedAt: null,
+  transactionCount: 0,
 };
 
 const card: FinancialAccountDto = {
@@ -148,10 +149,52 @@ describe("finanças AUVP", () => {
       income: 1000,
       grossIncome: 1000,
       budgetBaseIncome: 0,
-      spent: 250,
-      balance: 750,
+      grossExpenses: 250,
+      compensatedExpenses: 250,
+      spent: 0,
+      balance: 0,
       missingFxCount: 0,
     });
+  });
+
+  it("compensa reinvestimentos no resumo sem retirar as entradas brutas", () => {
+    const result = calculatePeriod([
+      transaction({ id: "base-income", kind: "INCOME", amount: "20.46", budgetCategory: null }),
+      transaction({ id: "dividend", kind: "INCOME", amount: "540.60", budgetCategory: "FINANCIAL_FREEDOM" }),
+      transaction({ id: "reinvestment", amount: "-540.60", budgetCategory: "FINANCIAL_FREEDOM" }),
+      transaction({ id: "other-expenses", amount: "-635.15", budgetCategory: null }),
+    ]);
+    expect(result.grossIncome).toBeCloseTo(561.06);
+    expect(result.budgetBaseIncome).toBeCloseTo(20.46);
+    expect(result.grossExpenses).toBeCloseTo(1175.75);
+    expect(result.compensatedExpenses).toBeCloseTo(540.60);
+    expect(result.spent).toBeCloseTo(635.15);
+    expect(result.balance).toBeCloseTo(-614.69);
+  });
+
+  it.each([
+    { income: 100, expense: 300, compensated: 100, spent: 200 },
+    { income: 300, expense: 300, compensated: 300, spent: 0 },
+    { income: 500, expense: 300, compensated: 300, spent: 0 },
+  ])("limita a compensação a cada meta ($income de entrada)", ({ income, expense, compensated, spent }) => {
+    const result = calculatePeriod([
+      transaction({ id: "income", kind: "INCOME", amount: String(income), budgetCategory: "COMFORT" }),
+      transaction({ id: "expense", amount: String(-expense), budgetCategory: "COMFORT" }),
+    ]);
+    expect(result.compensatedExpenses).toBe(compensated);
+    expect(result.spent).toBe(spent);
+    expect(result.balance).toBe(spent === 0 ? 0 : -spent);
+  });
+
+  it("não compensa transações de metas ou meses diferentes", () => {
+    const result = calculatePeriod([
+      transaction({ id: "income-other-goal", kind: "INCOME", amount: "100", budgetCategory: "COMFORT" }),
+      transaction({ id: "expense", amount: "-100", budgetCategory: "PLEASURES" }),
+      transaction({ id: "income-other-month", kind: "INCOME", amount: "50", budgetCategory: "PLEASURES", referenceMonth: 6 }),
+    ]);
+    expect(result.compensatedExpenses).toBe(0);
+    expect(result.spent).toBe(100);
+    expect(result.balance).toBe(-100);
   });
 
   it("desconta entradas categorizadas do valor realizado na mesma meta", () => {
@@ -167,6 +210,7 @@ describe("finanças AUVP", () => {
     expect(fixed?.spent).toBe(200);
     expect(fixed?.expenses).toBe(300);
     expect(fixed?.incomeOffsets).toBe(100);
+    expect(fixed?.appliedIncomeOffsets).toBe(100);
     expect(fixed?.target).toBe(300);
     expect(fixed?.transactions).toHaveLength(2);
   });
@@ -192,6 +236,7 @@ describe("finanças AUVP", () => {
     const freedom = categories.find((item) => item.category === "FINANCIAL_FREEDOM");
     expect(freedom?.spent).toBeCloseTo(3600.27);
     expect(freedom?.incomeOffsets).toBeCloseTo(26399.73);
+    expect(freedom?.appliedIncomeOffsets).toBeCloseTo(26399.73);
   });
 
   it("agrupa despesas por tag e conserva o total sem tags", () => {
@@ -200,7 +245,7 @@ describe("finanças AUVP", () => {
       [
         transaction({ id: "food", amount: "-50", tags }),
         transaction({ id: "none", amount: "-25" }),
-        transaction({ id: "income", kind: "INCOME", amount: "100", tags }),
+        transaction({ id: "income", kind: "INCOME", amount: "100", budgetCategory: null, tags }),
       ],
       tags,
     );
@@ -210,11 +255,57 @@ describe("finanças AUVP", () => {
     ]);
   });
 
+  it("distribui despesas líquidas entre tags sem duplicar transações multitag", () => {
+    const tags = [
+      { id: "investments", systemKey: null, name: "Investimentos", color: "#16a34a" },
+      { id: "goals", systemKey: null, name: "Metas", color: "#7c3aed" },
+    ];
+    const result = calculateTagTotals([
+      transaction({ id: "offset", kind: "INCOME", amount: "50", budgetCategory: "FINANCIAL_FREEDOM" }),
+      transaction({ id: "tagged", amount: "-100", budgetCategory: "FINANCIAL_FREEDOM", tags }),
+      transaction({ id: "untagged", amount: "-25", budgetCategory: null }),
+    ], tags);
+    expect(result).toEqual([
+      { id: "investments", name: "Investimentos", color: "#16a34a", value: 25 },
+      { id: "goals", name: "Metas", color: "#7c3aed", value: 25 },
+      { id: "untagged", name: "Sem Tags", color: "#64748b", value: 25 },
+    ]);
+    expect(result.reduce((total, item) => total + item.value, 0)).toBe(75);
+  });
+
   it("calcula saldo bancário, dívida dos cartões e resultado", () => {
     expect(calculateAccountTotals([bank, card])).toEqual({
       bankBalance: 1200,
       cardDebt: 400,
       result: 800,
+      missingFxCount: 0,
+    });
+  });
+
+  it("consolida contas e cartões USD pelos equivalentes em BRL", () => {
+    const usdBank: FinancialAccountDto = {
+      ...bank,
+      id: "usd-bank",
+      currencyCode: "USD",
+      balance: "1000",
+      balanceBrl: "5250",
+      balanceFxRateToBrl: "5.25",
+      balanceFxSource: "YAHOO",
+    };
+    const usdCard: FinancialAccountDto = {
+      ...card,
+      id: "usd-card",
+      currencyCode: "USD",
+      balance: "100",
+      balanceBrl: "525",
+      balanceFxRateToBrl: "5.25",
+      balanceFxSource: "YAHOO",
+    };
+
+    expect(calculateAccountTotals([usdBank, usdCard])).toEqual({
+      bankBalance: 5250,
+      cardDebt: 525,
+      result: 4725,
       missingFxCount: 0,
     });
   });
@@ -227,6 +318,41 @@ describe("finanças AUVP", () => {
       3,
     );
     expect(history.map((item) => item.spent)).toEqual([0, 80, 0]);
+  });
+
+  it("aplica a compensação somente ao mês correspondente no histórico", () => {
+    const history = calculateHistory([
+      transaction({ id: "june-income", kind: "INCOME", amount: "1000", budgetCategory: null, referenceMonth: 6 }),
+      transaction({ id: "june-expense", amount: "-200", budgetCategory: null, referenceMonth: 6 }),
+      transaction({ id: "august-base", kind: "INCOME", amount: "20.46", budgetCategory: null, referenceMonth: 8 }),
+      transaction({ id: "august-dividend", kind: "INCOME", amount: "540.60", budgetCategory: "FINANCIAL_FREEDOM", referenceMonth: 8 }),
+      transaction({ id: "august-reinvestment", amount: "-540.60", budgetCategory: "FINANCIAL_FREEDOM", referenceMonth: 8 }),
+      transaction({ id: "august-expenses", amount: "-635.15", budgetCategory: null, referenceMonth: 8 }),
+    ], 2026, 8, 3);
+
+    expect(history).toEqual([
+      expect.objectContaining({ key: "2026-06", income: 1000, spent: 200, balance: 800 }),
+      expect.objectContaining({ key: "2026-07", income: 0, spent: 0, balance: 0 }),
+      expect.objectContaining({ key: "2026-08", income: 561.06, spent: 635.15, balance: -614.69 }),
+    ]);
+  });
+
+  it.each([
+    { id: "hidden", ignored: true },
+    { id: "internal", internalTransfer: true },
+    { id: "removed", providerLifecycle: "REMOVED" as const },
+  ])("não usa uma entrada $id como compensação", (override) => {
+    const result = calculatePeriod([
+      transaction({
+        ...override,
+        kind: "INCOME",
+        amount: "100",
+        budgetCategory: "FINANCIAL_FREEDOM",
+      }),
+      transaction({ id: "expense", amount: "-100", budgetCategory: "FINANCIAL_FREEDOM" }),
+    ]);
+    expect(result.compensatedExpenses).toBe(0);
+    expect(result.spent).toBe(100);
   });
 
   it("respeita o dia configurado para o início do mês financeiro", () => {
@@ -273,6 +399,36 @@ describe("finanças AUVP", () => {
     expect(invoices.find((invoice) => invoice.key === "2026-07")?.total).toBe(50);
   });
 
+  it("mantém fatura USD nativa e consolida seu equivalente em BRL", () => {
+    const usdCard: FinancialAccountDto = {
+      ...card,
+      id: "usd-card",
+      currencyCode: "USD",
+      balance: "100",
+      balanceBrl: "550",
+      balanceFxRateToBrl: "5.5",
+      balanceFxSource: "YAHOO",
+    };
+    const invoices = calculateInvoices(
+      usdCard,
+      [transaction({
+        id: "usd-card-txn",
+        accountId: usdCard.id,
+        accountName: usdCard.name,
+        accountType: "CREDIT_CARD",
+        amount: "-100",
+        currencyCode: "USD",
+        reportingAmountBrl: "-550",
+        fxRateToBrl: "5.5",
+        fxSource: "YAHOO",
+      })],
+      new Date("2026-07-20T12:00:00.000Z"),
+    );
+    const august = invoices.find((invoice) => invoice.key === "2026-08");
+    expect(august?.total).toBe(100);
+    expect(august?.totalBrl).toBe(550);
+  });
+
   it("exclui dos totais BRL apenas a transação sem conversão", () => {
     expect(calculatePeriod([
       transaction({ id: "converted", kind: "INCOME", amount: "100", reportingAmountBrl: "550", budgetCategory: null }),
@@ -281,6 +437,8 @@ describe("finanças AUVP", () => {
       income: 550,
       grossIncome: 550,
       budgetBaseIncome: 550,
+      grossExpenses: 0,
+      compensatedExpenses: 0,
       spent: 0,
       balance: 550,
       missingFxCount: 1,

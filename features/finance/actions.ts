@@ -12,11 +12,25 @@ import {
 } from "./classification-service";
 import { normalizeFinanceRuleValue } from "./classification";
 import { ensureFinanceSetup } from "./data";
+import {
+  financialFxRequired,
+  resolveCurrentFinancialFx,
+  resolveHistoricalFinancialFx,
+  type FinancialMutationResult,
+} from "./account-fx";
+import {
+  SUPPORTED_FINANCIAL_ACCOUNT_CURRENCIES,
+  accountBalanceBrl,
+  availableCreditForBalance,
+  type FinancialAccountCurrency,
+} from "./account-currency";
 
 const idSchema = z.string().min(1).max(200);
 const categorySchema = z.enum(BUDGET_CATEGORIES);
 const accountTypeSchema = z.enum(["BANK_ACCOUNT", "CREDIT_CARD"]);
+const accountCurrencySchema = z.enum(SUPPORTED_FINANCIAL_ACCOUNT_CURRENCIES);
 const moneySchema = z.number().finite().min(-1_000_000_000).max(1_000_000_000);
+const fxRateSchema = z.number().finite().positive().max(1_000_000);
 const colorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/);
 
 function revalidateFinance() {
@@ -167,6 +181,8 @@ export async function saveFinancialAccountAction(input: {
   bankCode?: string;
   brand?: string;
   balance: number;
+  currencyCode: FinancialAccountCurrency;
+  manualFxRateToBrl?: number;
   creditLimit?: number | null;
   dueDay?: number | null;
   closingDay?: number | null;
@@ -185,11 +201,47 @@ export async function saveFinancialAccountAction(input: {
       bankCode: z.string().trim().max(12).optional(),
       brand: z.string().trim().max(32).optional(),
       balance: moneySchema,
+      currencyCode: accountCurrencySchema,
+      manualFxRateToBrl: fxRateSchema.optional(),
       creditLimit: z.number().finite().min(0).max(1_000_000_000).nullable().optional(),
       dueDay: z.number().int().min(1).max(31).nullable().optional(),
       closingDay: z.number().int().min(1).max(31).nullable().optional(),
     })
     .parse(input);
+  const existingAccount = parsed.id ? await ownedAccount(userId, parsed.id) : null;
+  if (existingAccount?.source === "PLUGGY") {
+    await prisma.financialAccount.update({
+      where: { id: existingAccount.id },
+      data: { name: parsed.name },
+    });
+    revalidateFinance();
+    return { ok: true } satisfies FinancialMutationResult;
+  }
+  if (existingAccount && existingAccount.currencyCode !== parsed.currencyCode) {
+    const transactionCount = await prisma.financeTransaction.count({
+      where: { accountId: existingAccount.id },
+    });
+    if (transactionCount > 0) {
+      throw new Error("A moeda não pode ser alterada depois que a conta possui transações.");
+    }
+  }
+  const fx = await resolveCurrentFinancialFx({
+    currencyCode: parsed.currencyCode,
+    manualRateToBrl: parsed.manualFxRateToBrl,
+    existing: existingAccount
+      ? {
+          rateToBrl: existingAccount.balanceFxRateToBrl,
+          rateDate: existingAccount.balanceFxRateDate,
+          source: existingAccount.balanceFxSource,
+          fetchedAt: existingAccount.providerUpdatedAt,
+        }
+      : null,
+  });
+  if (!fx && parsed.currencyCode === "USD" && parsed.balance !== 0) {
+    return financialFxRequired(new Date());
+  }
+  const balance = new Prisma.Decimal(parsed.balance);
+  const creditLimit = parsed.creditLimit == null ? null : new Prisma.Decimal(parsed.creditLimit);
   const data = {
     type: parsed.type as FinancialAccountType,
     subtype: parsed.subtype || null,
@@ -200,24 +252,22 @@ export async function saveFinancialAccountAction(input: {
     numberLastFour: parsed.numberLastFour || null,
     bankCode: parsed.bankCode || null,
     brand: parsed.brand || null,
-    balance: parsed.balance,
-    balanceBrl: parsed.balance,
-    balanceFxRateToBrl: 1,
-    balanceFxRateDate: new Date(),
-    balanceFxSource: "NATIVE" as const,
-    creditLimit: parsed.creditLimit ?? null,
-    availableCredit:
-      parsed.creditLimit == null
-        ? null
-        : Math.max(0, parsed.creditLimit - (parsed.type === "CREDIT_CARD" ? Math.abs(parsed.balance) : 0)),
+    balance,
+    currencyCode: parsed.currencyCode,
+    balanceBrl: fx ? accountBalanceBrl(balance, fx.rateToBrl).toString() : new Prisma.Decimal(0),
+    balanceFxRateToBrl: fx?.rateToBrl ?? null,
+    balanceFxRateDate: fx?.rateDate ?? null,
+    balanceFxSource: fx?.source ?? null,
+    providerUpdatedAt: parsed.currencyCode === "USD" ? fx?.fetchedAt ?? null : null,
+    creditLimit,
+    availableCredit: availableCreditForBalance(parsed.type, creditLimit, balance)?.toString() ?? null,
     dueDay: parsed.dueDay ?? null,
     closingDay: parsed.closingDay ?? null,
   };
-  if (parsed.id) {
-    const account = await ownedAccount(userId, parsed.id);
+  if (existingAccount) {
     await prisma.financialAccount.update({
-      where: { id: account.id },
-      data: account.source === "MANUAL" ? data : { name: parsed.name },
+      where: { id: existingAccount.id },
+      data,
     });
   } else {
     const max = await prisma.financialAccount.aggregate({
@@ -234,6 +284,7 @@ export async function saveFinancialAccountAction(input: {
     });
   }
   revalidateFinance();
+  return { ok: true } satisfies FinancialMutationResult;
 }
 
 export async function deleteFinancialAccountAction(id: string) {
@@ -269,6 +320,35 @@ function balanceAdjustment(type: FinancialAccountType, amount: Prisma.Decimal) {
   return type === "CREDIT_CARD" ? amount.negated() : amount;
 }
 
+async function adjustManualAccountBalance(
+  tx: Prisma.TransactionClient,
+  accountId: string,
+  adjustment: Prisma.Decimal,
+) {
+  const account = await tx.financialAccount.findUniqueOrThrow({ where: { id: accountId } });
+  if (account.source !== "MANUAL") return;
+  const updated = await tx.financialAccount.update({
+    where: { id: account.id },
+    data: { balance: { increment: adjustment } },
+  });
+  const balanceBrl = updated.currencyCode === "BRL"
+    ? updated.balance
+    : updated.balanceFxRateToBrl
+      ? accountBalanceBrl(updated.balance, updated.balanceFxRateToBrl).toString()
+      : null;
+  await tx.financialAccount.update({
+    where: { id: account.id },
+    data: {
+      balanceBrl,
+      availableCredit: availableCreditForBalance(
+        updated.type,
+        updated.creditLimit,
+        updated.balance,
+      )?.toString() ?? null,
+    },
+  });
+}
+
 export async function createFinanceTransactionAction(input: {
   kind: "INCOME" | "EXPENSE";
   description: string;
@@ -280,6 +360,7 @@ export async function createFinanceTransactionAction(input: {
   budgetCategory?: BudgetCategoryKey | null;
   tagIds?: string[];
   note?: string;
+  manualFxRateToBrl?: number;
 }) {
   const userId = await requireUserId();
   const parsed = z
@@ -294,6 +375,7 @@ export async function createFinanceTransactionAction(input: {
       budgetCategory: categorySchema.nullable().optional(),
       tagIds: z.array(idSchema).max(20).optional(),
       note: z.string().trim().max(2_000).optional(),
+      manualFxRateToBrl: fxRateSchema.optional(),
     })
     .parse(input);
   const account = await ownedAccount(userId, parsed.accountId);
@@ -303,6 +385,14 @@ export async function createFinanceTransactionAction(input: {
     if (ownedTags !== tagIds.length) throw new Error("Uma ou mais tags são inválidas.");
   }
   const signedAmount = new Prisma.Decimal(parsed.amount).times(parsed.kind === "EXPENSE" ? -1 : 1);
+  const currencyCode = accountCurrencySchema.parse(account.currencyCode);
+  const transactionDate = new Date(`${parsed.date}T12:00:00.000Z`);
+  const fx = await resolveHistoricalFinancialFx({
+    currencyCode,
+    transactionDate,
+    manualRateToBrl: parsed.manualFxRateToBrl,
+  });
+  if (!fx) return financialFxRequired(transactionDate);
   await prisma.$transaction(async (tx) => {
     await tx.financeTransaction.create({
       data: {
@@ -312,12 +402,12 @@ export async function createFinanceTransactionAction(input: {
         kind: parsed.kind,
         description: parsed.description,
         amount: signedAmount,
-        currencyCode: "BRL",
-        reportingAmountBrl: signedAmount,
-        fxRateToBrl: 1,
-        fxRateDate: new Date(`${parsed.date}T12:00:00.000Z`),
-        fxSource: "NATIVE",
-        date: new Date(`${parsed.date}T12:00:00.000Z`),
+        currencyCode,
+        reportingAmountBrl: signedAmount.mul(fx.rateToBrl).toDecimalPlaces(2),
+        fxRateToBrl: fx.rateToBrl,
+        fxRateDate: fx.rateDate,
+        fxSource: fx.source,
+        date: transactionDate,
         referenceYear: parsed.referenceYear,
         referenceMonth: parsed.referenceMonth,
         referenceOverridden: true,
@@ -329,16 +419,15 @@ export async function createFinanceTransactionAction(input: {
       },
     });
     if (account.source === "MANUAL") {
-      await tx.financialAccount.update({
-        where: { id: account.id },
-        data: {
-          balance: { increment: balanceAdjustment(account.type, signedAmount) },
-          balanceBrl: { increment: balanceAdjustment(account.type, signedAmount) },
-        },
-      });
+      await adjustManualAccountBalance(
+        tx,
+        account.id,
+        balanceAdjustment(account.type, signedAmount),
+      );
     }
   });
   revalidateFinance();
+  return { ok: true } satisfies FinancialMutationResult;
 }
 
 export async function updateFinanceTransactionAction(input: {
@@ -353,6 +442,7 @@ export async function updateFinanceTransactionAction(input: {
   budgetCategory?: BudgetCategoryKey | null;
   tagIds: string[];
   note?: string;
+  manualFxRateToBrl?: number;
 }) {
   const userId = await requireUserId();
   const parsed = z
@@ -368,6 +458,7 @@ export async function updateFinanceTransactionAction(input: {
       budgetCategory: categorySchema.nullable().optional(),
       tagIds: z.array(idSchema).max(20),
       note: z.string().trim().max(2_000).optional(),
+      manualFxRateToBrl: fxRateSchema.optional(),
     })
     .parse(input);
   const transaction = await ownedTransaction(userId, parsed.id);
@@ -380,32 +471,46 @@ export async function updateFinanceTransactionAction(input: {
     throw new Error("Descrição, conta, valor e data são mantidos pela instituição.");
   }
   const targetAccount = parsed.accountId ? await ownedAccount(userId, parsed.accountId) : null;
+  const currentAccount = await ownedAccount(userId, transaction.accountId);
   const kind = parsed.kind ?? transaction.kind;
   const amount = parsed.amount
     ? new Prisma.Decimal(parsed.amount).times(kind === "EXPENSE" ? -1 : 1)
     : transaction.amount;
+  const nextAccount = targetAccount ?? currentAccount;
+  const transactionDate = parsed.date
+    ? new Date(`${parsed.date}T12:00:00.000Z`)
+    : transaction.date;
+  const currencyCode = transaction.source === "MANUAL"
+    ? accountCurrencySchema.parse(nextAccount.currencyCode)
+    : accountCurrencySchema.safeParse(transaction.currencyCode).success
+      ? transaction.currencyCode as FinancialAccountCurrency
+      : "BRL";
+  const fx = transaction.source === "MANUAL"
+    ? await resolveHistoricalFinancialFx({
+        currencyCode,
+        transactionDate,
+        manualRateToBrl: parsed.manualFxRateToBrl,
+        existing: {
+          currencyCode: transaction.currencyCode,
+          rateToBrl: transaction.fxRateToBrl,
+          rateDate: transaction.fxRateDate,
+          source: transaction.fxSource,
+        },
+      })
+    : null;
+  if (transaction.source === "MANUAL" && !fx) return financialFxRequired(transactionDate);
   await prisma.$transaction(async (tx) => {
     if (transaction.source === "MANUAL") {
-      const oldAccount = await tx.financialAccount.findUniqueOrThrow({ where: { id: transaction.accountId } });
-      const nextAccount = targetAccount ?? oldAccount;
-      if (oldAccount.source === "MANUAL") {
-        await tx.financialAccount.update({
-          where: { id: oldAccount.id },
-          data: {
-            balance: { decrement: balanceAdjustment(oldAccount.type, transaction.amount) },
-            balanceBrl: { decrement: balanceAdjustment(oldAccount.type, transaction.amount) },
-          },
-        });
-      }
-      if (nextAccount.source === "MANUAL") {
-        await tx.financialAccount.update({
-          where: { id: nextAccount.id },
-          data: {
-            balance: { increment: balanceAdjustment(nextAccount.type, amount) },
-            balanceBrl: { increment: balanceAdjustment(nextAccount.type, amount) },
-          },
-        });
-      }
+      await adjustManualAccountBalance(
+        tx,
+        currentAccount.id,
+        balanceAdjustment(currentAccount.type, transaction.amount).negated(),
+      );
+      await adjustManualAccountBalance(
+        tx,
+        nextAccount.id,
+        balanceAdjustment(nextAccount.type, amount),
+      );
     }
     await tx.financeTransaction.update({
       where: { id: transaction.id },
@@ -415,14 +520,13 @@ export async function updateFinanceTransactionAction(input: {
               description: parsed.description ?? transaction.description,
               accountId: targetAccount?.id ?? transaction.accountId,
               amount,
-              reportingAmountBrl: amount,
-              fxRateToBrl: 1,
-              fxRateDate: parsed.date
-                ? new Date(`${parsed.date}T12:00:00.000Z`)
-                : transaction.fxRateDate,
-              fxSource: "NATIVE",
+              currencyCode,
+              reportingAmountBrl: amount.mul(fx!.rateToBrl).toDecimalPlaces(2),
+              fxRateToBrl: fx!.rateToBrl,
+              fxRateDate: fx!.rateDate,
+              fxSource: fx!.source,
               kind,
-              date: parsed.date ? new Date(`${parsed.date}T12:00:00.000Z`) : transaction.date,
+              date: transactionDate,
             }
           : {}),
         referenceYear: parsed.referenceYear,
@@ -440,6 +544,7 @@ export async function updateFinanceTransactionAction(input: {
     });
   });
   revalidateFinance();
+  return { ok: true } satisfies FinancialMutationResult;
 }
 
 export async function updateFinanceTransactionCategoryAction(
@@ -734,13 +839,11 @@ export async function deleteFinanceTransactionAction(id: string) {
     if (transaction.source === "MANUAL") {
       const account = await tx.financialAccount.findUniqueOrThrow({ where: { id: transaction.accountId } });
       if (account.source === "MANUAL") {
-        await tx.financialAccount.update({
-          where: { id: account.id },
-          data: {
-            balance: { decrement: balanceAdjustment(account.type, transaction.amount) },
-            balanceBrl: { decrement: balanceAdjustment(account.type, transaction.amount) },
-          },
-        });
+        await adjustManualAccountBalance(
+          tx,
+          account.id,
+          balanceAdjustment(account.type, transaction.amount).negated(),
+        );
       }
       await tx.financeTransaction.delete({ where: { id: transaction.id } });
     } else {

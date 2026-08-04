@@ -6,10 +6,8 @@ vi.mock("@/lib/auth-security", () => ({
   consumeAuthRateLimit: vi.fn(async () => ({ allowed: true, retryAfterMs: 0 })),
 }));
 
-import {
-  MAX_PLUGGY_WEBHOOK_BODY_BYTES,
-  POST,
-} from "@/app/api/pluggy/webhook/route";
+import { POST } from "@/app/api/pluggy/webhook/route";
+import { MAX_PLUGGY_WEBHOOK_BODY_BYTES } from "@/features/open-finance/webhook-limits";
 
 function request(body: string, headers: Record<string, string> = {}) {
   return new Request("https://app.example.com/api/pluggy/webhook", {

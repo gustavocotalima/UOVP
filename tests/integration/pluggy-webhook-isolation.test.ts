@@ -1,10 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import {
-  MAX_PENDING_PLUGGY_WEBHOOK_EVENTS,
-  POST,
-} from "@/app/api/pluggy/webhook/route";
+import { POST } from "@/app/api/pluggy/webhook/route";
+import { MAX_PENDING_PLUGGY_WEBHOOK_EVENTS } from "@/features/open-finance/webhook-limits";
 import { storePluggyWebhookSecret } from "@/features/open-finance/pluggy-credentials";
 import { clearAuthRateLimit } from "@/lib/auth-security";
 

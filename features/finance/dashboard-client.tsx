@@ -49,9 +49,9 @@ export function FinanceDashboardClient({ data }: { data: FinanceData }) {
       )}
       <section className="grid gap-3 @2xl:grid-cols-2 @5xl:grid-cols-3 @7xl:grid-cols-5 @5xl:gap-4">
         <Summary label="Resultado do período" value={period.balance} tone={period.balance < 0 ? "danger" : "default"} />
-        <Summary label="Entradas" value={period.grossIncome} tone="success" />
+        <Summary label="Entradas brutas" value={period.grossIncome} tone="success" />
         <Summary label="Renda considerada nas metas" value={period.budgetBaseIncome} />
-        <Summary label="Despesas" value={period.spent} tone="danger" />
+        <Summary label="Despesas líquidas" value={period.spent} tone="danger" />
         <Summary label="Saldo em conta" value={accountTotals.bankBalance} />
       </section>
 
@@ -60,7 +60,7 @@ export function FinanceDashboardClient({ data }: { data: FinanceData }) {
           <CardHeader className="gap-4 @2xl:flex-row @2xl:items-start @2xl:justify-between">
             <div>
               <CardTitle>Histórico financeiro</CardTitle>
-              <p className="mt-1 text-sm text-[var(--muted-foreground)]">Receitas e despesas dos últimos meses</p>
+              <p className="mt-1 text-sm text-[var(--muted-foreground)]">Entradas brutas e despesas líquidas dos últimos meses</p>
             </div>
             <div className="flex rounded-xl bg-[var(--muted)] p-1">
               {([3, 6, 12] as const).map((value) => (
@@ -94,8 +94,8 @@ export function FinanceDashboardClient({ data }: { data: FinanceData }) {
                   <XAxis dataKey="month" stroke="var(--muted-foreground)" axisLine={false} tickLine={false} />
                   <YAxis stroke="var(--muted-foreground)" axisLine={false} tickLine={false} tickFormatter={(value) => `${Math.round(value / 1000)}k`} />
                   <Tooltip formatter={(value) => formatMoney(Number(value))} contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12 }} />
-                  <Area type="monotone" dataKey="income" name="Receitas" stroke="#76bc8e" fill="url(#finance-income)" strokeWidth={2.5} />
-                  <Area type="monotone" dataKey="spent" name="Despesas" stroke="#d2ad50" fill="url(#finance-spent)" strokeWidth={2.5} />
+                  <Area type="monotone" dataKey="income" name="Entradas brutas" stroke="#76bc8e" fill="url(#finance-income)" strokeWidth={2.5} />
+                  <Area type="monotone" dataKey="spent" name="Despesas líquidas" stroke="#d2ad50" fill="url(#finance-spent)" strokeWidth={2.5} />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
@@ -105,12 +105,12 @@ export function FinanceDashboardClient({ data }: { data: FinanceData }) {
         <Card>
           <CardHeader>
             <CardTitle>Transações por Tags</CardTitle>
-            <p className="text-sm text-[var(--muted-foreground)]">Distribuição das despesas do mês</p>
+            <p className="text-sm text-[var(--muted-foreground)]">Distribuição das despesas líquidas do mês</p>
           </CardHeader>
           <CardContent>
             {tags.length ? (
               <>
-                <DonutChart data={tags.map((tag) => ({ name: tag.name, color: tag.color, value: tag.value }))} centerLabel="Despesas" />
+                <DonutChart data={tags.map((tag) => ({ name: tag.name, color: tag.color, value: tag.value }))} centerLabel="Despesas líquidas" />
                 <div className="space-y-2">
                   {tags.slice(0, 6).map((tag) => (
                     <div key={tag.id} className="flex items-center justify-between text-xs">
@@ -153,7 +153,7 @@ export function FinanceDashboardClient({ data }: { data: FinanceData }) {
                 </div>
                 <p className="mt-1.5 text-xs text-[var(--muted-foreground)]">
                   Líquido: {formatMoney(item.spent)} de {formatMoney(item.target)}
-                  {item.incomeOffsets > 0 && ` · ${formatMoney(item.incomeOffsets)} em entradas compensadas`}
+                  {item.appliedIncomeOffsets > 0 && ` · ${formatMoney(item.appliedIncomeOffsets)} em entradas compensadas`}
                 </p>
               </div>
             ))}
@@ -180,7 +180,12 @@ export function FinanceDashboardClient({ data }: { data: FinanceData }) {
                     <p className="truncate text-sm font-medium">{transaction.merchantName || transaction.description}</p>
                     <p className="truncate text-xs text-[var(--muted-foreground)]">{transaction.accountName} · {categoryLabel(transaction.budgetCategory, transaction.kind)}</p>
                   </div>
-                  <p className={cn("text-sm font-semibold tabular-nums", incoming && "text-[var(--success)]")}>{formatCurrency(transaction.amount, transaction.currencyCode)}</p>
+                  <div className="text-right">
+                    <p className={cn("text-sm font-semibold tabular-nums", incoming && "text-[var(--success)]")}>{formatCurrency(transaction.amount, transaction.currencyCode)}</p>
+                    {transaction.currencyCode !== "BRL" && transaction.reportingAmountBrl !== null && (
+                      <p className="mt-0.5 text-[10px] text-[var(--muted-foreground)]">{formatCurrency(transaction.reportingAmountBrl, "BRL")}</p>
+                    )}
+                  </div>
                 </div>
               );
             })}

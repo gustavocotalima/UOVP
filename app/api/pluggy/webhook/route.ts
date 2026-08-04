@@ -8,16 +8,17 @@ import {
 } from "@/features/open-finance/pluggy-credentials";
 import { registerPluggyItemForUser } from "@/features/open-finance/sync";
 import {
+  MAX_PENDING_PLUGGY_WEBHOOK_EVENTS,
+  MAX_PLUGGY_WEBHOOK_BODY_BYTES,
+  MAX_RETAINED_PLUGGY_WEBHOOK_EVENTS,
+} from "@/features/open-finance/webhook-limits";
+import {
   assertUserOperationRateLimit,
   OperationRateLimitError,
 } from "@/lib/operation-security";
 import { clientIpFromHeaders, consumeAuthRateLimit } from "@/lib/auth-security";
 import { prisma } from "@/lib/prisma";
 import { secretsMatch } from "@/lib/request-security";
-
-export const MAX_PLUGGY_WEBHOOK_BODY_BYTES = 256 * 1_024;
-export const MAX_PENDING_PLUGGY_WEBHOOK_EVENTS = 100;
-export const MAX_RETAINED_PLUGGY_WEBHOOK_EVENTS = 10_000;
 
 const MAX_EVENT_ATTEMPTS = 12;
 const FAILED_EVENT_RETENTION_MS = 24 * 60 * 60_000;
