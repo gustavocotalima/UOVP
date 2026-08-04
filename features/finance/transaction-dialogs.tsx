@@ -17,7 +17,8 @@ import {
   saveFinanceTransactionManualFxAction,
   updateFinanceTransactionAction,
 } from "./actions";
-import { FinanceNotice, runFinanceAction } from "./shared";
+import { FinanceNotice } from "./shared";
+import { financialAccountCurrencySymbol } from "./account-currency";
 import type { FinanceTagDto, FinanceTransactionDto, FinancialAccountDto } from "./types";
 
 function monthValue(year: number, month: number) {
@@ -125,10 +126,13 @@ function TransactionEditorDialogContent({
   const [manualFxRate, setManualFxRate] = useState(
     transaction.fxSource === "MANUAL" ? transaction.fxRateToBrl ?? "" : "",
   );
+  const [fxRequired, setFxRequired] = useState(transaction.reportingAmountBrl === null);
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   const providerOwned = transaction.source === "PLUGGY";
+  const selectedAccount = accounts.find((account) => account.id === accountId);
+  const selectedCurrency = selectedAccount?.currencyCode ?? transaction.currencyCode;
   const hasOriginalCurrency = Boolean(
     transaction.originalAmount
     && transaction.originalCurrencyCode
@@ -136,9 +140,10 @@ function TransactionEditorDialogContent({
   );
   async function save() {
     const parsedReference = parseMonth(reference);
-    const ok = await runFinanceAction(
-      () =>
-        updateFinanceTransactionAction({
+    setPending(true);
+    setNotice(null);
+    try {
+      const result = await updateFinanceTransactionAction({
           id: transaction.id,
           ...(providerOwned
             ? {}
@@ -148,34 +153,37 @@ function TransactionEditorDialogContent({
                 amount: Number(amount),
                 kind,
                 date,
+                manualFxRateToBrl: manualFxRate ? Number(manualFxRate) : undefined,
               }),
           referenceYear: parsedReference.year,
           referenceMonth: parsedReference.month,
           budgetCategory: category || null,
           tagIds,
           note,
-        }),
-      setPending,
-      setNotice,
-      "Transação atualizada.",
-    );
-    if (ok) {
-      if (manualFxRate) {
-        const fxOk = await runFinanceAction(
-          () => saveFinanceTransactionManualFxAction({
+        });
+      if (!result.ok) {
+        setFxRequired(true);
+        setNotice({ type: "error", text: result.message });
+        return;
+      }
+      if (providerOwned && manualFxRate) {
+        await saveFinanceTransactionManualFxAction({
             id: transaction.id,
             rateToBrl: Number(manualFxRate),
             rateDate: date,
-          }),
-          setPending,
-          setNotice,
-          "Taxa de câmbio salva.",
-        );
-        if (!fxOk) return;
+          });
       }
+      setNotice({ type: "success", text: "Transação atualizada." });
       onSaved?.();
       router.refresh();
       onOpenChange(false);
+    } catch (error) {
+      setNotice({
+        type: "error",
+        text: error instanceof Error ? error.message : "Não foi possível atualizar a transação.",
+      });
+    } finally {
+      setPending(false);
     }
   }
 
@@ -187,7 +195,7 @@ function TransactionEditorDialogContent({
       dismissible={!pending}
       title={formatCurrency(transaction.amount, transaction.currencyCode)}
       description={new Intl.DateTimeFormat("pt-BR", { dateStyle: "long", timeZone }).format(new Date(transaction.date))}
-      footer={<Button onClick={save} disabled={pending}>{pending ? "Salvando…" : "Salvar alterações"}</Button>}
+      footer={<Button onClick={save} disabled={pending || (fxRequired && selectedCurrency === "USD" && !(Number(manualFxRate) > 0))}>{pending ? "Salvando…" : "Salvar alterações"}</Button>}
     >
       <div className="space-y-5">
         {notice && <FinanceNotice type={notice.type}>{notice.text}</FinanceNotice>}
@@ -254,14 +262,14 @@ function TransactionEditorDialogContent({
         )}
         <div className="grid gap-4 sm:grid-cols-2">
           <Label className="sm:col-span-2">Descrição<Input className="mt-2" value={description} disabled={providerOwned} onChange={(event) => setDescription(event.target.value)} /></Label>
-          <Label>Conta<Select className="mt-2 w-full" value={accountId} disabled={providerOwned} onChange={(event) => setAccountId(event.target.value)}>{accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</Select></Label>
+          <Label>Conta<Select className="mt-2 w-full" value={accountId} disabled={providerOwned} onChange={(event) => { setAccountId(event.target.value); setFxRequired(false); setManualFxRate(""); }}>{accounts.map((account) => <option key={account.id} value={account.id}>{account.name} · {account.currencyCode}</option>)}</Select></Label>
           <Label>Tipo<Select className="mt-2 w-full" value={kind} disabled={providerOwned} onChange={(event) => setKind(event.target.value as "INCOME" | "EXPENSE")}><option value="EXPENSE">Saída</option><option value="INCOME">Entrada</option></Select></Label>
-          <Label>Quantia<Input className="mt-2" type="number" min="0.01" step="0.01" value={amount} disabled={providerOwned} onChange={(event) => setAmount(event.target.value)} /></Label>
-          <Label>Data<Input className="mt-2" type="date" value={date} disabled={providerOwned} onChange={(event) => setDate(event.target.value)} /></Label>
+          <Label>Quantia ({selectedCurrency})<Input className="mt-2" type="number" min="0.01" step="0.01" value={amount} disabled={providerOwned} onChange={(event) => setAmount(event.target.value)} placeholder={`${financialAccountCurrencySymbol(selectedCurrency)} 0,00`} /></Label>
+          <Label>Data<Input className="mt-2" type="date" value={date} disabled={providerOwned} onChange={(event) => { setDate(event.target.value); if (!providerOwned) { setFxRequired(false); setManualFxRate(""); } }} /></Label>
           <Label>Meta<Select className="mt-2 w-full" value={category} onChange={(event) => setCategory(event.target.value as BudgetCategoryKey | "")}><option value="">Sem meta</option>{BUDGET_CATEGORIES.map((item) => <option key={item} value={item}>{BUDGET_CATEGORY_META[item].label}</option>)}</Select></Label>
           <Label>Mês de referência<Input className="mt-2" type="month" value={reference} onChange={(event) => setReference(event.target.value)} /></Label>
         </div>
-        {transaction.currencyCode !== "BRL" && (
+        {selectedCurrency !== "BRL" && (providerOwned || fxRequired || transaction.fxSource === "MANUAL") && (
           <Label>
             Taxa manual para BRL
             <Input
@@ -342,15 +350,20 @@ function NewTransactionDialogContent({
   const [category, setCategory] = useState<BudgetCategoryKey | "">("");
   const [tagIds, setTagIds] = useState<string[]>([]);
   const [note, setNote] = useState("");
+  const [manualFxRate, setManualFxRate] = useState("");
+  const [fxRequired, setFxRequired] = useState(false);
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const selectedAccount = accounts.find((account) => account.id === accountId);
+  const selectedCurrency = selectedAccount?.currencyCode ?? "BRL";
   const valid = useMemo(() => description.trim().length >= 2 && accountId && Number(amount) > 0 && date && reference, [description, accountId, amount, date, reference]);
 
   async function save() {
     const parsedReference = parseMonth(reference);
-    const ok = await runFinanceAction(
-      () =>
-        createFinanceTransactionAction({
+    setPending(true);
+    setNotice(null);
+    try {
+      const result = await createFinanceTransactionAction({
           kind,
           description,
           accountId,
@@ -361,12 +374,14 @@ function NewTransactionDialogContent({
           budgetCategory: category || null,
           tagIds,
           note,
-        }),
-      setPending,
-      setNotice,
-      "Transação adicionada.",
-    );
-    if (ok) {
+          manualFxRateToBrl: manualFxRate ? Number(manualFxRate) : undefined,
+        });
+      if (!result.ok) {
+        setFxRequired(true);
+        setNotice({ type: "error", text: result.message });
+        return;
+      }
+      setNotice({ type: "success", text: "Transação adicionada." });
       setDescription("");
       setAmount("");
       setNote("");
@@ -374,6 +389,13 @@ function NewTransactionDialogContent({
       onSaved?.();
       router.refresh();
       onOpenChange(false);
+    } catch (error) {
+      setNotice({
+        type: "error",
+        text: error instanceof Error ? error.message : "Não foi possível adicionar a transação.",
+      });
+    } finally {
+      setPending(false);
     }
   }
 
@@ -385,7 +407,7 @@ function NewTransactionDialogContent({
       dismissible={!pending}
       title="Nova transação"
       className="max-w-2xl"
-      footer={<Button onClick={save} disabled={pending || !valid}>{pending ? "Adicionando…" : "Adicionar transação"}</Button>}
+      footer={<Button onClick={save} disabled={pending || !valid || (fxRequired && selectedCurrency === "USD" && !(Number(manualFxRate) > 0))}>{pending ? "Adicionando…" : "Adicionar transação"}</Button>}
     >
       <div className="space-y-5">
         {notice && <FinanceNotice type={notice.type}>{notice.text}</FinanceNotice>}
@@ -396,12 +418,29 @@ function NewTransactionDialogContent({
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
           <Label className="sm:col-span-2">Descrição<Input className="mt-2" value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Descreva a transação" /></Label>
-          <Label>Conta<Select className="mt-2 w-full" value={accountId} onChange={(event) => setAccountId(event.target.value)}><option value="">Selecionar conta</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</Select></Label>
-          <Label>Quantia<Input className="mt-2" type="number" min="0.01" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="R$ 0,00" /></Label>
+          <Label>Conta<Select className="mt-2 w-full" value={accountId} onChange={(event) => { setAccountId(event.target.value); setFxRequired(false); setManualFxRate(""); }}><option value="">Selecionar conta</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.name} · {account.currencyCode}</option>)}</Select></Label>
+          <Label>Quantia ({selectedCurrency})<Input className="mt-2" type="number" min="0.01" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder={`${financialAccountCurrencySymbol(selectedCurrency)} 0,00`} /></Label>
           <Label>Meta<Select className="mt-2 w-full" value={category} onChange={(event) => setCategory(event.target.value as BudgetCategoryKey | "")}><option value="">Selecionar tipo</option>{BUDGET_CATEGORIES.map((item) => <option key={item} value={item}>{BUDGET_CATEGORY_META[item].label}</option>)}</Select></Label>
-          <Label>Data<Input className="mt-2" type="date" value={date} onChange={(event) => setDate(event.target.value)} /></Label>
+          <Label>Data<Input className="mt-2" type="date" value={date} onChange={(event) => { setDate(event.target.value); setFxRequired(false); setManualFxRate(""); }} /></Label>
           <Label>Mês de referência<Input className="mt-2" type="month" value={reference} onChange={(event) => setReference(event.target.value)} /></Label>
         </div>
+        {selectedCurrency === "USD" && fxRequired && (
+          <Label>
+            Cotação manual USD/BRL
+            <Input
+              className="mt-2"
+              type="number"
+              min="0.00000001"
+              step="0.00000001"
+              value={manualFxRate}
+              onChange={(event) => setManualFxRate(event.target.value)}
+              placeholder="Ex.: 5,45"
+            />
+            <span className="mt-1 block text-xs font-normal text-[var(--muted-foreground)]">
+              Informe quantos reais correspondiam a US$ 1 na data da transação.
+            </span>
+          </Label>
+        )}
         <div><Label>Tags</Label><div className="mt-2"><TagPicker tags={tags} selected={tagIds} onChange={setTagIds} /></div></div>
         <Label>Observação<textarea className="mt-2 min-h-24 w-full rounded-xl border bg-transparent p-3 text-sm" value={note} onChange={(event) => setNote(event.target.value)} placeholder="Digite uma observação" /></Label>
       </div>

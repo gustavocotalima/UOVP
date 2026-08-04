@@ -43,7 +43,7 @@ export function InvoicesClient({ data }: { data: FinanceData }) {
             size="large"
           />
           <div className="min-w-0 flex-1"><CardTitle className="truncate text-lg">{account.name}</CardTitle><p className="mt-1 text-sm text-[var(--muted-foreground)]">•••• •••• •••• {account.numberLastFour || "0000"}</p></div>
-          <div className="col-span-2 flex items-center justify-between border-t pt-3 text-right @3xl:col-span-1 @3xl:block @3xl:border-0 @3xl:pt-0"><p className="text-xs text-[var(--muted-foreground)]">{account.brand || "CARTÃO"}</p><p className="text-xs @3xl:mt-1">Disponível: {account.availableCredit ? formatMoney(Number(account.availableCredit)) : "—"}</p></div>
+          <div className="col-span-2 flex items-center justify-between border-t pt-3 text-right @3xl:col-span-1 @3xl:block @3xl:border-0 @3xl:pt-0"><p className="text-xs text-[var(--muted-foreground)]">{account.brand || "CARTÃO"}</p><p className="text-xs @3xl:mt-1">Disponível: {account.availableCredit ? formatCurrency(account.availableCredit, account.currencyCode) : "—"}</p></div>
         </CardHeader>
         <CardContent>
           <p className="mb-3 text-sm font-semibold">Faturas</p>
@@ -54,7 +54,14 @@ export function InvoicesClient({ data }: { data: FinanceData }) {
                 <div key={invoice.key} className="overflow-hidden rounded-xl border">
                   <button type="button" aria-expanded={open} onClick={() => setExpanded(open ? null : invoice.key)} className="flex w-full items-center gap-3 p-3 text-left hover:bg-[var(--muted)]/50 sm:gap-4 sm:p-4">
                     <div className="min-w-0 flex-1"><p className="font-semibold">{String(invoice.month).padStart(2, "0")}/{invoice.year} {invoice.open && <span className="ml-2 rounded-full bg-[var(--primary)]/14 px-2 py-1 text-[10px] text-[var(--primary)]">Fatura em aberto</span>}</p><p className="mt-1 text-xs text-[var(--muted-foreground)]">{invoice.open ? "Valor estimado — pode diferir do fechamento real" : `Vencimento: ${new Intl.DateTimeFormat("pt-BR", { timeZone: data.profile.timeZone }).format(new Date(invoice.dueDate))}`}</p></div>
-                    <p className={cn("font-semibold", invoice.open && "text-[var(--danger)]")}>{invoice.open ? "-" : ""}{formatMoney(invoice.total)}</p>
+                    <div className="text-right">
+                      <p className={cn("font-semibold", invoice.open && "text-[var(--danger)]")}>{invoice.open ? "-" : ""}{formatCurrency(invoice.total, account.currencyCode)}</p>
+                      {account.currencyCode !== "BRL" && (
+                        <p className="mt-0.5 text-[10px] text-[var(--muted-foreground)]">
+                          {formatMoney(invoice.totalBrl)} em BRL
+                        </p>
+                      )}
+                    </div>
                     <ChevronDown className={cn("size-4 transition", open && "rotate-180")} />
                   </button>
                   {open && (
@@ -65,7 +72,14 @@ export function InvoicesClient({ data }: { data: FinanceData }) {
                           <article key={transaction.id} data-testid="mobile-invoice-transaction" className={cn("rounded-xl border bg-[var(--card)] p-3", transaction.ignored && "opacity-50")}>
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0"><strong className="block truncate text-sm">{transaction.description}</strong><span className="mt-1 block text-[10px] text-[var(--muted-foreground)]">{new Intl.DateTimeFormat("pt-BR", { timeZone: data.profile.timeZone }).format(new Date(transaction.date))}</span></div>
-                              <strong className="whitespace-nowrap text-sm">{formatCurrency(transaction.amount, transaction.currencyCode)}</strong>
+                              <div className="shrink-0 text-right">
+                                <strong className="whitespace-nowrap text-sm">{formatCurrency(transaction.amount, transaction.currencyCode)}</strong>
+                                {transaction.currencyCode !== "BRL" && transaction.reportingAmountBrl !== null && (
+                                  <span className="mt-0.5 block text-[10px] font-normal text-[var(--muted-foreground)]">
+                                    {formatMoney(transaction.reportingAmountBrl)} em BRL
+                                  </span>
+                                )}
+                              </div>
                             </div>
                             <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[10px]">
                               <span className="rounded-full bg-[var(--muted)] px-2 py-1">{categoryLabel(transaction.budgetCategory, transaction.kind)}</span>
@@ -80,7 +94,7 @@ export function InvoicesClient({ data }: { data: FinanceData }) {
                         <div className="min-w-[760px]">
                           <div className="grid grid-cols-[90px_minmax(220px,1fr)_110px_130px_150px_80px] gap-3 border-b pb-3 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]"><span>Data</span><span>Descrição</span><span className="text-right">Valor</span><span>Meta</span><span>Tags</span><span>Parcela</span></div>
                           <div className="divide-y">
-                            {invoice.transactions.map((transaction) => <div key={transaction.id} className={cn("grid grid-cols-[90px_minmax(220px,1fr)_110px_130px_150px_80px] gap-3 py-3 text-sm", transaction.ignored && "opacity-50")}><span className="text-xs text-[var(--muted-foreground)]">{new Intl.DateTimeFormat("pt-BR", { timeZone: data.profile.timeZone }).format(new Date(transaction.date))}</span><span className="truncate">{transaction.description}</span><strong className="text-right">{formatCurrency(transaction.amount, transaction.currencyCode)}</strong><span className="text-xs">{categoryLabel(transaction.budgetCategory, transaction.kind)}</span><span className="flex flex-wrap gap-1">{transaction.tags.length ? transaction.tags.map((tag) => <span key={tag.id} className="rounded-full px-2 py-0.5 text-[10px] text-white" style={{ background: tag.color }}>{tag.name}</span>) : <span className="text-xs text-[var(--muted-foreground)]">—</span>}</span><span className="text-xs">{transaction.installmentNumber && transaction.installmentTotal ? `${transaction.installmentNumber}/${transaction.installmentTotal}` : "—"}</span></div>)}
+                            {invoice.transactions.map((transaction) => <div key={transaction.id} className={cn("grid grid-cols-[90px_minmax(220px,1fr)_110px_130px_150px_80px] gap-3 py-3 text-sm", transaction.ignored && "opacity-50")}><span className="text-xs text-[var(--muted-foreground)]">{new Intl.DateTimeFormat("pt-BR", { timeZone: data.profile.timeZone }).format(new Date(transaction.date))}</span><span className="truncate">{transaction.description}</span><span className="text-right"><strong className="block">{formatCurrency(transaction.amount, transaction.currencyCode)}</strong>{transaction.currencyCode !== "BRL" && transaction.reportingAmountBrl !== null && <span className="mt-0.5 block text-[10px] text-[var(--muted-foreground)]">{formatMoney(transaction.reportingAmountBrl)} em BRL</span>}</span><span className="text-xs">{categoryLabel(transaction.budgetCategory, transaction.kind)}</span><span className="flex flex-wrap gap-1">{transaction.tags.length ? transaction.tags.map((tag) => <span key={tag.id} className="rounded-full px-2 py-0.5 text-[10px] text-white" style={{ background: tag.color }}>{tag.name}</span>) : <span className="text-xs text-[var(--muted-foreground)]">—</span>}</span><span className="text-xs">{transaction.installmentNumber && transaction.installmentTotal ? `${transaction.installmentNumber}/${transaction.installmentTotal}` : "—"}</span></div>)}
                           </div>
                           {!invoice.transactions.length && <p className="py-8 text-center text-sm text-[var(--muted-foreground)]">Nenhuma transação nesta fatura.</p>}
                         </div>

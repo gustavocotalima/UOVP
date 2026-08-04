@@ -17,6 +17,16 @@ describe("gestor financeiro inspirado no AUVP", () => {
     cy.get('[role="dialog"]').contains("button", "Adicionar").click();
     cy.contains(":visible", "Conta de testes").should("be.visible");
 
+    cy.contains("button", "Nova conta").click();
+    cy.contains("button", "Inserir saldo manualmente").click();
+    cy.contains("button", "Conta bancária").click();
+    cy.contains("label", "Nome da conta").find("input").type("Conta USD");
+    cy.contains("label", "Banco / Instituição").find("input").type("Banco Internacional");
+    cy.contains("label", "Moeda").find("select").select("USD");
+    cy.get('[role="dialog"]').contains("button", "Adicionar").click();
+    cy.contains(":visible", "Conta USD").should("be.visible");
+    cy.contains(":visible", /US\$\s*0,00/).should("be.visible");
+
     cy.contains("a", "Tags").filter(":visible").click();
     cy.contains("button", "Criar Tag").click();
     cy.get('[role="dialog"]').contains("label", "Nome").find("input").type("Teste Cypress");
@@ -27,14 +37,14 @@ describe("gestor financeiro inspirado no AUVP", () => {
     cy.contains("button", "Nova transação").click();
     cy.get('[role="dialog"]').contains("button", "Entrada").click();
     cy.get('[role="dialog"]').contains("label", "Descrição").find("input").type("Renda de teste");
-    cy.get('[role="dialog"]').contains("label", "Conta").find("select").select("Conta de testes");
+    cy.get('[role="dialog"]').contains("label", "Conta").find("select").select("Conta de testes · BRL");
     cy.get('[role="dialog"]').contains("label", "Quantia").find("input").type("9000");
     cy.get('[role="dialog"]').contains("button", "Adicionar transação").click();
     cy.contains(":visible", "Renda de teste").should("be.visible");
 
     cy.contains("button", "Nova transação").click();
     cy.get('[role="dialog"]').contains("label", "Descrição").find("input").type("Despesa de teste");
-    cy.get('[role="dialog"]').contains("label", "Conta").find("select").select("Conta de testes");
+    cy.get('[role="dialog"]').contains("label", "Conta").find("select").select("Conta de testes · BRL");
     cy.get('[role="dialog"]').contains("label", "Quantia").find("input").type("100");
     cy.get('[role="dialog"]').contains("label", "Meta").find("select").select("FIXED_COSTS");
     cy.get('[role="dialog"]').contains("summary", "Sem tags").click();
@@ -42,13 +52,30 @@ describe("gestor financeiro inspirado no AUVP", () => {
     cy.get('[role="dialog"]').contains("button", "Adicionar transação").click();
     cy.contains(":visible", "Despesa de teste").should("be.visible");
 
+    cy.contains("button", "Nova transação").click();
+    cy.get('[role="dialog"]').contains("button", "Entrada").click();
+    cy.get('[role="dialog"]').contains("label", "Descrição").find("input").type("Dividendo reinvestido");
+    cy.get('[role="dialog"]').contains("label", "Conta").find("select").select("Conta de testes · BRL");
+    cy.get('[role="dialog"]').contains("label", "Quantia").find("input").type("540.60");
+    cy.get('[role="dialog"]').contains("label", "Meta").find("select").select("FINANCIAL_FREEDOM");
+    cy.get('[role="dialog"]').contains("button", "Adicionar transação").click();
+
+    cy.contains("button", "Nova transação").click();
+    cy.get('[role="dialog"]').contains("label", "Descrição").find("input").type("Reinvestimento");
+    cy.get('[role="dialog"]').contains("label", "Conta").find("select").select("Conta de testes · BRL");
+    cy.get('[role="dialog"]').contains("label", "Quantia").find("input").type("540.60");
+    cy.get('[role="dialog"]').contains("label", "Meta").find("select").select("FINANCIAL_FREEDOM");
+    cy.get('[role="dialog"]').contains("button", "Adicionar transação").click();
+
     cy.contains("a", "Metas").filter(":visible").click();
     cy.contains("Alocado").parent().should("contain.text", "100");
     cy.contains("Renda mensal").parent().should("contain.text", "9.000");
 
     cy.contains("a", "Orçamento").filter(":visible").click();
+    cy.contains("Entradas brutas").parent().should("contain.text", "9.540,60");
     cy.contains("Renda considerada nas metas").parent().should("contain.text", "9.000");
-    cy.contains("Gastos do Mês").parent().should("contain.text", "100");
+    cy.contains("Despesas líquidas").parent().should("contain.text", "100");
+    cy.contains("Saldo Restante").parent().should("contain.text", "8.900");
     cy.contains(/100,00/).should("be.visible");
 
     cy.get('[data-budget-category="FIXED_COSTS"]').contains("button", "1 transações").click();
@@ -68,8 +95,12 @@ describe("gestor financeiro inspirado no AUVP", () => {
       .should("contain.text", "100,00");
 
     cy.contains("a", "Painel").filter(":visible").click();
-    cy.contains("Entradas").parent().should("contain.text", "9.000");
+    cy.contains("Entradas brutas").parent().should("contain.text", "9.540,60");
+    cy.contains("Despesas líquidas").parent().should("contain.text", "100");
+    cy.contains("Resultado do período").parent().should("contain.text", "8.900");
     cy.contains("a", "Transações").filter(":visible").click();
+    cy.contains("Entradas").parent().should("contain.text", "9.540,60");
+    cy.contains("Saídas").parent().should("contain.text", "640,60");
     cy.contains(":visible", "Renda de teste").should("be.visible");
     cy.contains(":visible", "Despesa de teste").should("be.visible");
   });

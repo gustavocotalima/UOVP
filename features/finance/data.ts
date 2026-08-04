@@ -7,6 +7,7 @@ import {
   resolvePluggyInstitutionName,
 } from "@/features/open-finance/institution-logo";
 import { DEFAULT_FINANCE_TAGS } from "./classification";
+import { calculatePeriodAmounts } from "./calculations";
 import type { FinanceData, FinanceGoalRecord, FinanceTransactionDto } from "./types";
 
 export const AUVP_FINANCE_GOALS: FinanceGoalRecord = {
@@ -262,7 +263,10 @@ export async function getFinanceTransactionsPage(
       {
         ignored: false,
         internalTransfer: false,
-        providerLifecycle: { not: "REMOVED" },
+        OR: [
+          { providerLifecycle: null },
+          { providerLifecycle: { not: "REMOVED" } },
+        ],
       },
     ],
   };
@@ -385,6 +389,7 @@ export async function getFinanceData(
     prisma.financialAccount.findMany({
       where: { userId, active: true },
       orderBy: [{ type: "asc" }, { sortOrder: "asc" }, { name: "asc" }],
+      include: { _count: { select: { transactions: true } } },
     }),
     prisma.financeTransaction.findMany({
       where: transactionScope === "NONE"
@@ -428,7 +433,10 @@ export async function getFinanceData(
         reportingAmountBrl: null,
         ignored: false,
         internalTransfer: false,
-        providerLifecycle: { not: "REMOVED" as const },
+        OR: [
+          { providerLifecycle: null },
+          { providerLifecycle: { not: "REMOVED" as const } },
+        ],
       },
     }),
     prisma.financeTransaction.count({
@@ -436,13 +444,18 @@ export async function getFinanceData(
     }),
     options.includeHistory
       ? prisma.financeTransaction.groupBy({
-          by: ["referenceYear", "referenceMonth", "kind"],
+          by: ["referenceYear", "referenceMonth", "kind", "budgetCategory"],
           where: {
             ...transactionBaseWhere,
             OR: historyPeriods,
+            AND: [{
+              OR: [
+                { providerLifecycle: null },
+                { providerLifecycle: { not: "REMOVED" } },
+              ],
+            }],
             ignored: false,
             internalTransfer: false,
-            providerLifecycle: { not: "REMOVED" },
             reportingAmountBrl: { not: null },
           },
           _sum: { reportingAmountBrl: true },
@@ -464,26 +477,26 @@ export async function getFinanceData(
     .slice()
     .reverse()
     .map((period) => {
-      const income = historyGroups.find(
-        (group) =>
-          group.referenceYear === period.referenceYear
-          && group.referenceMonth === period.referenceMonth
-          && group.kind === "INCOME",
+      const totals = calculatePeriodAmounts(
+        historyGroups
+          .filter(
+            (group) => group.referenceYear === period.referenceYear
+              && group.referenceMonth === period.referenceMonth,
+          )
+          .map((group) => ({
+            kind: group.kind,
+            budgetCategory: group.budgetCategory,
+            referenceYear: group.referenceYear,
+            referenceMonth: group.referenceMonth,
+            value: Number(group._sum.reportingAmountBrl ?? 0),
+          })),
       );
-      const expenses = historyGroups.find(
-        (group) =>
-          group.referenceYear === period.referenceYear
-          && group.referenceMonth === period.referenceMonth
-          && group.kind === "EXPENSE",
-      );
-      const grossIncome = Number(income?._sum.reportingAmountBrl ?? 0);
-      const spent = Math.abs(Number(expenses?._sum.reportingAmountBrl ?? 0));
       return {
         year: period.referenceYear,
         month: period.referenceMonth,
-        grossIncome,
-        spent,
-        balance: grossIncome - spent,
+        grossIncome: totals.grossIncome,
+        spent: totals.spent,
+        balance: totals.balance,
       };
     });
   return {
@@ -548,6 +561,7 @@ export async function getFinanceData(
       currencyCode: account.currencyCode,
       sortOrder: account.sortOrder,
       providerUpdatedAt: account.providerUpdatedAt?.toISOString() ?? null,
+      transactionCount: account._count.transactions,
     })),
     transactions: mappedTransactions.filter(
       (transaction) => transaction.referenceYear === year && transaction.referenceMonth === month,

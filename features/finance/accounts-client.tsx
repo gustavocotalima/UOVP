@@ -36,6 +36,7 @@ import {
   saveFinancialAccountAction,
 } from "./actions";
 import { accountSubtypeLabel } from "./account-labels";
+import { financialAccountCurrencySymbol } from "./account-currency";
 import { calculateAccountTotals } from "./calculations";
 import { FinanceNotice, runFinanceAction } from "./shared";
 import type { FinanceData, FinancialAccountDto } from "./types";
@@ -52,6 +53,8 @@ type AccountForm = {
   bankCode: string;
   brand: string;
   balance: string;
+  currencyCode: "BRL" | "USD";
+  manualFxRateToBrl: string;
   creditLimit: string;
   dueDay: string;
   closingDay: string;
@@ -69,6 +72,8 @@ function emptyForm(type: AccountForm["type"]): AccountForm {
     bankCode: "",
     brand: "",
     balance: "0",
+    currencyCode: "BRL",
+    manualFxRateToBrl: "",
     creditLimit: "",
     dueDay: "",
     closingDay: "",
@@ -89,6 +94,7 @@ export function AccountsClient({ data }: { data: FinanceData }) {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<FinancialAccountDto | null>(null);
   const [form, setForm] = useState<AccountForm>(emptyForm("BANK_ACCOUNT"));
+  const [accountFxRequired, setAccountFxRequired] = useState(false);
   const [orderOpen, setOrderOpen] = useState(false);
   const [orderType, setOrderType] = useState<"BANK_ACCOUNT" | "CREDIT_CARD">("BANK_ACCOUNT");
   const [order, setOrder] = useState<string[]>([]);
@@ -177,6 +183,7 @@ export function AccountsClient({ data }: { data: FinanceData }) {
     setTypeChoiceOpen(false);
     setEditing(null);
     setForm(emptyForm(type));
+    setAccountFxRequired(false);
     setFormOpen(true);
   }
 
@@ -193,17 +200,21 @@ export function AccountsClient({ data }: { data: FinanceData }) {
       bankCode: account.bankCode ?? "",
       brand: account.brand ?? "",
       balance: account.balance,
+      currencyCode: account.currencyCode === "USD" ? "USD" : "BRL",
+      manualFxRateToBrl: "",
       creditLimit: account.creditLimit ?? "",
       dueDay: account.dueDay?.toString() ?? "",
       closingDay: account.closingDay?.toString() ?? "",
     });
+    setAccountFxRequired(false);
     setFormOpen(true);
   }
 
   async function saveAccount() {
-    const ok = await runFinanceAction(
-      () =>
-        saveFinancialAccountAction({
+    setBusy(true);
+    setNotice(null);
+    try {
+      const result = await saveFinancialAccountAction({
           id: editing?.id,
           type: form.type,
           subtype: form.subtype,
@@ -215,17 +226,29 @@ export function AccountsClient({ data }: { data: FinanceData }) {
           bankCode: form.bankCode,
           brand: form.brand,
           balance: Number(form.balance),
+          currencyCode: form.currencyCode,
+          manualFxRateToBrl: form.manualFxRateToBrl
+            ? Number(form.manualFxRateToBrl)
+            : undefined,
           creditLimit: form.creditLimit ? Number(form.creditLimit) : null,
           dueDay: form.dueDay ? Number(form.dueDay) : null,
           closingDay: form.closingDay ? Number(form.closingDay) : null,
-        }),
-      setBusy,
-      setNotice,
-      editing ? "Conta atualizada." : "Conta adicionada.",
-    );
-    if (ok) {
+        });
+      if (!result.ok) {
+        setAccountFxRequired(true);
+        setNotice({ type: "error", text: result.message });
+        return;
+      }
+      setNotice({ type: "success", text: editing ? "Conta atualizada." : "Conta adicionada." });
       setFormOpen(false);
       router.refresh();
+    } catch (error) {
+      setNotice({
+        type: "error",
+        text: error instanceof Error ? error.message : "Não foi possível salvar a conta.",
+      });
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -342,9 +365,16 @@ export function AccountsClient({ data }: { data: FinanceData }) {
         </div>
       </Dialog>
 
-      <Dialog open={formOpen} onOpenChange={setFormOpen} dismissible={!busy} title={editing ? "Editar conta" : form.type === "BANK_ACCOUNT" ? "Adicionar conta bancária" : "Adicionar cartão"} footer={<Button onClick={saveAccount} disabled={busy || form.name.trim().length < 2}>{editing ? "Salvar alterações" : "Adicionar"}</Button>}>
+      <Dialog open={formOpen} onOpenChange={setFormOpen} dismissible={!busy} title={editing ? "Editar conta" : form.type === "BANK_ACCOUNT" ? "Adicionar conta bancária" : "Adicionar cartão"} footer={<Button onClick={saveAccount} disabled={busy || form.name.trim().length < 2 || (accountFxRequired && !(Number(form.manualFxRateToBrl) > 0))}>{editing ? "Salvar alterações" : "Adicionar"}</Button>}>
         {editing?.source === "PLUGGY" && <div className="mb-5 rounded-xl bg-[var(--muted)] p-3 text-sm text-[var(--muted-foreground)]">Apenas o nome personalizado pode ser alterado. Saldos, limites e datas continuam sendo atualizados pela instituição.</div>}
-        <AccountFormFields form={form} setForm={setForm} providerOwned={editing?.source === "PLUGGY"} />
+        {accountFxRequired && <FinanceNotice type="error">Não foi possível obter USD/BRL automaticamente. Informe a cotação manual para continuar.</FinanceNotice>}
+        <AccountFormFields
+          form={form}
+          setForm={setForm}
+          providerOwned={editing?.source === "PLUGGY"}
+          currencyLocked={Boolean(editing && editing.transactionCount > 0)}
+          fxRequired={accountFxRequired}
+        />
       </Dialog>
 
       <Dialog open={orderOpen} onOpenChange={setOrderOpen} dismissible={!busy} title="Ordenar contas" description="Reorganize suas contas na ordem desejada." footer={<><Button variant="outline" onClick={() => setOrderOpen(false)}>Cancelar</Button><Button onClick={saveOrder} disabled={busy || !order.length}>Salvar</Button></>}>
@@ -392,7 +422,7 @@ function AccountSection({ title, accounts, view, timeZone, onEdit, onDelete }: {
           <div className="grid gap-4 @3xl:grid-cols-2 lg:hidden">
             {accounts.map((account) => <AccountCard key={account.id} account={account} timeZone={timeZone} onEdit={onEdit} onDelete={onDelete} />)}
           </div>
-          <Card className="hidden overflow-hidden lg:block"><div className="overflow-x-auto"><table className="w-full min-w-[820px] text-left text-sm"><thead className="border-b text-[11px] uppercase tracking-wide text-[var(--muted-foreground)]"><tr><th className="p-4">Conta</th><th>Tipo</th><th>Agência / Conta</th><th>Saldo</th><th>Sincronização</th><th className="pr-4 text-right">Ações</th></tr></thead><tbody className="divide-y">{accounts.map((account) => <tr key={account.id}><td className="p-4"><div className="flex items-center gap-3"><AccountLogo account={account} /><div><p className="font-semibold">{account.name}</p><p className="text-xs text-[var(--muted-foreground)]">{account.institutionName}</p></div></div></td><td>{accountSubtypeLabel(account.subtype, account.type)}</td><td>{account.type === "CREDIT_CARD" ? `•••• ${account.numberLastFour || "—"}` : `${account.agency ? `Ag ${account.agency} · ` : ""}${account.accountNumber || "—"}`}</td><td className="font-semibold">{formatCurrency(account.balance, account.currencyCode)}</td><td className="text-xs text-[var(--muted-foreground)]">{account.providerUpdatedAt ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone }).format(new Date(account.providerUpdatedAt)) : "Manual"}</td><td className="pr-4"><div className="flex justify-end gap-1"><Button variant="ghost" size="icon" onClick={() => onEdit(account)} aria-label="Editar conta"><Pencil className="size-4" /></Button><Button variant="ghost" size="icon" onClick={() => onDelete(account)} aria-label="Excluir conta"><Trash2 className="size-4" /></Button></div></td></tr>)}</tbody></table></div></Card>
+          <Card className="hidden overflow-hidden lg:block"><div className="overflow-x-auto"><table className="w-full min-w-[820px] text-left text-sm"><thead className="border-b text-[11px] uppercase tracking-wide text-[var(--muted-foreground)]"><tr><th className="p-4">Conta</th><th>Tipo</th><th>Agência / Conta</th><th>Saldo</th><th>Sincronização</th><th className="pr-4 text-right">Ações</th></tr></thead><tbody className="divide-y">{accounts.map((account) => <tr key={account.id}><td className="p-4"><div className="flex items-center gap-3"><AccountLogo account={account} /><div><p className="font-semibold">{account.name}</p><p className="text-xs text-[var(--muted-foreground)]">{account.institutionName}</p></div></div></td><td>{accountSubtypeLabel(account.subtype, account.type)}</td><td>{account.type === "CREDIT_CARD" ? `•••• ${account.numberLastFour || "—"}` : `${account.agency ? `Ag ${account.agency} · ` : ""}${account.accountNumber || "—"}`}</td><td><p className="font-semibold">{formatCurrency(account.balance, account.currencyCode)}</p><AccountBrlEquivalent account={account} /></td><td className="text-xs text-[var(--muted-foreground)]">{account.providerUpdatedAt ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone }).format(new Date(account.providerUpdatedAt)) : "Manual"}</td><td className="pr-4"><div className="flex justify-end gap-1"><Button variant="ghost" size="icon" onClick={() => onEdit(account)} aria-label="Editar conta"><Pencil className="size-4" /></Button><Button variant="ghost" size="icon" onClick={() => onDelete(account)} aria-label="Excluir conta"><Trash2 className="size-4" /></Button></div></td></tr>)}</tbody></table></div></Card>
         </>
       )}
       {!accounts.length && <Card><CardContent className="py-10 text-center text-sm text-[var(--muted-foreground)]">Nenhuma conta nesta categoria.</CardContent></Card>}
@@ -428,9 +458,11 @@ function AccountCard({ account, timeZone, onEdit, onDelete }: { account: Financi
           <>
             <p className="text-xs text-[var(--muted-foreground)]">Saldo disponível</p>
             <p className="mt-1 text-2xl font-semibold">{formatCurrency(account.balance, account.currencyCode)}</p>
+            <AccountBrlEquivalent account={account} className="mt-1" />
+            <AccountFxDetails account={account} timeZone={timeZone} />
             <p className="mt-4 text-xs text-[var(--muted-foreground)]">
               {account.providerUpdatedAt
-                ? `Sincronizado em ${new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone }).format(new Date(account.providerUpdatedAt))}`
+                ? `${account.source === "PLUGGY" ? "Sincronizado" : "Câmbio atualizado"} em ${new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone }).format(new Date(account.providerUpdatedAt))}`
                 : "Conta manual"}
             </p>
           </>
@@ -452,6 +484,7 @@ function AccountCard({ account, timeZone, onEdit, onDelete }: { account: Financi
               <div>
                 <p className="text-xs text-[var(--muted-foreground)]">Utilizado</p>
                 <p className="mt-1 font-semibold">{formatCurrency(used, account.currencyCode)}</p>
+                <AccountBrlEquivalent account={account} className="mt-1" />
               </div>
             </div>
             <div className="mt-4">
@@ -493,10 +526,14 @@ function AccountFormFields({
   form,
   setForm,
   providerOwned = false,
+  currencyLocked = false,
+  fxRequired = false,
 }: {
   form: AccountForm;
   setForm: React.Dispatch<React.SetStateAction<AccountForm>>;
   providerOwned?: boolean;
+  currencyLocked?: boolean;
+  fxRequired?: boolean;
 }) {
   return (
     <div className="grid gap-4 sm:grid-cols-2">
@@ -505,6 +542,27 @@ function AccountFormFields({
         <Input className="mt-2" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder={form.type === "BANK_ACCOUNT" ? "Ex.: Conta Inter" : "Ex.: Visa Infinite"} />
       </Label>
       <Label>Banco / Instituição<Input disabled={providerOwned} className="mt-2" value={form.institutionName} onChange={(event) => setForm({ ...form, institutionName: event.target.value })} /></Label>
+      <Label>
+        Moeda
+        <Select
+          disabled={providerOwned || currencyLocked}
+          className="mt-2 w-full"
+          value={form.currencyCode}
+          onChange={(event) => setForm({
+            ...form,
+            currencyCode: event.target.value as AccountForm["currencyCode"],
+            manualFxRateToBrl: "",
+          })}
+        >
+          <option value="BRL">Real brasileiro (BRL)</option>
+          <option value="USD">Dólar americano (USD)</option>
+        </Select>
+        {currencyLocked && !providerOwned && (
+          <span className="mt-1 block text-xs font-normal text-[var(--muted-foreground)]">
+            A moeda não pode ser alterada porque esta conta já possui transações.
+          </span>
+        )}
+      </Label>
       {form.type === "BANK_ACCOUNT" ? (
         <>
           <Label>Agência<Input disabled={providerOwned} className="mt-2" value={form.agency} onChange={(event) => setForm({ ...form, agency: event.target.value })} /></Label>
@@ -536,8 +594,62 @@ function AccountFormFields({
       )}
       <Label className="sm:col-span-2">
         {form.type === "BANK_ACCOUNT" ? "Saldo" : "Valor utilizado"}
-        <Input disabled={providerOwned} className="mt-2" type="number" step="0.01" value={form.balance} onChange={(event) => setForm({ ...form, balance: event.target.value })} />
+        <Input disabled={providerOwned} className="mt-2" type="number" step="0.01" value={form.balance} onChange={(event) => setForm({ ...form, balance: event.target.value })} placeholder={`${financialAccountCurrencySymbol(form.currencyCode)} 0,00`} />
       </Label>
+      {form.currencyCode === "USD" && fxRequired && !providerOwned && (
+        <Label className="sm:col-span-2">
+          Cotação manual USD/BRL
+          <Input
+            className="mt-2"
+            type="number"
+            min="0.00000001"
+            step="0.00000001"
+            value={form.manualFxRateToBrl}
+            onChange={(event) => setForm({ ...form, manualFxRateToBrl: event.target.value })}
+            placeholder="Ex.: 5,45"
+          />
+          <span className="mt-1 block text-xs font-normal text-[var(--muted-foreground)]">
+            Informe quantos reais correspondem a US$ 1.
+          </span>
+        </Label>
+      )}
     </div>
+  );
+}
+
+function AccountBrlEquivalent({
+  account,
+  className,
+}: {
+  account: FinancialAccountDto;
+  className?: string;
+}) {
+  if (account.currencyCode === "BRL") return null;
+  return (
+    <p className={cn("text-xs text-[var(--muted-foreground)]", className)}>
+      {account.balanceBrl === null
+        ? "Conversão para BRL pendente"
+        : `Equivale a ${formatCurrency(account.balanceBrl, "BRL")}`}
+    </p>
+  );
+}
+
+function AccountFxDetails({
+  account,
+  timeZone,
+}: {
+  account: FinancialAccountDto;
+  timeZone: string;
+}) {
+  if (account.currencyCode === "BRL" || !account.balanceFxRateToBrl) return null;
+  const date = account.balanceFxRateDate
+    ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeZone }).format(new Date(account.balanceFxRateDate))
+    : null;
+  return (
+    <p className="mt-2 text-[11px] text-[var(--muted-foreground)]">
+      USD/BRL {Number(account.balanceFxRateToBrl).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 6 })}
+      {date ? ` · ${date}` : ""}
+      {account.balanceFxSource ? ` · ${account.balanceFxSource}` : ""}
+    </p>
   );
 }

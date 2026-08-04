@@ -32,9 +32,9 @@ export function BudgetOverviewClient({ data }: { data: FinanceData }) {
         </div>
       )}
       <section className="grid gap-3 @2xl:grid-cols-2 @6xl:grid-cols-4 @5xl:gap-4">
-        <SummaryCard icon={TrendingUp} label="Entradas" value={period.grossIncome} detail="Todas as entradas reportáveis do mês" />
+        <SummaryCard icon={TrendingUp} label="Entradas brutas" value={period.grossIncome} detail="Todas as entradas reportáveis do mês" />
         <SummaryCard icon={TrendingUp} label="Renda considerada nas metas" value={period.budgetBaseIncome} detail="Entradas sem meta atribuída" />
-        <SummaryCard icon={TrendingDown} label="Gastos do Mês" value={period.spent} detail={`${formatPercent(period.budgetBaseIncome > 0 ? period.spent / period.budgetBaseIncome * 100 : 0)} da renda-base utilizada`} danger />
+        <SummaryCard icon={TrendingDown} label="Despesas líquidas" value={period.spent} detail={`${formatPercent(period.budgetBaseIncome > 0 ? period.spent / period.budgetBaseIncome * 100 : 0)} da renda-base utilizada`} danger />
         <SummaryCard icon={WalletCards} label="Saldo Restante" value={period.balance} detail="Valor livre para uso" danger={period.balance < 0} />
       </section>
 
@@ -60,9 +60,9 @@ export function BudgetOverviewClient({ data }: { data: FinanceData }) {
                   <div>
                     <p className="text-xs text-[var(--muted-foreground)]">Realizado líquido</p>
                     <p className="mt-1 font-semibold">{formatMoney(item.spent)}</p>
-                    {item.incomeOffsets > 0 && (
+                    {item.appliedIncomeOffsets > 0 && (
                       <p className="mt-1 text-[10px] text-[var(--muted-foreground)]">
-                        {formatMoney(item.expenses)} em saídas − {formatMoney(item.incomeOffsets)} em entradas
+                        {formatMoney(item.expenses)} em saídas − {formatMoney(item.appliedIncomeOffsets)} em entradas compensadas
                       </p>
                     )}
                   </div>
@@ -99,7 +99,12 @@ export function BudgetOverviewClient({ data }: { data: FinanceData }) {
                     <p className="truncate text-sm font-medium">{transaction.description}</p>
                     <p className="mt-1 text-xs text-[var(--muted-foreground)]">{new Intl.DateTimeFormat("pt-BR", { timeZone: data.profile.timeZone }).format(new Date(transaction.date))}</p>
                   </div>
-                  <p className={cn("text-sm font-semibold", Number(transaction.amount) > 0 && "text-[var(--success)]")}>{formatCurrency(transaction.amount, transaction.currencyCode)}</p>
+                  <div className="text-right">
+                    <p className={cn("text-sm font-semibold", Number(transaction.amount) > 0 && "text-[var(--success)]")}>{formatCurrency(transaction.amount, transaction.currencyCode)}</p>
+                    {transaction.currencyCode !== "BRL" && transaction.reportingAmountBrl !== null && (
+                      <p className="mt-0.5 text-[10px] text-[var(--muted-foreground)]">{formatCurrency(transaction.reportingAmountBrl, "BRL")}</p>
+                    )}
+                  </div>
                   <Button variant="ghost" size="icon" aria-label="Editar transação" onClick={() => setEditing(transaction)}><Pencil className="size-4" /></Button>
                 </div>
               ))}

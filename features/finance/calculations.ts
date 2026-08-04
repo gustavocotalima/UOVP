@@ -38,30 +38,95 @@ export function resolveFinancialReference(
   return financialReferenceForTimeZone(date, startDay, timeZone);
 }
 
-export function calculatePeriod(transactions: FinanceTransactionDto[]) {
-  const reportable = transactions.filter(isReportable);
-  const grossIncome = reportable
-    .map(reportingValue)
-    .filter((value): value is number => value !== null && value > 0)
-    .reduce((total, value) => total + value, 0);
-  const budgetBaseIncome = reportable
-    .filter((transaction) => transaction.budgetCategory === null)
-    .map(reportingValue)
-    .filter((value): value is number => value !== null && value > 0)
-    .reduce((total, value) => total + value, 0);
-  const spent = reportable
-    .map(reportingValue)
-    .filter((value): value is number => value !== null && value < 0)
-    .reduce((total, value) => total + Math.abs(value), 0);
-  const missingFxCount = reportable.filter(
-    (transaction) => transaction.reportingAmountBrl === null,
-  ).length;
+export type FinancePeriodAmount = {
+  kind: "INCOME" | "EXPENSE";
+  budgetCategory: BudgetCategoryKey | null;
+  referenceYear: number;
+  referenceMonth: number;
+  value: number;
+};
+
+type OffsetBucket = {
+  income: number;
+  expenses: number;
+};
+
+function toCents(value: number) {
+  return Math.round(value * 100);
+}
+
+function fromCents(value: number) {
+  return value / 100;
+}
+
+function offsetBucketKey(
+  item: Pick<FinancePeriodAmount, "budgetCategory" | "referenceYear" | "referenceMonth">,
+) {
+  return `${item.referenceYear}:${item.referenceMonth}:${item.budgetCategory ?? "UNASSIGNED"}`;
+}
+
+function calculateOffsetBuckets(amounts: FinancePeriodAmount[]) {
+  const buckets = new Map<string, OffsetBucket>();
+  for (const item of amounts) {
+    if (item.budgetCategory === null || item.value === 0) continue;
+    const key = offsetBucketKey(item);
+    const bucket = buckets.get(key) ?? { income: 0, expenses: 0 };
+    if (item.value > 0) bucket.income += item.value;
+    if (item.value < 0) bucket.expenses += Math.abs(item.value);
+    buckets.set(key, bucket);
+  }
+  return buckets;
+}
+
+export function calculatePeriodAmounts(amounts: FinancePeriodAmount[]) {
+  const grossIncomeCents = amounts
+    .filter((item) => item.value > 0)
+    .reduce((total, item) => total + toCents(item.value), 0);
+  const budgetBaseIncomeCents = amounts
+    .filter((item) => item.value > 0 && item.budgetCategory === null)
+    .reduce((total, item) => total + toCents(item.value), 0);
+  const grossExpensesCents = amounts
+    .filter((item) => item.value < 0)
+    .reduce((total, item) => total + toCents(Math.abs(item.value)), 0);
+  const compensatedExpensesCents = [...calculateOffsetBuckets(amounts).values()]
+    .reduce(
+      (total, bucket) => total + Math.min(toCents(bucket.income), toCents(bucket.expenses)),
+      0,
+    );
+  const spentCents = Math.max(0, grossExpensesCents - compensatedExpensesCents);
+  const grossIncome = fromCents(grossIncomeCents);
+  const budgetBaseIncome = fromCents(budgetBaseIncomeCents);
+  const grossExpenses = fromCents(grossExpensesCents);
+  const compensatedExpenses = fromCents(compensatedExpensesCents);
+  const spent = fromCents(spentCents);
   return {
     income: grossIncome,
     grossIncome,
     budgetBaseIncome,
+    grossExpenses,
+    compensatedExpenses,
     spent,
-    balance: grossIncome - spent,
+    balance: fromCents(budgetBaseIncomeCents - spentCents),
+  };
+}
+
+export function calculatePeriod(transactions: FinanceTransactionDto[]) {
+  const reportable = transactions.filter(isReportable);
+  const amounts = reportable.flatMap((transaction) => {
+    const value = reportingValue(transaction);
+    return value === null ? [] : [{
+      kind: transaction.kind,
+      budgetCategory: transaction.budgetCategory,
+      referenceYear: transaction.referenceYear,
+      referenceMonth: transaction.referenceMonth,
+      value,
+    }];
+  });
+  const missingFxCount = reportable.filter(
+    (transaction) => transaction.reportingAmountBrl === null,
+  ).length;
+  return {
+    ...calculatePeriodAmounts(amounts),
     missingFxCount,
   };
 }
@@ -86,15 +151,34 @@ export function calculateBudgetCategories(
     const categoryTransactions = transactions.filter(
       (transaction) => transaction.budgetCategory === category && isReportable(transaction),
     );
-    const expenses = categoryTransactions
+    const expensesCents = categoryTransactions
       .map(reportingValue)
       .filter((value): value is number => value !== null && value < 0)
-      .reduce((total, value) => total + Math.abs(value), 0);
-    const incomeOffsets = categoryTransactions
+      .reduce((total, value) => total + toCents(Math.abs(value)), 0);
+    const incomeOffsetsCents = categoryTransactions
       .map(reportingValue)
       .filter((value): value is number => value !== null && value > 0)
-      .reduce((total, value) => total + value, 0);
-    const spent = expenses - incomeOffsets;
+      .reduce((total, value) => total + toCents(value), 0);
+    const categoryAmounts = categoryTransactions.flatMap((transaction) => {
+      const value = reportingValue(transaction);
+      return value === null ? [] : [{
+        kind: transaction.kind,
+        budgetCategory: transaction.budgetCategory,
+        referenceYear: transaction.referenceYear,
+        referenceMonth: transaction.referenceMonth,
+        value,
+      }];
+    });
+    const appliedIncomeOffsetsCents = [...calculateOffsetBuckets(categoryAmounts).values()]
+      .reduce(
+        (total, bucket) => total + Math.min(toCents(bucket.income), toCents(bucket.expenses)),
+        0,
+      );
+    const spentCents = Math.max(0, expensesCents - appliedIncomeOffsetsCents);
+    const expenses = fromCents(expensesCents);
+    const incomeOffsets = fromCents(incomeOffsetsCents);
+    const appliedIncomeOffsets = fromCents(appliedIncomeOffsetsCents);
+    const spent = fromCents(spentCents);
     const target = income * (goals[category] / 100);
     return {
       category,
@@ -104,6 +188,7 @@ export function calculateBudgetCategories(
       spent,
       expenses,
       incomeOffsets,
+      appliedIncomeOffsets,
       target,
       remaining: Math.max(0, target - spent),
       usage: target > 0 ? Math.max(0, (spent / target) * 100) : 0,
@@ -114,24 +199,76 @@ export function calculateBudgetCategories(
 }
 
 export function calculateTagTotals(transactions: FinanceTransactionDto[], tags: FinanceTagDto[]) {
-  const reportableExpenses = transactions.filter(
-    (transaction) => (reportingValue(transaction) ?? 0) < 0,
+  const reportable = transactions.filter(isReportable);
+  const amounts = reportable.flatMap((transaction) => {
+    const value = reportingValue(transaction);
+    return value === null ? [] : [{
+      kind: transaction.kind,
+      budgetCategory: transaction.budgetCategory,
+      referenceYear: transaction.referenceYear,
+      referenceMonth: transaction.referenceMonth,
+      value,
+    }];
+  });
+  const buckets = calculateOffsetBuckets(amounts);
+  const totals = new Map(tags.map((tag) => [tag.id, {
+    id: tag.id,
+    name: tag.name,
+    color: tag.color,
+    valueCents: 0,
+  }]));
+  const remainingByBucket = new Map(
+    [...buckets.entries()].map(([key, bucket]) => {
+      const grossCents = toCents(bucket.expenses);
+      return [key, {
+        grossCents,
+        netCents: Math.max(0, grossCents - Math.min(toCents(bucket.income), grossCents)),
+      }];
+    }),
   );
-  const totals = tags
-    .map((tag) => ({
-      id: tag.id,
-      name: tag.name,
-      color: tag.color,
-      value: reportableExpenses
-        .filter((transaction) => transaction.tags.some((item) => item.id === tag.id))
-        .reduce((total, transaction) => total + Math.abs(reportingValue(transaction) ?? 0), 0),
-    }))
-    .filter((item) => item.value > 0);
-  const untagged = reportableExpenses
-    .filter((transaction) => !transaction.tags.length)
-    .reduce((total, transaction) => total + Math.abs(reportingValue(transaction) ?? 0), 0);
-  if (untagged > 0) totals.unshift({ id: "untagged", name: "Sem Tags", color: "#64748b", value: untagged });
-  return totals.sort((left, right) => right.value - left.value);
+  let untaggedCents = 0;
+
+  for (const transaction of reportable) {
+    const value = reportingValue(transaction);
+    if (value === null || value >= 0) continue;
+    const grossCents = toCents(Math.abs(value));
+    const bucketKey = transaction.budgetCategory === null
+      ? null
+      : offsetBucketKey(transaction);
+    const bucket = bucketKey ? buckets.get(bucketKey) : null;
+    const remaining = bucketKey ? remainingByBucket.get(bucketKey) : null;
+    let netCents = grossCents;
+    if (bucket && remaining && bucket.expenses > 0) {
+      netCents = grossCents >= remaining.grossCents
+        ? remaining.netCents
+        : Math.min(
+            remaining.netCents,
+            Math.round(grossCents * Math.max(0, bucket.expenses - Math.min(bucket.income, bucket.expenses)) / bucket.expenses),
+          );
+      remaining.grossCents -= grossCents;
+      remaining.netCents -= netCents;
+    }
+    const tagIds = [...new Set(transaction.tags.map((tag) => tag.id))]
+      .filter((tagId) => totals.has(tagId));
+    if (!tagIds.length) {
+      untaggedCents += netCents;
+      continue;
+    }
+    const share = Math.floor(netCents / tagIds.length);
+    const remainder = netCents % tagIds.length;
+    tagIds.forEach((tagId, index) => {
+      const total = totals.get(tagId);
+      if (total) total.valueCents += share + (index < remainder ? 1 : 0);
+    });
+  }
+
+  const result = [...totals.values()]
+    .filter((item) => item.valueCents > 0)
+    .map(({ valueCents, ...item }) => ({ ...item, value: fromCents(valueCents) }));
+  if (untaggedCents > 0) {
+    result.push({ id: "untagged", name: "Sem Tags", color: "#64748b", value: fromCents(untaggedCents) });
+  }
+  return result.sort((left, right) => right.value - left.value);
 }
 
 export function calculateHistory(
@@ -206,6 +343,9 @@ export function calculateInvoices(
         dueDate: dueDate.toISOString(),
         open: key === openKey,
         total: items
+          .filter((transaction) => isReportable(transaction) && Number(transaction.amount) < 0)
+          .reduce((total, transaction) => total + Math.abs(Number(transaction.amount)), 0),
+        totalBrl: items
           .filter((transaction) => (reportingValue(transaction) ?? 0) < 0)
           .reduce((total, transaction) => total + Math.abs(reportingValue(transaction) ?? 0), 0),
         transactions: items.sort((left, right) => right.date.localeCompare(left.date)),

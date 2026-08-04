@@ -1,6 +1,7 @@
 import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
 import { refreshStaleMarketPricesAction } from "@/features/portfolio/actions";
+import { refreshStaleFinancialAccountFx } from "@/features/finance/account-fx";
 import { syncStalePluggyItemsForUser } from "@/features/open-finance/automatic-sync";
 import { getActiveUser } from "@/lib/current-user";
 import { OperationInProgressError } from "@/lib/operation-security";
@@ -32,8 +33,9 @@ export async function POST(request: Request) {
   if (!user) return NextResponse.json({ error: "Sessão expirada." }, { status: 401 });
 
   const startedAt = Date.now();
-  const [marketSettled, pluggySettled] = await Promise.allSettled([
+  const [marketSettled, accountsSettled, pluggySettled] = await Promise.allSettled([
     refreshStaleMarketPricesAction(),
+    refreshStaleFinancialAccountFx(user.id),
     syncStalePluggyItemsForUser(user.id),
   ]);
   const market = marketSettled.status === "fulfilled"
@@ -50,9 +52,12 @@ export async function POST(request: Request) {
         message: pluggySettled.value.message,
       }
     : failedResult(pluggySettled.reason);
-  const response: BootstrapRefreshResponse = { market, pluggy };
+  const accounts = accountsSettled.status === "fulfilled"
+    ? accountsSettled.value
+    : failedResult(accountsSettled.reason);
+  const response: BootstrapRefreshResponse = { market, accounts, pluggy };
 
-  if (market.changed || pluggy.changed) {
+  if (market.changed || accounts.changed || pluggy.changed) {
     [
       "/home",
       "/carteira",
@@ -74,6 +79,11 @@ export async function POST(request: Request) {
       reason: "AUTOMATIC_STALE",
       status: market.status,
       changed: market.changed,
+    },
+    accounts: {
+      reason: "AUTOMATIC_STALE",
+      status: accounts.status,
+      changed: accounts.changed,
     },
     pluggy: {
       reason: pluggySettled.status === "fulfilled" ? pluggySettled.value.reason : "AUTOMATIC_STALE",

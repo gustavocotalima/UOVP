@@ -50,6 +50,7 @@ export type FinancialAccountDto = {
   currencyCode: string;
   sortOrder: number;
   providerUpdatedAt: string | null;
+  transactionCount: number;
 };
 
 export type FinanceTransactionDto = {

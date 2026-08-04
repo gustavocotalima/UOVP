@@ -8,5 +8,6 @@ export type BootstrapRefreshIntegrationResult = {
 
 export type BootstrapRefreshResponse = {
   market: BootstrapRefreshIntegrationResult;
+  accounts: BootstrapRefreshIntegrationResult;
   pluggy: BootstrapRefreshIntegrationResult;
 };
