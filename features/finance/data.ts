@@ -494,7 +494,7 @@ export async function getFinanceData(
       return {
         year: period.referenceYear,
         month: period.referenceMonth,
-        grossIncome: totals.grossIncome,
+        netIncome: totals.budgetBaseIncome,
         spent: totals.spent,
         balance: totals.balance,
       };
