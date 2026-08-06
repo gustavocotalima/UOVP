@@ -226,6 +226,7 @@ export function AccountsClient({ data }: { data: FinanceData }) {
           bankCode: form.bankCode,
           brand: form.brand,
           balance: Number(form.balance),
+          expectedBalance: editing ? Number(editing.balance) : undefined,
           currencyCode: form.currencyCode,
           manualFxRateToBrl: form.manualFxRateToBrl
             ? Number(form.manualFxRateToBrl)
@@ -593,7 +594,7 @@ function AccountFormFields({
         </>
       )}
       <Label className="sm:col-span-2">
-        {form.type === "BANK_ACCOUNT" ? "Saldo" : "Valor utilizado"}
+        {form.type === "BANK_ACCOUNT" ? "Saldo atual" : "Valor utilizado atual"}
         <Input disabled={providerOwned} className="mt-2" type="number" step="0.01" value={form.balance} onChange={(event) => setForm({ ...form, balance: event.target.value })} placeholder={`${financialAccountCurrencySymbol(form.currencyCode)} 0,00`} />
       </Label>
       {form.currencyCode === "USD" && fxRequired && !providerOwned && (

@@ -24,6 +24,11 @@ import {
   availableCreditForBalance,
   type FinancialAccountCurrency,
 } from "./account-currency";
+import {
+  absorbManualTransactionsIntoBalance,
+  accountBalanceDelta,
+  balanceTransitionAdjustments,
+} from "./manual-account-balance";
 
 const idSchema = z.string().min(1).max(200);
 const categorySchema = z.enum(BUDGET_CATEGORIES);
@@ -32,6 +37,40 @@ const accountCurrencySchema = z.enum(SUPPORTED_FINANCIAL_ACCOUNT_CURRENCIES);
 const moneySchema = z.number().finite().min(-1_000_000_000).max(1_000_000_000);
 const fxRateSchema = z.number().finite().positive().max(1_000_000);
 const colorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/);
+const SERIALIZABLE_RETRY_LIMIT = 3;
+
+async function withSerializableRetry<T>(operation: (tx: Prisma.TransactionClient) => Promise<T>) {
+  for (let attempt = 0; attempt < SERIALIZABLE_RETRY_LIMIT; attempt += 1) {
+    try {
+      return await prisma.$transaction(operation, {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      });
+    } catch (error) {
+      const retryable = error instanceof Prisma.PrismaClientKnownRequestError
+        && error.code === "P2034";
+      if (!retryable || attempt === SERIALIZABLE_RETRY_LIMIT - 1) throw error;
+    }
+  }
+  throw new Error("Não foi possível concluir a operação concorrente.");
+}
+
+async function lockOwnedActiveAccounts(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  accountIds: string[],
+) {
+  const ids = [...new Set(accountIds)].sort();
+  const locked = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    SELECT "id"
+    FROM "FinancialAccount"
+    WHERE "userId" = ${userId}
+      AND "active" = true
+      AND "id" IN (${Prisma.join(ids)})
+    ORDER BY "id"
+    FOR UPDATE
+  `);
+  if (locked.length !== ids.length) throw new Error("Uma ou mais contas não foram encontradas.");
+}
 
 function revalidateFinance() {
   [
@@ -181,6 +220,7 @@ export async function saveFinancialAccountAction(input: {
   bankCode?: string;
   brand?: string;
   balance: number;
+  expectedBalance?: number;
   currencyCode: FinancialAccountCurrency;
   manualFxRateToBrl?: number;
   creditLimit?: number | null;
@@ -201,6 +241,7 @@ export async function saveFinancialAccountAction(input: {
       bankCode: z.string().trim().max(12).optional(),
       brand: z.string().trim().max(32).optional(),
       balance: moneySchema,
+      expectedBalance: moneySchema.optional(),
       currencyCode: accountCurrencySchema,
       manualFxRateToBrl: fxRateSchema.optional(),
       creditLimit: z.number().finite().min(0).max(1_000_000_000).nullable().optional(),
@@ -216,14 +257,6 @@ export async function saveFinancialAccountAction(input: {
     });
     revalidateFinance();
     return { ok: true } satisfies FinancialMutationResult;
-  }
-  if (existingAccount && existingAccount.currencyCode !== parsed.currencyCode) {
-    const transactionCount = await prisma.financeTransaction.count({
-      where: { accountId: existingAccount.id },
-    });
-    if (transactionCount > 0) {
-      throw new Error("A moeda não pode ser alterada depois que a conta possui transações.");
-    }
   }
   const fx = await resolveCurrentFinancialFx({
     currencyCode: parsed.currencyCode,
@@ -265,9 +298,40 @@ export async function saveFinancialAccountAction(input: {
     closingDay: parsed.closingDay ?? null,
   };
   if (existingAccount) {
-    await prisma.financialAccount.update({
-      where: { id: existingAccount.id },
-      data,
+    const expectedBalance = parsed.expectedBalance;
+    if (expectedBalance === undefined) {
+      throw new Error("O saldo atual da conta precisa ser confirmado antes de salvar.");
+    }
+    await withSerializableRetry(async (tx) => {
+      await lockOwnedActiveAccounts(tx, userId, [existingAccount.id]);
+      const lockedAccount = await tx.financialAccount.findFirstOrThrow({
+        where: { id: existingAccount.id, userId, active: true },
+      });
+      if (lockedAccount.source !== "MANUAL") {
+        throw new Error("A conta passou a ser controlada pela instituição. Atualize a página.");
+      }
+      if (!lockedAccount.balance.equals(new Prisma.Decimal(expectedBalance))) {
+        throw new Error("O saldo da conta mudou enquanto você editava. Atualize a página e tente novamente.");
+      }
+      if (lockedAccount.currencyCode !== parsed.currencyCode) {
+        const transactionCount = await tx.financeTransaction.count({
+          where: { accountId: lockedAccount.id },
+        });
+        if (transactionCount > 0) {
+          throw new Error("A moeda não pode ser alterada depois que a conta possui transações.");
+        }
+      }
+      const balanceChanged = !lockedAccount.balance.equals(balance);
+      await tx.financialAccount.update({
+        where: { id: lockedAccount.id },
+        data: {
+          ...data,
+          ...(balanceChanged ? { balanceSnapshotAt: new Date() } : {}),
+        },
+      });
+      if (balanceChanged) {
+        await absorbManualTransactionsIntoBalance(tx, userId, lockedAccount.id);
+      }
     });
   } else {
     const max = await prisma.financialAccount.aggregate({
@@ -278,6 +342,7 @@ export async function saveFinancialAccountAction(input: {
       data: {
         userId,
         source: "MANUAL",
+        balanceSnapshotAt: new Date(),
         sortOrder: (max._max.sortOrder ?? -1) + 1,
         ...data,
       },
@@ -314,10 +379,6 @@ export async function reorderFinancialAccountsAction(
     ids.map((id, sortOrder) => prisma.financialAccount.update({ where: { id }, data: { sortOrder } })),
   );
   revalidateFinance();
-}
-
-function balanceAdjustment(type: FinancialAccountType, amount: Prisma.Decimal) {
-  return type === "CREDIT_CARD" ? amount.negated() : amount;
 }
 
 async function adjustManualAccountBalance(
@@ -361,6 +422,7 @@ export async function createFinanceTransactionAction(input: {
   tagIds?: string[];
   note?: string;
   manualFxRateToBrl?: number;
+  updateAccountBalance?: boolean;
 }) {
   const userId = await requireUserId();
   const parsed = z
@@ -376,6 +438,7 @@ export async function createFinanceTransactionAction(input: {
       tagIds: z.array(idSchema).max(20).optional(),
       note: z.string().trim().max(2_000).optional(),
       manualFxRateToBrl: fxRateSchema.optional(),
+      updateAccountBalance: z.boolean().default(true),
     })
     .parse(input);
   const account = await ownedAccount(userId, parsed.accountId);
@@ -393,7 +456,15 @@ export async function createFinanceTransactionAction(input: {
     manualRateToBrl: parsed.manualFxRateToBrl,
   });
   if (!fx) return financialFxRequired(transactionDate);
-  await prisma.$transaction(async (tx) => {
+  await withSerializableRetry(async (tx) => {
+    await lockOwnedActiveAccounts(tx, userId, [account.id]);
+    const lockedAccount = await tx.financialAccount.findFirstOrThrow({
+      where: { id: account.id, userId, active: true },
+    });
+    if (lockedAccount.currencyCode !== currencyCode) {
+      throw new Error("A moeda da conta mudou. Atualize a página e tente novamente.");
+    }
+    const balanceApplied = lockedAccount.source === "MANUAL" && parsed.updateAccountBalance;
     await tx.financeTransaction.create({
       data: {
         userId,
@@ -414,15 +485,16 @@ export async function createFinanceTransactionAction(input: {
         budgetCategory: parsed.budgetCategory ?? null,
         budgetCategorySource: "MANUAL",
         tagAssignmentSource: "MANUAL",
+        balanceApplied,
         note: parsed.note || null,
         tags: { create: tagIds.map((tagId) => ({ tagId, source: "MANUAL" })) },
       },
     });
-    if (account.source === "MANUAL") {
+    if (balanceApplied) {
       await adjustManualAccountBalance(
         tx,
-        account.id,
-        balanceAdjustment(account.type, signedAmount),
+        lockedAccount.id,
+        accountBalanceDelta(lockedAccount.type, signedAmount),
       );
     }
   });
@@ -443,6 +515,7 @@ export async function updateFinanceTransactionAction(input: {
   tagIds: string[];
   note?: string;
   manualFxRateToBrl?: number;
+  updateAccountBalance?: boolean;
 }) {
   const userId = await requireUserId();
   const parsed = z
@@ -459,6 +532,7 @@ export async function updateFinanceTransactionAction(input: {
       tagIds: z.array(idSchema).max(20),
       note: z.string().trim().max(2_000).optional(),
       manualFxRateToBrl: fxRateSchema.optional(),
+      updateAccountBalance: z.boolean().optional(),
     })
     .parse(input);
   const transaction = await ownedTransaction(userId, parsed.id);
@@ -473,9 +547,11 @@ export async function updateFinanceTransactionAction(input: {
   const targetAccount = parsed.accountId ? await ownedAccount(userId, parsed.accountId) : null;
   const currentAccount = await ownedAccount(userId, transaction.accountId);
   const kind = parsed.kind ?? transaction.kind;
-  const amount = parsed.amount
+  const amount = parsed.amount !== undefined
     ? new Prisma.Decimal(parsed.amount).times(kind === "EXPENSE" ? -1 : 1)
-    : transaction.amount;
+    : parsed.kind && parsed.kind !== transaction.kind
+      ? transaction.amount.abs().times(kind === "EXPENSE" ? -1 : 1)
+      : transaction.amount;
   const nextAccount = targetAccount ?? currentAccount;
   const transactionDate = parsed.date
     ? new Date(`${parsed.date}T12:00:00.000Z`)
@@ -499,17 +575,53 @@ export async function updateFinanceTransactionAction(input: {
       })
     : null;
   if (transaction.source === "MANUAL" && !fx) return financialFxRequired(transactionDate);
-  await prisma.$transaction(async (tx) => {
-    if (transaction.source === "MANUAL") {
+  await withSerializableRetry(async (tx) => {
+    await lockOwnedActiveAccounts(tx, userId, [currentAccount.id, nextAccount.id]);
+    const currentTransaction = await tx.financeTransaction.findFirstOrThrow({
+      where: { id: transaction.id, userId, deleted: false },
+    });
+    if (currentTransaction.accountId !== currentAccount.id) {
+      throw new Error("A transação mudou enquanto você editava. Atualize a página e tente novamente.");
+    }
+    const lockedCurrentAccount = await tx.financialAccount.findFirstOrThrow({
+      where: { id: currentAccount.id, userId, active: true },
+    });
+    const lockedNextAccount = nextAccount.id === currentAccount.id
+      ? lockedCurrentAccount
+      : await tx.financialAccount.findFirstOrThrow({
+          where: { id: nextAccount.id, userId, active: true },
+        });
+    const balanceApplied = currentTransaction.source === "MANUAL"
+      && lockedNextAccount.source === "MANUAL"
+      && (parsed.updateAccountBalance ?? currentTransaction.balanceApplied);
+    const adjustments = balanceTransitionAdjustments({
+      previous: currentTransaction.source === "MANUAL"
+        ? {
+            type: lockedCurrentAccount.type,
+            amount: currentTransaction.amount,
+            applied: currentTransaction.balanceApplied,
+          }
+        : undefined,
+      next: currentTransaction.source === "MANUAL"
+        ? {
+            type: lockedNextAccount.type,
+            amount,
+            applied: balanceApplied,
+          }
+        : undefined,
+    });
+    if (adjustments.reversePrevious) {
       await adjustManualAccountBalance(
         tx,
-        currentAccount.id,
-        balanceAdjustment(currentAccount.type, transaction.amount).negated(),
+        lockedCurrentAccount.id,
+        adjustments.reversePrevious,
       );
+    }
+    if (adjustments.applyNext) {
       await adjustManualAccountBalance(
         tx,
-        nextAccount.id,
-        balanceAdjustment(nextAccount.type, amount),
+        lockedNextAccount.id,
+        adjustments.applyNext,
       );
     }
     await tx.financeTransaction.update({
@@ -527,6 +639,7 @@ export async function updateFinanceTransactionAction(input: {
               fxSource: fx!.source,
               kind,
               date: transactionDate,
+              balanceApplied,
             }
           : {}),
         referenceYear: parsed.referenceYear,
@@ -819,6 +932,7 @@ export async function resolvePendingPluggyDeletionAction(
       ? {
           source: "MANUAL",
           externalId: null,
+          balanceApplied: false,
           providerLifecycle: "KEPT_MANUAL",
           providerDeletedAt: null,
           deleted: false,
@@ -835,20 +949,33 @@ export async function resolvePendingPluggyDeletionAction(
 export async function deleteFinanceTransactionAction(id: string) {
   const userId = await requireUserId();
   const transaction = await ownedTransaction(userId, idSchema.parse(id));
-  await prisma.$transaction(async (tx) => {
-    if (transaction.source === "MANUAL") {
-      const account = await tx.financialAccount.findUniqueOrThrow({ where: { id: transaction.accountId } });
-      if (account.source === "MANUAL") {
-        await adjustManualAccountBalance(
-          tx,
-          account.id,
-          balanceAdjustment(account.type, transaction.amount).negated(),
-        );
-      }
-      await tx.financeTransaction.delete({ where: { id: transaction.id } });
-    } else {
-      await tx.financeTransaction.update({ where: { id: transaction.id }, data: { deleted: true } });
+  if (transaction.source !== "MANUAL") {
+    await prisma.financeTransaction.update({
+      where: { id: transaction.id },
+      data: { deleted: true },
+    });
+    revalidateFinance();
+    return;
+  }
+  await withSerializableRetry(async (tx) => {
+    await lockOwnedActiveAccounts(tx, userId, [transaction.accountId]);
+    const currentTransaction = await tx.financeTransaction.findFirstOrThrow({
+      where: { id: transaction.id, userId, deleted: false },
+    });
+    if (currentTransaction.source !== "MANUAL") {
+      throw new Error("A origem da transação mudou. Atualize a página e tente novamente.");
     }
+    const account = await tx.financialAccount.findFirstOrThrow({
+      where: { id: currentTransaction.accountId, userId, active: true },
+    });
+    if (account.source === "MANUAL" && currentTransaction.balanceApplied) {
+      await adjustManualAccountBalance(
+        tx,
+        account.id,
+        accountBalanceDelta(account.type, currentTransaction.amount).negated(),
+      );
+    }
+    await tx.financeTransaction.delete({ where: { id: currentTransaction.id } });
   });
   revalidateFinance();
 }

@@ -13,7 +13,7 @@ describe("gestor financeiro inspirado no AUVP", () => {
     cy.contains("button", "Conta bancária").click();
     cy.contains("label", "Nome da conta").find("input").type("Conta de testes");
     cy.contains("label", "Banco / Instituição").find("input").type("Banco Cypress");
-    cy.contains("label", /^Saldo$/).find("input").clear().type("1000");
+    cy.contains("label", "Saldo atual").find("input").clear().type("1000");
     cy.get('[role="dialog"]').contains("button", "Adicionar").click();
     cy.contains(":visible", "Conta de testes").should("be.visible");
 
@@ -72,8 +72,7 @@ describe("gestor financeiro inspirado no AUVP", () => {
     cy.contains("Renda mensal").parent().should("contain.text", "9.000");
 
     cy.contains("a", "Orçamento").filter(":visible").click();
-    cy.contains("Entradas brutas").parent().should("contain.text", "9.540,60");
-    cy.contains("Renda considerada nas metas").parent().should("contain.text", "9.000");
+    cy.contains("Entradas líquidas").parent().should("contain.text", "9.000");
     cy.contains("Despesas líquidas").parent().should("contain.text", "100");
     cy.contains("Saldo Restante").parent().should("contain.text", "8.900");
     cy.contains(/100,00/).should("be.visible");
@@ -95,7 +94,7 @@ describe("gestor financeiro inspirado no AUVP", () => {
       .should("contain.text", "100,00");
 
     cy.contains("a", "Painel").filter(":visible").click();
-    cy.contains("Entradas brutas").parent().should("contain.text", "9.540,60");
+    cy.contains("Entradas líquidas").parent().should("contain.text", "9.000");
     cy.contains("Despesas líquidas").parent().should("contain.text", "100");
     cy.contains("Resultado do período").parent().should("contain.text", "8.900");
     cy.contains("a", "Transações").filter(":visible").click();
@@ -103,5 +102,53 @@ describe("gestor financeiro inspirado no AUVP", () => {
     cy.contains("Saídas").parent().should("contain.text", "640,60");
     cy.contains(":visible", "Renda de teste").should("be.visible");
     cy.contains(":visible", "Despesa de teste").should("be.visible");
+  });
+
+  it("usa a correção manual como novo marco e aplica somente transações posteriores", () => {
+    cy.registerAndLogin();
+
+    cy.contains("a", "Contas").filter(":visible").click();
+    cy.contains("button", "Nova conta").click();
+    cy.contains("button", "Inserir saldo manualmente").click();
+    cy.contains("button", "Conta bancária").click();
+    cy.contains("label", "Nome da conta").find("input").type("Conta de saldo");
+    cy.contains("label", "Banco / Instituição").find("input").type("Banco de teste");
+    cy.contains("label", "Saldo atual").find("input").clear().type("100");
+    cy.get('[role="dialog"]').contains("button", "Adicionar").click();
+
+    cy.contains("a", "Transações").filter(":visible").click();
+    cy.contains("button", "Nova transação").click();
+    cy.get('[role="dialog"]').contains("label", "Descrição").find("input").type("Saída histórica");
+    cy.get('[role="dialog"]').contains("label", "Conta").find("select").select("Conta de saldo · BRL");
+    cy.get('[role="dialog"]').contains("label", "Quantia").find("input").type("25");
+    cy.get('[role="dialog"] [role="switch"][aria-label="Atualizar saldo da conta"]')
+      .should("have.attr", "aria-checked", "true")
+      .click()
+      .should("have.attr", "aria-checked", "false");
+    cy.get('[role="dialog"]').contains("button", "Adicionar transação").click();
+
+    cy.contains("a", "Contas").filter(":visible").click();
+    cy.get('button[aria-label="Editar conta"]').click();
+    cy.get('[role="dialog"]').contains("label", "Saldo atual").find("input").clear().type("68.38");
+    cy.get('[role="dialog"]').contains("button", "Salvar").click();
+
+    cy.contains("a", "Transações").filter(":visible").click();
+    for (const [description, kind, amount] of [
+      ["Entrada posterior", "INCOME", "490"],
+      ["Saída posterior A", "EXPENSE", "2.50"],
+      ["Saída posterior B", "EXPENSE", "7.73"],
+    ] as const) {
+      cy.contains("button", "Nova transação").click();
+      if (kind === "INCOME") cy.get('[role="dialog"]').contains("button", "Entrada").click();
+      cy.get('[role="dialog"]').contains("label", "Descrição").find("input").type(description);
+      cy.get('[role="dialog"]').contains("label", "Conta").find("select").select("Conta de saldo · BRL");
+      cy.get('[role="dialog"]').contains("label", "Quantia").find("input").type(amount);
+      cy.get('[role="dialog"] [role="switch"][aria-label="Atualizar saldo da conta"]')
+        .should("have.attr", "aria-checked", "true");
+      cy.get('[role="dialog"]').contains("button", "Adicionar transação").click();
+    }
+
+    cy.contains("a", "Contas").filter(":visible").click();
+    cy.contains("p", "Saldo disponível").parent().should("contain.text", "R$ 548,15");
   });
 });

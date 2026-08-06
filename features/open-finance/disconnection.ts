@@ -202,6 +202,7 @@ async function resolvePluggyItemDisconnectionUnlocked(
           data: {
             source: "MANUAL",
             externalId: null,
+            balanceApplied: false,
             providerLifecycle: "KEPT_MANUAL",
             providerDeletedAt: now,
           },

@@ -43,6 +43,7 @@ export type FinancialAccountDto = {
   balanceFxRateToBrl: string | null;
   balanceFxRateDate: string | null;
   balanceFxSource: "NATIVE" | "PLUGGY" | "YAHOO" | "MANUAL" | null;
+  balanceSnapshotAt: string | null;
   creditLimit: string | null;
   availableCredit: string | null;
   dueDay: number | null;
@@ -89,6 +90,7 @@ export type FinanceTransactionDto = {
   status: string | null;
   note: string | null;
   ignored: boolean;
+  updateAccountBalance: boolean;
   providerLifecycle: "ACTIVE" | "DELETION_PENDING" | "KEPT_MANUAL" | "REMOVED" | null;
   providerDeletedAt: string | null;
   internalTransfer: boolean;
