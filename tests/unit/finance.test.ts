@@ -38,6 +38,7 @@ const bank: FinancialAccountDto = {
   balanceFxRateToBrl: "1",
   balanceFxRateDate: "2026-07-10T00:00:00.000Z",
   balanceFxSource: "NATIVE",
+  balanceSnapshotAt: null,
   creditLimit: null,
   availableCredit: null,
   dueDay: null,
@@ -98,6 +99,7 @@ function transaction(overrides: Partial<FinanceTransactionDto> = {}): FinanceTra
     status: null,
     note: null,
     ignored: false,
+    updateAccountBalance: false,
     providerLifecycle: "ACTIVE",
     providerDeletedAt: null,
     internalTransfer: false,
@@ -155,6 +157,19 @@ describe("finanças AUVP", () => {
       balance: 0,
       missingFxCount: 0,
     });
+  });
+
+  it("mantém transações históricas nos relatórios mesmo sem aplicá-las ao saldo", () => {
+    const result = calculatePeriod([
+      transaction({
+        id: "historical",
+        source: "MANUAL",
+        amount: "-75",
+        updateAccountBalance: false,
+      }),
+    ]);
+    expect(result.grossExpenses).toBe(75);
+    expect(result.spent).toBe(75);
   });
 
   it("compensa reinvestimentos no resumo sem retirar as entradas brutas", () => {

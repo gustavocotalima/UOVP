@@ -8,6 +8,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { BUDGET_CATEGORIES, BUDGET_CATEGORY_META, type BudgetCategoryKey } from "@/features/budget/constants";
 import { calendarParts } from "@/lib/calendar";
 import { formatCurrency } from "@/lib/money";
@@ -76,6 +77,32 @@ function TagPicker({
   );
 }
 
+function BalanceUpdateControl({
+  checked,
+  onCheckedChange,
+}: {
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-4 rounded-xl border bg-[var(--muted)]/25 p-4 sm:col-span-2">
+      <div>
+        <p className="text-sm font-semibold">Atualizar saldo da conta</p>
+        <p className="mt-1 text-xs leading-relaxed text-[var(--muted-foreground)]">
+          {checked
+            ? "Somar ou subtrair esta transação do saldo atual."
+            : "Registrar apenas no histórico e nos relatórios."}
+        </p>
+      </div>
+      <Switch
+        aria-label="Atualizar saldo da conta"
+        checked={checked}
+        onCheckedChange={onCheckedChange}
+      />
+    </div>
+  );
+}
+
 type TransactionEditorDialogProps = {
   transaction: FinanceTransactionDto | null;
   accounts: FinancialAccountDto[];
@@ -126,6 +153,9 @@ function TransactionEditorDialogContent({
   const [manualFxRate, setManualFxRate] = useState(
     transaction.fxSource === "MANUAL" ? transaction.fxRateToBrl ?? "" : "",
   );
+  const [updateAccountBalance, setUpdateAccountBalance] = useState(
+    transaction.updateAccountBalance,
+  );
   const [fxRequired, setFxRequired] = useState(transaction.reportingAmountBrl === null);
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -154,6 +184,9 @@ function TransactionEditorDialogContent({
                 kind,
                 date,
                 manualFxRateToBrl: manualFxRate ? Number(manualFxRate) : undefined,
+                updateAccountBalance: selectedAccount?.source === "MANUAL"
+                  ? updateAccountBalance
+                  : false,
               }),
           referenceYear: parsedReference.year,
           referenceMonth: parsedReference.month,
@@ -268,6 +301,12 @@ function TransactionEditorDialogContent({
           <Label>Data<Input className="mt-2" type="date" value={date} disabled={providerOwned} onChange={(event) => { setDate(event.target.value); if (!providerOwned) { setFxRequired(false); setManualFxRate(""); } }} /></Label>
           <Label>Meta<Select className="mt-2 w-full" value={category} onChange={(event) => setCategory(event.target.value as BudgetCategoryKey | "")}><option value="">Sem meta</option>{BUDGET_CATEGORIES.map((item) => <option key={item} value={item}>{BUDGET_CATEGORY_META[item].label}</option>)}</Select></Label>
           <Label>Mês de referência<Input className="mt-2" type="month" value={reference} onChange={(event) => setReference(event.target.value)} /></Label>
+          {!providerOwned && selectedAccount?.source === "MANUAL" && (
+            <BalanceUpdateControl
+              checked={updateAccountBalance}
+              onCheckedChange={setUpdateAccountBalance}
+            />
+          )}
         </div>
         {selectedCurrency !== "BRL" && (providerOwned || fxRequired || transaction.fxSource === "MANUAL") && (
           <Label>
@@ -351,6 +390,7 @@ function NewTransactionDialogContent({
   const [tagIds, setTagIds] = useState<string[]>([]);
   const [note, setNote] = useState("");
   const [manualFxRate, setManualFxRate] = useState("");
+  const [updateAccountBalance, setUpdateAccountBalance] = useState(true);
   const [fxRequired, setFxRequired] = useState(false);
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -375,6 +415,9 @@ function NewTransactionDialogContent({
           tagIds,
           note,
           manualFxRateToBrl: manualFxRate ? Number(manualFxRate) : undefined,
+          updateAccountBalance: selectedAccount?.source === "MANUAL"
+            ? updateAccountBalance
+            : false,
         });
       if (!result.ok) {
         setFxRequired(true);
@@ -423,6 +466,12 @@ function NewTransactionDialogContent({
           <Label>Meta<Select className="mt-2 w-full" value={category} onChange={(event) => setCategory(event.target.value as BudgetCategoryKey | "")}><option value="">Selecionar tipo</option>{BUDGET_CATEGORIES.map((item) => <option key={item} value={item}>{BUDGET_CATEGORY_META[item].label}</option>)}</Select></Label>
           <Label>Data<Input className="mt-2" type="date" value={date} onChange={(event) => { setDate(event.target.value); setFxRequired(false); setManualFxRate(""); }} /></Label>
           <Label>Mês de referência<Input className="mt-2" type="month" value={reference} onChange={(event) => setReference(event.target.value)} /></Label>
+          {selectedAccount?.source === "MANUAL" && (
+            <BalanceUpdateControl
+              checked={updateAccountBalance}
+              onCheckedChange={setUpdateAccountBalance}
+            />
+          )}
         </div>
         {selectedCurrency === "USD" && fxRequired && (
           <Label>

@@ -537,6 +537,7 @@ model FinancialAccount {
   balanceFxRateToBrl  Decimal?             @db.Decimal(20, 10)
   balanceFxRateDate   DateTime?            @db.Date
   balanceFxSource     FinancialFxSource?
+  balanceSnapshotAt   DateTime?
   sortOrder           Int                  @default(0)
   active              Boolean              @default(true)
   providerUpdatedAt   DateTime?
@@ -588,6 +589,7 @@ model FinanceTransaction {
   operationType          String?
   note                   String?                    @db.Text
   ignored                Boolean                    @default(false)
+  balanceApplied         Boolean                    @default(false)
   internalTransfer       Boolean                    @default(false)
   internalTransferSource FinanceAssignmentSource    @default(UNASSIGNED)
   deleted                Boolean                    @default(false)

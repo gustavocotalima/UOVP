@@ -80,6 +80,7 @@ export function mapFinanceTransaction(
     status: string | null;
     note: string | null;
     ignored: boolean;
+    balanceApplied: boolean;
     providerLifecycle: "ACTIVE" | "DELETION_PENDING" | "KEPT_MANUAL" | "REMOVED" | null;
     providerDeletedAt: Date | null;
     internalTransfer: boolean;
@@ -157,6 +158,7 @@ export function mapFinanceTransaction(
     status: transaction.status,
     note: transaction.note,
     ignored: transaction.ignored,
+    updateAccountBalance: transaction.balanceApplied,
     providerLifecycle: transaction.providerLifecycle,
     providerDeletedAt: transaction.providerDeletedAt?.toISOString() ?? null,
     internalTransfer: transaction.internalTransfer,
@@ -554,6 +556,7 @@ export async function getFinanceData(
       balanceFxRateToBrl: account.balanceFxRateToBrl?.toString() ?? null,
       balanceFxRateDate: account.balanceFxRateDate?.toISOString() ?? null,
       balanceFxSource: account.balanceFxSource,
+      balanceSnapshotAt: account.balanceSnapshotAt?.toISOString() ?? null,
       creditLimit: account.creditLimit?.toString() ?? null,
       availableCredit: account.availableCredit?.toString() ?? null,
       dueDay: account.dueDay,
