@@ -22,6 +22,11 @@ import {
 } from "./asset-groups";
 import { bumpPortfolioAndInvalidateDrafts } from "./invalidation";
 import {
+  assetCanReceiveContribution,
+  isContributionScopeValid,
+  type ContributionScopeKey,
+} from "./contribution-scope";
+import {
   fetchBinanceQuotes,
   readCachedBinancePairPrices,
   searchBinanceAssets,
@@ -113,7 +118,7 @@ const tickerSearchSchema = z.string().trim().min(1).max(60);
 const brapiSearchKindSchema = z.enum(["BRAZILIAN_STOCKS", "REAL_ESTATE_FUNDS", "ETF"]);
 const yahooSearchKindSchema = z.enum(["INTERNATIONAL_STOCKS", "REITS", "ETF"]);
 const contributionCurrencySchema = z.enum(["BRL", "USD"]);
-const contributionScopeSchema = z.enum(["ALL_ASSETS", "USD_ONLY"]);
+const contributionScopeSchema = z.enum(["ALL_ASSETS", "BRL_ONLY", "USD_ONLY"]);
 
 function inferInstrumentType(investmentClass: InvestmentClassKey): InstrumentType {
   if (investmentClass === "REAL_ESTATE_FUNDS") return "REAL_ESTATE_FUND";
@@ -1725,12 +1730,15 @@ export async function saveInvestmentTargetsAction(values: Record<InvestmentClass
 export async function simulateContributionAction(
   value: number,
   currency: "BRL" | "USD" = "BRL",
-  scope: "ALL_ASSETS" | "USD_ONLY" = "ALL_ASSETS",
+  scope: ContributionScopeKey = "ALL_ASSETS",
 ) {
   const userId = await requireUserId();
   const inputAmount = z.number().positive().max(100_000_000).parse(value);
   const inputCurrency = contributionCurrencySchema.parse(currency);
-  const allocationScope = contributionScopeSchema.parse(inputCurrency === "USD" ? scope : "ALL_ASSETS");
+  const allocationScope = contributionScopeSchema.parse(scope);
+  if (!isContributionScopeValid(inputCurrency, allocationScope)) {
+    throw new Error(`O filtro de ativos selecionado não é válido para aportes em ${inputCurrency}.`);
+  }
   let fxRateToBrl = new Prisma.Decimal(1);
   let fxUpdatedAt: Date | null = null;
   let fxSource: "NATIVE" | "YAHOO" = "NATIVE";
@@ -1754,7 +1762,7 @@ export async function simulateContributionAction(
   const result = allocateContribution({
     contribution,
     targets: portfolio.targets,
-    preserveTargetGapsWithoutEligibleAssets: allocationScope === "USD_ONLY",
+    preserveTargetGapsWithoutEligibleAssets: allocationScope !== "ALL_ASSETS",
     assets: portfolio.assets.map((asset) => ({
       id: asset.id,
       ticker: asset.ticker,
@@ -1765,11 +1773,7 @@ export async function simulateContributionAction(
       unitPrice: asset.unitPrice,
       score: asset.score,
       fractional: asset.fractional,
-      eligibleToReceive: allocationScope !== "USD_ONLY" || (
-        asset.nativeCurrency === "USD"
-        && ["STOCK", "ETF", "REIT"].includes(asset.instrumentType)
-        && asset.holdings.some((holding) => holding.pricingSource === "YAHOO")
-      ),
+      eligibleToReceive: assetCanReceiveContribution(asset, allocationScope),
     })),
   });
 
