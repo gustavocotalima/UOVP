@@ -112,6 +112,8 @@ const brapiApiKeySchema = z.string()
 const tickerSearchSchema = z.string().trim().min(1).max(60);
 const brapiSearchKindSchema = z.enum(["BRAZILIAN_STOCKS", "REAL_ESTATE_FUNDS", "ETF"]);
 const yahooSearchKindSchema = z.enum(["INTERNATIONAL_STOCKS", "REITS", "ETF"]);
+const contributionCurrencySchema = z.enum(["BRL", "USD"]);
+const contributionScopeSchema = z.enum(["ALL_ASSETS", "USD_ONLY"]);
 
 function inferInstrumentType(investmentClass: InvestmentClassKey): InstrumentType {
   if (investmentClass === "REAL_ESTATE_FUNDS") return "REAL_ESTATE_FUND";
@@ -1720,13 +1722,39 @@ export async function saveInvestmentTargetsAction(values: Record<InvestmentClass
   revalidatePath("/carteira");
 }
 
-export async function simulateContributionAction(value: number) {
+export async function simulateContributionAction(
+  value: number,
+  currency: "BRL" | "USD" = "BRL",
+  scope: "ALL_ASSETS" | "USD_ONLY" = "ALL_ASSETS",
+) {
   const userId = await requireUserId();
-  const contribution = z.number().positive().max(100_000_000).parse(value);
+  const inputAmount = z.number().positive().max(100_000_000).parse(value);
+  const inputCurrency = contributionCurrencySchema.parse(currency);
+  const allocationScope = contributionScopeSchema.parse(inputCurrency === "USD" ? scope : "ALL_ASSETS");
+  let fxRateToBrl = new Prisma.Decimal(1);
+  let fxUpdatedAt: Date | null = null;
+  let fxSource: "NATIVE" | "YAHOO" = "NATIVE";
+  if (inputCurrency === "USD") {
+    const symbol = yahooFxSymbol("USD")!;
+    const cached = await readCachedYahooQuotes([symbol]);
+    const cachedRate = cached.get(symbol);
+    const [fx] = await fetchYahooFxRates({
+      currencies: ["USD"],
+      cacheMode: isAutomaticRefreshStale(cachedRate?.cachedAt) ? "REFRESH" : "USE_CACHE",
+    });
+    if (!fx || !Number.isFinite(fx.rateToBrl) || fx.rateToBrl <= 0) {
+      throw new Error("Não foi possível obter a cotação atual USD/BRL para calcular o aporte.");
+    }
+    fxRateToBrl = new Prisma.Decimal(fx.rateToBrl);
+    fxUpdatedAt = fx.asOf;
+    fxSource = "YAHOO";
+  }
+  const contribution = new Prisma.Decimal(inputAmount.toString()).mul(fxRateToBrl);
   const portfolio = await getPortfolioData(userId);
   const result = allocateContribution({
     contribution,
     targets: portfolio.targets,
+    preserveTargetGapsWithoutEligibleAssets: allocationScope === "USD_ONLY",
     assets: portfolio.assets.map((asset) => ({
       id: asset.id,
       ticker: asset.ticker,
@@ -1737,23 +1765,50 @@ export async function simulateContributionAction(value: number) {
       unitPrice: asset.unitPrice,
       score: asset.score,
       fractional: asset.fractional,
+      eligibleToReceive: allocationScope !== "USD_ONLY" || (
+        asset.nativeCurrency === "USD"
+        && ["STOCK", "ETF", "REIT"].includes(asset.instrumentType)
+        && asset.holdings.some((holding) => holding.pricingSource === "YAHOO")
+      ),
     })),
   });
+
+  const assetsById = new Map(portfolio.assets.map((asset) => [asset.id, asset]));
 
   const simulation = await prisma.contributionSimulation.create({
     data: {
       userId,
       portfolioVersion: portfolio.version,
+      inputAmount: new Prisma.Decimal(inputAmount.toString()),
+      inputCurrency,
+      allocationScope,
       requestedAmount: contribution,
       unallocatedAmount: result.unallocatedAmount.toFixed(2),
+      fxRateToBrl,
+      fxUpdatedAt,
+      fxSource,
       suggestions: {
-        create: result.suggestions.map((suggestion) => ({
-          assetId: suggestion.assetId,
-          quantity: suggestion.quantity.toString(),
-          value: suggestion.value.toString(),
-          suggestionPercentage: suggestion.suggestionPercentage.toString(),
-          totalAfterSuggestionPercentage: suggestion.totalAfterSuggestionPercentage.toString(),
-        })),
+        create: result.suggestions.map((suggestion) => {
+          const asset = assetsById.get(suggestion.assetId);
+          const nativeCurrency = asset?.nativeCurrency ?? null;
+          const nativeUnitPrice = nativeCurrency && asset?.nativeUnitPrice
+            ? new Prisma.Decimal(asset.nativeUnitPrice)
+            : null;
+          const assetFxRate = nativeCurrency && asset?.fxRateToBrl
+            ? new Prisma.Decimal(asset.fxRateToBrl)
+            : null;
+          return {
+            assetId: suggestion.assetId,
+            quantity: suggestion.quantity.toString(),
+            value: suggestion.value.toString(),
+            nativeCurrency,
+            nativeUnitPrice,
+            nativeValue: nativeUnitPrice ? suggestion.quantity.mul(nativeUnitPrice) : null,
+            fxRateToBrl: assetFxRate,
+            suggestionPercentage: suggestion.suggestionPercentage.toString(),
+            totalAfterSuggestionPercentage: suggestion.totalAfterSuggestionPercentage.toString(),
+          };
+        }),
       },
     },
     include: { suggestions: { include: { asset: true } } },
@@ -1768,6 +1823,11 @@ export async function simulateContributionAction(value: number) {
     instrumentType: suggestion.asset.instrumentType,
     quantity: suggestion.quantity.toString(),
     value: suggestion.value.toString(),
+    nativeCurrency: suggestion.nativeCurrency,
+    nativeUnitPrice: suggestion.nativeUnitPrice?.toString() ?? null,
+    nativeValue: suggestion.nativeValue?.toString() ?? null,
+    fxRateToBrl: suggestion.fxRateToBrl?.toString() ?? null,
+    paidUnitPriceNative: suggestion.paidUnitPriceNative?.toString() ?? null,
     suggestionPercentage: suggestion.suggestionPercentage.toString(),
     totalAfterSuggestionPercentage: suggestion.totalAfterSuggestionPercentage.toString(),
     executed: suggestion.executed,
@@ -1776,8 +1836,15 @@ export async function simulateContributionAction(value: number) {
 
   return {
     id: simulation.id,
+    inputAmount: simulation.inputAmount.toString(),
+    inputCurrency: simulation.inputCurrency,
+    allocationScope: simulation.allocationScope,
     requestedAmount: simulation.requestedAmount.toString(),
     unallocatedAmount: simulation.unallocatedAmount.toString(),
+    unallocatedInputAmount: simulation.unallocatedAmount.div(simulation.fxRateToBrl ?? 1).toString(),
+    fxRateToBrl: (simulation.fxRateToBrl ?? 1).toString(),
+    fxUpdatedAt: simulation.fxUpdatedAt?.toISOString() ?? null,
+    fxSource: simulation.fxSource === "YAHOO" ? "YAHOO" as const : "NATIVE" as const,
     suggestions: sortContributionSuggestions(suggestions),
   };
 }
@@ -1844,9 +1911,18 @@ export async function executeContributionAction(
         const quantity = parsedQuantity === undefined
           ? externalSuggestion.quantity
           : new Prisma.Decimal(parsedQuantity.toString());
+        const executionFxRate = externalSuggestion.nativeCurrency
+          ? externalSuggestion.fxRateToBrl
+          : null;
+        if (externalSuggestion.nativeCurrency && !executionFxRate?.gt(0)) {
+          throw new Error(`A simulação não possui câmbio válido para ${externalSuggestion.nativeCurrency}. Calcule novamente.`);
+        }
+        const paidUnitPriceBrl = parsedPaidUnitPrice === undefined
+          ? null
+          : new Prisma.Decimal(parsedPaidUnitPrice.toString()).mul(executionFxRate ?? 1);
         const value = externalSuggestion.asset.instrumentType === "FIXED_INCOME"
           ? parsedQuantity === undefined ? externalSuggestion.value : quantity
-          : quantity.mul(parsedPaidUnitPrice!);
+          : quantity.mul(paidUnitPriceBrl!);
         const baselineQuantity = externalSuggestion.asset.holdings
           .filter((holding) => holding.positionSource === "PLUGGY" && holding.includedInTotals)
           .reduce((total, holding) => total.add(holding.quantity), new Prisma.Decimal(0));
@@ -1893,7 +1969,11 @@ export async function executeContributionAction(
           data: {
             quantity,
             value,
-            paidUnitPrice: parsedPaidUnitPrice === undefined ? null : new Prisma.Decimal(parsedPaidUnitPrice.toString()),
+            paidUnitPrice: paidUnitPriceBrl,
+            paidUnitPriceNative: externalSuggestion.nativeCurrency && parsedPaidUnitPrice !== undefined
+              ? new Prisma.Decimal(parsedPaidUnitPrice.toString())
+              : null,
+            executionFxRateToBrl: executionFxRate,
             executionStatus: "AWAITING_SYNC",
             awaitingSyncAt: new Date(),
             baselineQuantity,
@@ -1973,7 +2053,12 @@ export async function executeContributionAction(
           ) ?? suggestion.asset.holdings.find((candidate) => candidate.includedInTotals);
           if (!holding) throw new Error("A posição de mercado não foi encontrada.");
           quantity = parsedQuantity === undefined ? suggestion.quantity : new Prisma.Decimal(parsedQuantity.toString());
-          value = quantity.mul(parsedPaidUnitPrice!);
+          const executionFxRate = suggestion.nativeCurrency ? suggestion.fxRateToBrl : null;
+          if (suggestion.nativeCurrency && !executionFxRate?.gt(0)) {
+            throw new Error(`A simulação não possui câmbio válido para ${suggestion.nativeCurrency}. Calcule novamente.`);
+          }
+          const paidUnitPriceBrl = new Prisma.Decimal(parsedPaidUnitPrice!.toString()).mul(executionFxRate ?? 1);
+          value = quantity.mul(paidUnitPriceBrl);
           await tx.assetHolding.update({
             where: { id: holding.id },
             data: {
@@ -1989,7 +2074,15 @@ export async function executeContributionAction(
           data: {
             quantity,
             value,
-            paidUnitPrice: suggestion.asset.instrumentType === "FIXED_INCOME" ? null : new Prisma.Decimal(parsedPaidUnitPrice!.toString()),
+            paidUnitPrice: suggestion.asset.instrumentType === "FIXED_INCOME"
+              ? null
+              : new Prisma.Decimal(parsedPaidUnitPrice!.toString()).mul(suggestion.fxRateToBrl ?? 1),
+            paidUnitPriceNative: suggestion.asset.instrumentType !== "FIXED_INCOME" && suggestion.nativeCurrency
+              ? new Prisma.Decimal(parsedPaidUnitPrice!.toString())
+              : null,
+            executionFxRateToBrl: suggestion.asset.instrumentType !== "FIXED_INCOME" && suggestion.nativeCurrency
+              ? suggestion.fxRateToBrl
+              : null,
           },
         });
       }
@@ -2039,20 +2132,32 @@ export async function saveAwaitingContributionPriceAction(assetId: string, paidU
       select: {
         id: true,
         quantity: true,
+        nativeCurrency: true,
+        fxRateToBrl: true,
       },
     });
     if (!suggestion) {
       throw new Error("Este aporte não está mais aguardando sincronização.");
     }
 
+    if (suggestion.nativeCurrency && !suggestion.fxRateToBrl?.gt(0)) {
+      throw new Error(`O aporte não possui câmbio válido para ${suggestion.nativeCurrency}. Calcule novamente.`);
+    }
+    const paidUnitPriceBrl = new Prisma.Decimal(parsedPaidUnitPrice.toString()).mul(
+      suggestion.fxRateToBrl ?? 1,
+    );
     const updated = await tx.contributionSuggestion.updateMany({
       where: {
         id: suggestion.id,
         executionStatus: "AWAITING_SYNC",
       },
       data: {
-        paidUnitPrice: new Prisma.Decimal(parsedPaidUnitPrice.toString()),
-        value: suggestion.quantity.mul(parsedPaidUnitPrice),
+        paidUnitPrice: paidUnitPriceBrl,
+        paidUnitPriceNative: suggestion.nativeCurrency
+          ? new Prisma.Decimal(parsedPaidUnitPrice.toString())
+          : null,
+        executionFxRateToBrl: suggestion.nativeCurrency ? suggestion.fxRateToBrl : null,
+        value: suggestion.quantity.mul(paidUnitPriceBrl),
       },
     });
     if (updated.count !== 1) {

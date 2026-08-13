@@ -159,6 +159,16 @@ enum SimulationStatus {
   CANCELLED
 }
 
+enum ContributionCurrency {
+  BRL
+  USD
+}
+
+enum ContributionScope {
+  ALL_ASSETS
+  USD_ONLY
+}
+
 model User {
   id                         String                        @id @default(cuid())
   name                       String?
@@ -950,8 +960,14 @@ model ContributionSimulation {
   id                String                   @id @default(cuid())
   userId            String
   portfolioVersion  Int
+  inputAmount       Decimal                  @db.Decimal(20, 2)
+  inputCurrency     ContributionCurrency     @default(BRL)
+  allocationScope   ContributionScope        @default(ALL_ASSETS)
   requestedAmount   Decimal                  @db.Decimal(20, 2)
   unallocatedAmount Decimal                  @db.Decimal(20, 2)
+  fxRateToBrl       Decimal?                 @db.Decimal(20, 10)
+  fxUpdatedAt       DateTime?
+  fxSource          FinancialFxSource?
   status            SimulationStatus         @default(DRAFT)
   createdAt         DateTime                 @default(now())
   executedAt        DateTime?
@@ -968,6 +984,12 @@ model ContributionSuggestion {
   quantity                       Decimal                   @db.Decimal(30, 10)
   value                          Decimal                   @db.Decimal(30, 10)
   paidUnitPrice                  Decimal?                  @db.Decimal(30, 10)
+  nativeCurrency                 String?
+  nativeUnitPrice                Decimal?                  @db.Decimal(30, 10)
+  nativeValue                    Decimal?                  @db.Decimal(30, 10)
+  fxRateToBrl                    Decimal?                  @db.Decimal(20, 10)
+  paidUnitPriceNative            Decimal?                  @db.Decimal(30, 10)
+  executionFxRateToBrl           Decimal?                  @db.Decimal(20, 10)
   suggestionPercentage           Decimal                   @db.Decimal(12, 8)
   totalAfterSuggestionPercentage Decimal                   @db.Decimal(12, 8)
   executed                       Boolean                   @default(false)

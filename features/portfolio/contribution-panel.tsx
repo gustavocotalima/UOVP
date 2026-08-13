@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { DonutChart } from "@/components/charts/donut-chart";
-import { formatMoney, formatPercent } from "@/lib/money";
+import { formatCurrency, formatMoney, formatPercent } from "@/lib/money";
 import { executeContributionAction, simulateContributionAction } from "./actions";
 import { PORTFOLIO_SIMULATION_INVALIDATED_EVENT } from "./client-events";
 import { INVESTMENT_CLASSES, INVESTMENT_CLASS_META, RATE_CONVENTIONS, RATE_CONVENTION_META, type RateConventionKey } from "./constants";
@@ -53,9 +53,34 @@ function formatQuantity(value: string | number, maximumFractionDigits = 8) {
   return Number(value).toLocaleString("pt-BR", { maximumFractionDigits });
 }
 
+function MoneyWithNative({
+  brl,
+  native,
+  currency,
+  className,
+}: {
+  brl: string | number;
+  native?: string | number | null;
+  currency?: string | null;
+  className?: string;
+}) {
+  return (
+    <span className={`block whitespace-nowrap ${className ?? ""}`}>
+      <span className="block">{formatMoney(brl)}</span>
+      {native !== null && native !== undefined && currency && currency !== "BRL" && (
+        <span className="mt-0.5 block text-[10px] font-normal text-[var(--muted-foreground)]">
+          {formatCurrency(native, currency)}
+        </span>
+      )}
+    </span>
+  );
+}
+
 export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; catalog: PortfolioDto["catalog"] }) {
   const router = useRouter();
   const [value, setValue] = useState(1000);
+  const [currency, setCurrency] = useState<"BRL" | "USD">("BRL");
+  const [scope, setScope] = useState<"ALL_ASSETS" | "USD_ONLY">("ALL_ASSETS");
   const [simulation, setSimulation] = useState<SimulationDto>();
   const [contributionModal, setContributionModal] = useState<ContributionModalState>();
   const [message, setMessage] = useState<string>();
@@ -72,7 +97,12 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
   const selectedUnitPricePaid = Number(contributionModal?.unitPricePaid ?? 0);
   const isFixedIncome = selectedAsset?.instrumentType === "FIXED_INCOME";
   const paidUnitPriceValid = isFixedIncome || (Number.isFinite(selectedUnitPricePaid) && selectedUnitPricePaid > 0);
-  const selectedEquivalent = isFixedIncome ? selectedQuantity : selectedQuantity * selectedUnitPricePaid;
+  const selectedEquivalentNative = isFixedIncome ? selectedQuantity : selectedQuantity * selectedUnitPricePaid;
+  const selectedEquivalentBrl = isFixedIncome
+    ? selectedQuantity
+    : selectedSuggestion?.nativeCurrency
+      ? selectedEquivalentNative * Number(selectedSuggestion.fxRateToBrl ?? 0)
+      : selectedEquivalentNative;
   const selectedHolding = selectedAsset?.holdings.find((holding) => holding.id === contributionModal?.holdingId);
   const pluggyControlled = Boolean(
     selectedAsset?.pluggyControlled
@@ -116,7 +146,7 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
     setMessage(undefined);
     startTransition(async () => {
       try {
-        const result = await simulateContributionAction(value);
+        const result = await simulateContributionAction(value, currency, currency === "USD" ? scope : "ALL_ASSETS");
         if (calculationRequestId.current !== requestId) return;
         setSimulation(result);
         if (!result.suggestions.length) setMessage("Nenhum ativo elegível. Confira metas, notas e preços.");
@@ -171,7 +201,10 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
             ? {
                 ...item,
                 quantity: selectedQuantity.toString(),
-                value: (isFixedIncome ? selectedQuantity : selectedEquivalent).toString(),
+                value: selectedEquivalentBrl.toString(),
+                nativeValue: !isFixedIncome && item.nativeCurrency
+                  ? selectedEquivalentNative.toString()
+                  : item.nativeValue,
                 executed: !result.awaitingSync,
                 executionStatus: result.awaitingSync ? "AWAITING_SYNC" : "EXECUTED",
               }
@@ -192,7 +225,45 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
     <div className="space-y-6">
       <Card>
         <CardContent className="flex flex-col gap-4 pt-4 sm:pt-5 @3xl:flex-row @3xl:items-end">
-          <div className="w-full max-w-sm space-y-2"><Label htmlFor="contribution-value">Valor do aporte</Label><Input id="contribution-value" type="number" min="0.01" step="0.01" value={value} onChange={(event) => setValue(Number(event.target.value))} /></div>
+          <div className="w-full max-w-sm space-y-2">
+            <Label htmlFor="contribution-value">Valor do aporte</Label>
+            <div className="grid grid-cols-[minmax(0,1fr)_96px] gap-2">
+              <Input id="contribution-value" type="number" min="0.01" step="0.01" value={value} onChange={(event) => setValue(Number(event.target.value))} />
+              <Select
+                aria-label="Moeda do aporte"
+                value={currency}
+                onChange={(event) => {
+                  calculationRequestId.current += 1;
+                  const nextCurrency = event.target.value as "BRL" | "USD";
+                  setCurrency(nextCurrency);
+                  setScope(nextCurrency === "USD" ? "USD_ONLY" : "ALL_ASSETS");
+                  setSimulation(undefined);
+                  setContributionModal(undefined);
+                }}
+              >
+                <option value="BRL">BRL</option>
+                <option value="USD">USD</option>
+              </Select>
+            </div>
+          </div>
+          {currency === "USD" && (
+            <div className="w-full max-w-xs space-y-2">
+              <Label htmlFor="contribution-scope">Ativos que podem receber o aporte</Label>
+              <Select
+                id="contribution-scope"
+                value={scope}
+                onChange={(event) => {
+                  calculationRequestId.current += 1;
+                  setScope(event.target.value as "ALL_ASSETS" | "USD_ONLY");
+                  setSimulation(undefined);
+                  setContributionModal(undefined);
+                }}
+              >
+                <option value="USD_ONLY">Somente ativos em USD</option>
+                <option value="ALL_ASSETS">Todos os ativos elegíveis</option>
+              </Select>
+            </div>
+          )}
           <Button size="lg" onClick={calculate} disabled={pending || value <= 0 || !assets.length}><Calculator className="size-4" /> {pending ? "Calculando…" : "Calcular"}</Button>
           {!assets.length && <p className="text-sm text-[var(--muted-foreground)]">Adicione ativos antes de simular.</p>}
         </CardContent>
@@ -206,6 +277,25 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
               <p className="text-xs font-semibold text-[var(--muted-foreground)]">Mudar visualização</p>
             </CardHeader>
             <CardContent>
+              {simulation.inputCurrency === "USD" && (
+                <div className="mb-5 grid gap-3 rounded-xl border bg-[var(--muted)]/30 p-4 text-sm sm:grid-cols-3">
+                  <div>
+                    <span className="block text-xs text-[var(--muted-foreground)]">Aporte informado</span>
+                    <strong>{formatCurrency(simulation.inputAmount, "USD")}</strong>
+                    <span className="mt-0.5 block text-xs text-[var(--muted-foreground)]">{formatMoney(simulation.requestedAmount)}</span>
+                  </div>
+                  <div>
+                    <span className="block text-xs text-[var(--muted-foreground)]">Câmbio congelado</span>
+                    <strong>US$ 1 = {formatMoney(simulation.fxRateToBrl)}</strong>
+                    {simulation.fxUpdatedAt && <span className="mt-0.5 block text-xs text-[var(--muted-foreground)]">Yahoo · {new Date(simulation.fxUpdatedAt).toLocaleString("pt-BR")}</span>}
+                  </div>
+                  <div>
+                    <span className="block text-xs text-[var(--muted-foreground)]">Não alocado</span>
+                    <strong>{formatCurrency(simulation.unallocatedInputAmount, "USD")}</strong>
+                    <span className="mt-0.5 block text-xs text-[var(--muted-foreground)]">{formatMoney(simulation.unallocatedAmount)}</span>
+                  </div>
+                </div>
+              )}
               {chartData.length ? <div className="mx-auto max-w-sm"><DonutChart data={chartData} centerLabel="Patrimônio total" /></div> : <div className="grid h-64 place-items-center text-sm text-[var(--muted-foreground)]">Sem sugestões.</div>}
               <div className="mx-auto mt-2 grid max-w-4xl gap-x-8 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
                 {INVESTMENT_CLASSES.map((investmentClass) => {
@@ -234,9 +324,9 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
                         <span className="grid size-9 shrink-0 place-items-center rounded-full bg-[var(--muted)] text-sm font-semibold">{asset?.score ?? 0}</span>
                       </div>
                       <dl className="mt-4 grid grid-cols-2 gap-3 border-t pt-4 text-sm">
-                        <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Atual</dt><dd className="mt-1 font-semibold text-[var(--success)]">{formatMoney(asset?.currentValue ?? 0)}</dd></div>
-                        <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Preço atual</dt><dd className="mt-1 font-semibold text-[var(--success)]">{formatMoney(asset?.unitPrice ?? 0)}</dd></div>
-                        <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Sugestão</dt><dd className="mt-1 font-semibold">{formatMoney(item.value)}</dd></div>
+                        <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Atual</dt><dd className="mt-1 font-semibold text-[var(--success)]"><MoneyWithNative brl={asset?.currentValue ?? 0} native={asset?.nativeCurrentValue} currency={asset?.nativeCurrency} /></dd></div>
+                        <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Preço atual</dt><dd className="mt-1 font-semibold text-[var(--success)]"><MoneyWithNative brl={asset?.unitPrice ?? 0} native={asset?.nativeUnitPrice} currency={asset?.nativeCurrency} /></dd></div>
+                        <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Sugestão</dt><dd className="mt-1 font-semibold"><MoneyWithNative brl={item.value} native={item.nativeValue} currency={item.nativeCurrency} /></dd></div>
                         <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Quantidade</dt><dd className="mt-1 font-semibold">{formatQuantity(item.quantity)}</dd></div>
                         <div className="col-span-2"><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Total após aporte</dt><dd className="mt-1 font-semibold">{formatPercent(item.totalAfterSuggestionPercentage)}</dd></div>
                       </dl>
@@ -257,11 +347,11 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
                     <tr>
                       <th className="px-4 py-4 text-center">Tipo</th>
                       <th className="px-4 py-4">Ticker</th>
-                      <th className="px-4 py-4">Atual ($)</th>
-                      <th className="px-4 py-4">Preço atual ($)</th>
+                      <th className="px-4 py-4">Atual</th>
+                      <th className="px-4 py-4">Preço atual</th>
                       <th className="px-4 py-4 text-center">Nota</th>
                       <th className="px-4 py-4 text-center">Total após<br />aporte (%)</th>
-                      <th className="px-4 py-4 text-center">Sugest. de<br />aporte ($)</th>
+                      <th className="px-4 py-4 text-center">Sugest. de<br />aporte</th>
                       <th className="px-4 py-4 text-center">Sugest. de<br />aporte (un)</th>
                       <th className="px-4 py-4 text-center">Aportar!</th>
                     </tr>
@@ -274,11 +364,11 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
                         <tr key={item.id} className="border-b last:border-0">
                           <td className="px-4 py-4 text-center"><span className="inline-flex rounded-full px-4 py-2 font-semibold text-black" style={{ background: meta.color }}>{meta.label}</span></td>
                           <td className="px-4 py-4 font-semibold">{item.ticker}</td>
-                          <td className="px-4 py-4 font-semibold text-[var(--success)]">{formatMoney(asset?.currentValue ?? 0)}</td>
-                          <td className="px-4 py-4 font-semibold text-[var(--success)]">{formatMoney(asset?.unitPrice ?? 0)}</td>
+                          <td className="px-4 py-4 font-semibold text-[var(--success)]"><MoneyWithNative brl={asset?.currentValue ?? 0} native={asset?.nativeCurrentValue} currency={asset?.nativeCurrency} /></td>
+                          <td className="px-4 py-4 font-semibold text-[var(--success)]"><MoneyWithNative brl={asset?.unitPrice ?? 0} native={asset?.nativeUnitPrice} currency={asset?.nativeCurrency} /></td>
                           <td className="px-4 py-4 text-center font-semibold">{asset?.score ?? 0}</td>
                           <td className="px-4 py-4 text-center font-semibold">{formatPercent(item.totalAfterSuggestionPercentage)}</td>
-                          <td className="px-4 py-4 text-center font-semibold text-[var(--success)]">{formatMoney(item.value)}</td>
+                          <td className="px-4 py-4 text-center font-semibold text-[var(--success)]"><MoneyWithNative brl={item.value} native={item.nativeValue} currency={item.nativeCurrency} /></td>
                           <td className="px-4 py-4 text-center font-semibold">{formatQuantity(item.quantity)}</td>
                           <td className="px-4 py-4 text-center">
                             {item.executed
@@ -330,7 +420,9 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
               />
               {!isFixedIncome && (
                 <div className="space-y-2">
-                  <Label htmlFor="contribution-unit-price" className="text-xs font-semibold text-[var(--primary)]">Preço unitário pago (R$):</Label>
+                  <Label htmlFor="contribution-unit-price" className="text-xs font-semibold text-[var(--primary)]">
+                    Preço unitário pago ({selectedSuggestion.nativeCurrency ?? "BRL"}):
+                  </Label>
                   <Input
                     id="contribution-unit-price"
                     type="number"
@@ -338,11 +430,26 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
                     step="any"
                     value={contributionModal.unitPricePaid}
                     onChange={(event) => setContributionModal({ ...contributionModal, unitPricePaid: event.target.value })}
+                    placeholder={selectedSuggestion.nativeUnitPrice ?? selectedAsset.unitPrice}
                     className="border-white/60 bg-transparent text-white"
                   />
                 </div>
               )}
-              <p className="text-xs font-semibold">{isFixedIncome ? `Valor sugerido: ${formatMoney(selectedSuggestion.value)}` : `Quantidade sugerida: ${formatQuantity(selectedSuggestion.quantity)} · Valor informado: ${formatMoney(selectedEquivalent)}`}</p>
+              {isFixedIncome ? (
+                <p className="text-xs font-semibold">Valor sugerido: {formatMoney(selectedSuggestion.value)}</p>
+              ) : (
+                <div className="space-y-1 text-xs font-semibold">
+                  <p>Quantidade sugerida: {formatQuantity(selectedSuggestion.quantity)}</p>
+                  {selectedSuggestion.nativeCurrency ? (
+                    <p>Valor informado: {formatCurrency(selectedEquivalentNative, selectedSuggestion.nativeCurrency)} · {formatMoney(selectedEquivalentBrl)}</p>
+                  ) : (
+                    <p>Valor informado: {formatMoney(selectedEquivalentBrl)}</p>
+                  )}
+                  {selectedSuggestion.nativeCurrency && selectedSuggestion.fxRateToBrl && (
+                    <p className="font-normal text-white/70">Câmbio da simulação: 1 {selectedSuggestion.nativeCurrency} = {formatMoney(selectedSuggestion.fxRateToBrl)}</p>
+                  )}
+                </div>
+              )}
             </div>
             {isFixedIncome && (
               <div className="space-y-4 rounded-xl border border-white/25 p-4">

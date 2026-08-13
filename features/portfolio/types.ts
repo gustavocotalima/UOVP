@@ -28,6 +28,7 @@ export type AssetHoldingDto = {
   averagePricePaid: string | null;
   averagePriceCoverage: number;
   currentValue: string;
+  nativeCurrentValue: string | null;
   fractional: boolean;
   rateConvention: RateConventionKey | null;
   benchmark: string | null;
@@ -76,6 +77,8 @@ export type AssetDto = {
   fxUpdatedAt: string | null;
   manualValue: string | null;
   currentValue: string;
+  nativeCurrentValue: string | null;
+  nativeCurrency: string | null;
   averagePricePaid: string | null;
   averagePriceCoverage: number;
   fractional: boolean;
@@ -89,6 +92,9 @@ export type AssetDto = {
     quantity: string;
     value: string;
     paidUnitPrice: string | null;
+    nativeCurrency: string | null;
+    paidUnitPriceNative: string | null;
+    executionFxRateToBrl: string | null;
     awaitingSyncAt: string | null;
   } | null;
 };
@@ -182,8 +188,15 @@ export type DiagramQuestionDto = {
 
 export type SimulationDto = {
   id: string;
+  inputAmount: string;
+  inputCurrency: "BRL" | "USD";
+  allocationScope: "ALL_ASSETS" | "USD_ONLY";
   requestedAmount: string;
   unallocatedAmount: string;
+  unallocatedInputAmount: string;
+  fxRateToBrl: string;
+  fxUpdatedAt: string | null;
+  fxSource: "NATIVE" | "YAHOO";
   suggestions: Array<{
     id: string;
     assetId: string;
@@ -193,6 +206,11 @@ export type SimulationDto = {
     instrumentType: InstrumentTypeKey;
     quantity: string;
     value: string;
+    nativeCurrency: string | null;
+    nativeUnitPrice: string | null;
+    nativeValue: string | null;
+    fxRateToBrl: string | null;
+    paidUnitPriceNative: string | null;
     suggestionPercentage: string;
     totalAfterSuggestionPercentage: string;
       executed: boolean;

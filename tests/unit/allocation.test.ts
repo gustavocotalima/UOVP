@@ -37,6 +37,33 @@ describe("alocação de aportes", () => {
     expect(result.suggestions[0].quantity.toNumber()).toBeCloseTo(1 / 3000, 12);
   });
 
+  it("considera a carteira inteira nas metas, mas deixa saldo não alocado quando o escopo restringe os recebedores", () => {
+    const result = allocateContribution({
+      contribution: 1000,
+      preserveTargetGapsWithoutEligibleAssets: true,
+      targets: {
+        ...DEFAULT_TARGETS,
+        INTERNATIONAL_STOCKS: 50,
+        BRAZILIAN_STOCKS: 50,
+        REAL_ESTATE_FUNDS: 0,
+        REITS: 0,
+        CRYPTO: 0,
+        FIXED_INCOME: 0,
+        INTERNATIONAL_FIXED_INCOME: 0,
+        STORE_OF_VALUE: 0,
+      },
+      assets: [
+        { id: "usd", ticker: "KO", name: "Coca-Cola", investmentClass: "INTERNATIONAL_STOCKS", currentValue: 0, quantity: 0, unitPrice: 100, score: 10, fractional: true, eligibleToReceive: true },
+        { id: "brl", ticker: "ITUB3", name: "Itaú", investmentClass: "BRAZILIAN_STOCKS", currentValue: 0, quantity: 0, unitPrice: 50, score: 10, fractional: false, eligibleToReceive: false },
+      ],
+    });
+
+    expect(result.suggestions).toHaveLength(1);
+    expect(result.suggestions[0].assetId).toBe("usd");
+    expect(result.suggestions[0].value.toNumber()).toBe(500);
+    expect(result.unallocatedAmount.toNumber()).toBe(500);
+  });
+
   it("distribui um aporte multiclasse respeitando notas e arredondamento", () => {
     const result = allocateContribution({
       contribution: 1000,

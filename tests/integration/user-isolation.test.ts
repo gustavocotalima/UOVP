@@ -55,6 +55,7 @@ suite("isolamento entre usuários", () => {
       data: {
         userId: second.id,
         portfolioVersion: second.portfolio!.version,
+        inputAmount: 100,
         requestedAmount: 100,
         unallocatedAmount: 100,
       },
