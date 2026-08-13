@@ -21,6 +21,7 @@ export type AllocationInput = {
   targets: Record<InvestmentClassKey, Decimal.Value>;
   assets: AllocationAsset[];
   preserveTargetGapsWithoutEligibleAssets?: boolean;
+  capEligibleClassesAtTarget?: boolean;
 };
 
 export type AllocationSuggestion = {
@@ -56,6 +57,49 @@ function roundedSpend(asset: WorkingAsset, raw: Decimal) {
   if (asset.fractional) return raw;
   if (asset.price.lte(0)) return new Decimal(0);
   return raw.div(asset.price).floor().times(asset.price);
+}
+
+function scopedContributionLimit(
+  contribution: Decimal,
+  currentPortfolio: Decimal,
+  assets: WorkingAsset[],
+  targets: Record<InvestmentClassKey, Decimal.Value>,
+) {
+  const eligibleClasses = (Object.keys(targets) as InvestmentClassKey[]).filter((investmentClass) =>
+    new Decimal(targets[investmentClass] ?? 0).gt(0)
+    && assets.some((asset) =>
+      asset.investmentClass === investmentClass
+      && asset.eligibleToReceive !== false
+      && asset.score > 0
+      && asset.price.gt(0),
+    ),
+  );
+  if (!eligibleClasses.length) return new Decimal(0);
+
+  const capacityAt = (additionalValue: Decimal) => eligibleClasses.reduce((total, investmentClass) => {
+    const target = new Decimal(targets[investmentClass] ?? 0).div(100);
+    const currentClassValue = sum(
+      assets
+        .filter((asset) => asset.investmentClass === investmentClass)
+        .map((asset) => asset.originalCurrent),
+    );
+    return total.plus(Decimal.max(
+      0,
+      currentPortfolio.plus(additionalValue).times(target).minus(currentClassValue),
+    ));
+  }, new Decimal(0));
+
+  if (capacityAt(contribution).gte(contribution)) return contribution;
+  if (capacityAt(new Decimal(0)).lte(0)) return new Decimal(0);
+
+  let lower = new Decimal(0);
+  let upper = contribution;
+  for (let iteration = 0; iteration < 120; iteration += 1) {
+    const midpoint = lower.plus(upper).div(2);
+    if (capacityAt(midpoint).gte(midpoint)) lower = midpoint;
+    else upper = midpoint;
+  }
+  return lower.toDecimalPlaces(10, Decimal.ROUND_DOWN);
 }
 
 // Black-box fixtures at R$ 999 and R$ 1.000 show a distinct residual path:
@@ -108,8 +152,11 @@ export function allocateContribution(input: AllocationInput) {
     suggested: new Decimal(0),
   }));
   const currentPortfolio = sum(assets.map((asset) => asset.current));
-  const finalPortfolio = currentPortfolio.plus(contribution);
-  let remaining = contribution;
+  const allocationBudget = input.capEligibleClassesAtTarget
+    ? scopedContributionLimit(contribution, currentPortfolio, assets, input.targets)
+    : contribution;
+  const finalPortfolio = currentPortfolio.plus(allocationBudget);
+  let remaining = allocationBudget;
   const innerPassSchedule = [1, 1];
   let appliedLowValueBoundary = false;
 
@@ -138,7 +185,10 @@ export function allocateContribution(input: AllocationInput) {
 
     for (const [investmentClass, gap] of classGaps.entries()) {
       if (gap.lte(0)) continue;
-      const classBudget = outerRemaining.times(gap).div(gapTotal);
+      const proportionalBudget = outerRemaining.times(gap).div(gapTotal);
+      const classBudget = input.capEligibleClassesAtTarget
+        ? Decimal.min(gap, proportionalBudget)
+        : proportionalBudget;
       const eligible = assets.filter(
         (asset) => asset.investmentClass === investmentClass
           && asset.eligibleToReceive !== false
@@ -190,7 +240,7 @@ export function allocateContribution(input: AllocationInput) {
     }
 
     const totalSuggested = sum(assets.map((asset) => asset.suggested));
-    remaining = Decimal.max(0, contribution.minus(totalSuggested));
+    remaining = Decimal.max(0, allocationBudget.minus(totalSuggested));
   }
 
   if (appliedLowValueBoundary && contribution.lte(1000)) {
@@ -199,7 +249,7 @@ export function allocateContribution(input: AllocationInput) {
       asset.suggested = asset.suggested.times(LOW_VALUE_FRACTIONAL_RETENTION);
       asset.current = asset.originalCurrent.plus(asset.suggested);
     }
-    remaining = Decimal.max(0, contribution.minus(sum(assets.map((asset) => asset.suggested))));
+    remaining = Decimal.max(0, allocationBudget.minus(sum(assets.map((asset) => asset.suggested))));
   }
 
   const suggestions = assets
@@ -218,5 +268,8 @@ export function allocateContribution(input: AllocationInput) {
         .times(100),
     }));
 
-  return { suggestions, unallocatedAmount: remaining };
+  return {
+    suggestions,
+    unallocatedAmount: contribution.minus(allocationBudget).plus(remaining),
+  };
 }

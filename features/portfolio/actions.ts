@@ -1762,7 +1762,8 @@ export async function simulateContributionAction(
   const result = allocateContribution({
     contribution,
     targets: portfolio.targets,
-    preserveTargetGapsWithoutEligibleAssets: allocationScope !== "ALL_ASSETS",
+    preserveTargetGapsWithoutEligibleAssets: false,
+    capEligibleClassesAtTarget: allocationScope !== "ALL_ASSETS",
     assets: portfolio.assets.map((asset) => ({
       id: asset.id,
       ticker: asset.ticker,
