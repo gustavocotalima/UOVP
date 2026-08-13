@@ -64,6 +64,92 @@ describe("alocação de aportes", () => {
     expect(result.unallocatedAmount.toNumber()).toBe(500);
   });
 
+  it("redistribui todo o aporte entre os ativos BRL elegíveis quando ativos USD são excluídos", () => {
+    const result = allocateContribution({
+      contribution: 1500,
+      preserveTargetGapsWithoutEligibleAssets: false,
+      capEligibleClassesAtTarget: true,
+      targets: {
+        ...DEFAULT_TARGETS,
+        INTERNATIONAL_STOCKS: 50,
+        BRAZILIAN_STOCKS: 50,
+        REAL_ESTATE_FUNDS: 0,
+        REITS: 0,
+        CRYPTO: 0,
+        FIXED_INCOME: 0,
+        INTERNATIONAL_FIXED_INCOME: 0,
+        STORE_OF_VALUE: 0,
+      },
+      assets: [
+        { id: "usd", ticker: "KO", name: "Coca-Cola", investmentClass: "INTERNATIONAL_STOCKS", currentValue: 10000, quantity: 100, unitPrice: 100, score: 10, fractional: true, eligibleToReceive: false },
+        { id: "brl", ticker: "ITUB3", name: "Itaú", investmentClass: "BRAZILIAN_STOCKS", currentValue: 0, quantity: 0, unitPrice: 1, score: 10, fractional: true, eligibleToReceive: true },
+      ],
+    });
+
+    expect(result.suggestions).toHaveLength(1);
+    expect(result.suggestions[0].assetId).toBe("brl");
+    expect(result.suggestions[0].value.toNumber()).toBe(1500);
+    expect(result.unallocatedAmount.toNumber()).toBe(0);
+  });
+
+  it("não ultrapassa a meta das classes elegíveis ao filtrar por moeda", () => {
+    const result = allocateContribution({
+      contribution: 1000,
+      preserveTargetGapsWithoutEligibleAssets: false,
+      capEligibleClassesAtTarget: true,
+      targets: {
+        ...DEFAULT_TARGETS,
+        INTERNATIONAL_STOCKS: 15,
+        BRAZILIAN_STOCKS: 85,
+        REAL_ESTATE_FUNDS: 0,
+        REITS: 0,
+        CRYPTO: 0,
+        FIXED_INCOME: 0,
+        INTERNATIONAL_FIXED_INCOME: 0,
+        STORE_OF_VALUE: 0,
+      },
+      assets: [
+        { id: "usd", ticker: "KO", name: "Coca-Cola", investmentClass: "INTERNATIONAL_STOCKS", currentValue: 1000, quantity: 10, unitPrice: 1, score: 10, fractional: true, eligibleToReceive: true },
+        { id: "brl", ticker: "ITUB3", name: "Itaú", investmentClass: "BRAZILIAN_STOCKS", currentValue: 8000, quantity: 80, unitPrice: 1, score: 10, fractional: true, eligibleToReceive: false },
+      ],
+    });
+
+    // O máximo resolve (1.000 + x) / (9.000 + x) = 15%.
+    expect(result.suggestions).toHaveLength(1);
+    expect(result.suggestions[0].assetId).toBe("usd");
+    expect(result.suggestions[0].value.toNumber()).toBeCloseTo(411.7647058823, 8);
+    expect(result.suggestions[0].totalAfterSuggestionPercentage.toNumber()).toBeCloseTo(15, 8);
+    expect(result.unallocatedAmount.toNumber()).toBeCloseTo(588.2352941177, 8);
+  });
+
+  it("investe todo o aporte USD quando a classe elegível continua abaixo da meta", () => {
+    const result = allocateContribution({
+      contribution: 1000,
+      preserveTargetGapsWithoutEligibleAssets: false,
+      capEligibleClassesAtTarget: true,
+      targets: {
+        ...DEFAULT_TARGETS,
+        INTERNATIONAL_STOCKS: 15,
+        BRAZILIAN_STOCKS: 85,
+        REAL_ESTATE_FUNDS: 0,
+        REITS: 0,
+        CRYPTO: 0,
+        FIXED_INCOME: 0,
+        INTERNATIONAL_FIXED_INCOME: 0,
+        STORE_OF_VALUE: 0,
+      },
+      assets: [
+        { id: "usd", ticker: "KO", name: "Coca-Cola", investmentClass: "INTERNATIONAL_STOCKS", currentValue: 0, quantity: 0, unitPrice: 1, score: 10, fractional: true, eligibleToReceive: true },
+        { id: "brl", ticker: "ITUB3", name: "Itaú", investmentClass: "BRAZILIAN_STOCKS", currentValue: 9000, quantity: 90, unitPrice: 1, score: 10, fractional: true, eligibleToReceive: false },
+      ],
+    });
+
+    expect(result.suggestions).toHaveLength(1);
+    expect(result.suggestions[0].value.toNumber()).toBe(1000);
+    expect(result.suggestions[0].totalAfterSuggestionPercentage.toNumber()).toBe(10);
+    expect(result.unallocatedAmount.toNumber()).toBe(0);
+  });
+
   it("distribui um aporte multiclasse respeitando notas e arredondamento", () => {
     const result = allocateContribution({
       contribution: 1000,
