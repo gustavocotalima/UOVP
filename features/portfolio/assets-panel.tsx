@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { DonutChart } from "@/components/charts/donut-chart";
-import { formatMoney, formatPercent } from "@/lib/money";
+import { formatCurrency, formatMoney, formatPercent } from "@/lib/money";
 import {
   deleteAssetAction,
   deleteAssetClassAction,
@@ -221,6 +221,30 @@ function reviewMoney(value: string, currency: string) {
 
 function reviewDecimal(value: string) {
   return Number(value).toLocaleString("pt-BR", { maximumFractionDigits: 8 });
+}
+
+function MoneyWithNative({
+  brl,
+  native,
+  currency,
+  strong = false,
+}: {
+  brl: string;
+  native?: string | null;
+  currency?: string | null;
+  strong?: boolean;
+}) {
+  const Primary = strong ? "strong" : "span";
+  return (
+    <span className="block whitespace-nowrap">
+      <Primary>{formatMoney(brl)}</Primary>
+      {native !== null && native !== undefined && currency && currency !== "BRL" && (
+        <span className="mt-0.5 block text-[10px] font-normal text-[var(--muted-foreground)]">
+          {formatCurrency(native, currency)}
+        </span>
+      )}
+    </span>
+  );
 }
 
 function reviewPercentage(value: string) {
@@ -1317,7 +1341,7 @@ export function AssetsPanel({
                         </div>
                       </div>
                       <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 border-t pt-4 text-sm">
-                        <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Valor atual</dt><dd className="mt-1 font-semibold">{formatMoney(asset.currentValue)}</dd></div>
+                        <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Valor atual</dt><dd className="mt-1"><MoneyWithNative brl={asset.currentValue} native={asset.nativeCurrentValue} currency={asset.nativeCurrency} strong /></dd></div>
                         <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">% da carteira</dt><dd className="mt-1 font-semibold">{formatPercent(total ? currentValue(asset) / total * 100 : 0)}</dd></div>
                         <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Nota</dt><dd className="mt-1 flex items-center gap-2 font-semibold">{asset.score}{asset.needsScore && <span className="text-[10px] font-normal text-[var(--primary)]">Revisar</span>}</dd></div>
                         <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">{showsApplicationCount ? "Aplicações" : "Quantidade"}</dt><dd className="mt-1 font-semibold">{showsApplicationCount ? asset.holdings.length : Number(asset.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 8 })}</dd></div>
@@ -1338,12 +1362,12 @@ export function AssetsPanel({
                             {asset.instrumentType === "FIXED_INCOME" ? (
                               <p>{formatMoney(asset.awaitingSyncContribution.value)}</p>
                             ) : asset.awaitingSyncContribution.paidUnitPrice ? (
-                              <p>{reviewDecimal(asset.awaitingSyncContribution.quantity)} un. · {formatMoney(asset.awaitingSyncContribution.paidUnitPrice)} cada · {formatMoney(asset.awaitingSyncContribution.value)}</p>
+                              <p>{reviewDecimal(asset.awaitingSyncContribution.quantity)} un. · {asset.awaitingSyncContribution.paidUnitPriceNative && asset.awaitingSyncContribution.nativeCurrency ? formatCurrency(asset.awaitingSyncContribution.paidUnitPriceNative, asset.awaitingSyncContribution.nativeCurrency) : formatMoney(asset.awaitingSyncContribution.paidUnitPrice)} cada · {formatMoney(asset.awaitingSyncContribution.value)}</p>
                             ) : (
                               <div className="grid gap-2">
                                 <span>{reviewDecimal(asset.awaitingSyncContribution.quantity)} un.</span>
                                 <div className="flex gap-2">
-                                  <Input type="number" min="0.00000001" step="any" value={pendingPriceByAsset[asset.id] ?? ""} onChange={(event) => setPendingPriceByAsset((current) => ({ ...current, [asset.id]: event.target.value }))} aria-label={`Preço unitário pago por ${asset.ticker}`} placeholder="Preço pago" className="h-10 bg-[var(--card)]" />
+                                  <Input type="number" min="0.00000001" step="any" value={pendingPriceByAsset[asset.id] ?? ""} onChange={(event) => setPendingPriceByAsset((current) => ({ ...current, [asset.id]: event.target.value }))} aria-label={`Preço unitário pago por ${asset.ticker} em ${asset.awaitingSyncContribution.nativeCurrency ?? "BRL"}`} placeholder={`Preço pago (${asset.awaitingSyncContribution.nativeCurrency ?? "R$"})`} className="h-10 bg-[var(--card)]" />
                                   <Button type="button" onClick={() => savePendingContributionPrice(asset.id)} disabled={pending || !(Number(pendingPriceByAsset[asset.id]) > 0)}>Salvar</Button>
                                 </div>
                               </div>
@@ -1367,7 +1391,7 @@ export function AssetsPanel({
                               <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-3 text-xs">
                                 <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Emissor</dt><dd className="mt-1">{holding.issuer || "—"}</dd></div>
                                 {holding.institution && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Instituição</dt><dd className="mt-1">{holding.institution}</dd></div>}
-                                <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Atual</dt><dd className="mt-1 font-semibold">{formatMoney(holding.currentValue)}</dd></div>
+                                <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Atual</dt><dd className="mt-1"><MoneyWithNative brl={holding.currentValue} native={holding.nativeCurrentValue} currency={holding.currency} strong /></dd></div>
                                 {holding.investedValue !== null && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Investido</dt><dd className="mt-1">{formatMoney(holding.investedValue)}</dd></div>}
                                 {["STOCK", "ETF", "REAL_ESTATE_FUND", "REIT", "CRYPTO"].includes(asset.instrumentType) && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Quantidade atual</dt><dd className="mt-1">{Number(holding.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 8 })}</dd></div>}
                                 {displayedAveragePrice !== null && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Preço médio</dt><dd className="mt-1">{formatMoney(displayedAveragePrice)}{displayedAveragePriceCoverage < 0.999 && <span className="block text-[9px] text-[var(--primary)]">Histórico parcial</span>}</dd></div>}
@@ -1481,7 +1505,7 @@ export function AssetsPanel({
                             )}
                             {asset.instrumentType === "ETF" && asset.fixedIncomeFamilyName && asset.indexation && <span className="mt-0.5 block max-w-28 truncate text-[10px] text-[var(--muted-foreground)]" title={`${asset.fixedIncomeFamilyName} · ${FIXED_INCOME_INDEXATION_META[asset.indexation].label}`}>{asset.fixedIncomeFamilyName} · {FIXED_INCOME_INDEXATION_META[asset.indexation].label}</span>}
                           </td>
-                          <td className="whitespace-nowrap px-3">{formatMoney(asset.currentValue)}</td>
+                          <td className="whitespace-nowrap px-3"><MoneyWithNative brl={asset.currentValue} native={asset.nativeCurrentValue} currency={asset.nativeCurrency} /></td>
                           <td className="whitespace-nowrap px-3">{formatPercent(total ? currentValue(asset) / total * 100 : 0)}</td>
                           <td className="whitespace-nowrap px-3">
                             <span className="grid size-8 place-items-center rounded-full bg-[var(--muted)] font-semibold">{asset.score}</span>
@@ -1522,7 +1546,7 @@ export function AssetsPanel({
                                     <span className="text-[var(--foreground)]">{formatMoney(asset.awaitingSyncContribution.value)}</span>
                                   ) : asset.awaitingSyncContribution.paidUnitPrice ? (
                                     <span className="text-[var(--foreground)]">
-                                      {reviewDecimal(asset.awaitingSyncContribution.quantity)} un. · {formatMoney(asset.awaitingSyncContribution.paidUnitPrice)} cada · {formatMoney(asset.awaitingSyncContribution.value)}
+                                      {reviewDecimal(asset.awaitingSyncContribution.quantity)} un. · {asset.awaitingSyncContribution.paidUnitPriceNative && asset.awaitingSyncContribution.nativeCurrency ? formatCurrency(asset.awaitingSyncContribution.paidUnitPriceNative, asset.awaitingSyncContribution.nativeCurrency) : formatMoney(asset.awaitingSyncContribution.paidUnitPrice)} cada · {formatMoney(asset.awaitingSyncContribution.value)}
                                     </span>
                                   ) : (
                                     <div className="flex flex-wrap items-center justify-end gap-2">
@@ -1533,8 +1557,8 @@ export function AssetsPanel({
                                         step="any"
                                         value={pendingPriceByAsset[asset.id] ?? ""}
                                         onChange={(event) => setPendingPriceByAsset((current) => ({ ...current, [asset.id]: event.target.value }))}
-                                        aria-label={`Preço unitário pago por ${asset.ticker}`}
-                                        placeholder="Preço pago"
+                                        aria-label={`Preço unitário pago por ${asset.ticker} em ${asset.awaitingSyncContribution.nativeCurrency ?? "BRL"}`}
+                                        placeholder={`Preço pago (${asset.awaitingSyncContribution.nativeCurrency ?? "R$"})`}
                                         className="h-8 w-32 bg-[var(--card)]"
                                       />
                                       <Button
@@ -1565,7 +1589,7 @@ export function AssetsPanel({
                                           <td className="px-3 py-3">{holding.issuer}</td>
                                           {holdingColumns.invested && <td className="whitespace-nowrap px-3 py-3">{holding.investedValue == null ? "—" : formatMoney(holding.investedValue)}</td>}
                                           <td className="whitespace-nowrap px-3 py-3">
-                                            <strong>{formatMoney(holding.currentValue)}</strong>
+                                            <MoneyWithNative brl={holding.currentValue} native={holding.nativeCurrentValue} currency={holding.currency} strong />
                                             {holding.pricingSource === "YAHOO" && holding.fxRateToBrl && (
                                               <span className="mt-1 block text-[10px] font-normal text-[var(--muted-foreground)]">
                                                 {reviewMoney(holding.unitPrice, holding.currency)} · câmbio {Number(holding.fxRateToBrl).toLocaleString("pt-BR", { maximumFractionDigits: 6 })}

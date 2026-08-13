@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import Decimal from "decimal.js";
 import { resolvePluggyInvestmentIssuer } from "@/features/open-finance/institution-logo";
 import { INVESTMENT_CLASSES, type InvestmentClassKey } from "./constants";
-import { aggregateHoldingValue, holdingCurrentValue, holdingUnitPriceBrl } from "./asset-groups";
+import { aggregateHoldingValue, holdingCurrentValue, holdingCurrentValueNative, holdingUnitPriceBrl } from "./asset-groups";
 import { aggregateAveragePrices, calculateHoldingAveragePrice } from "./average-price";
 import { fetchBrapiTickerMetadata, normalizeBrapiSymbol } from "./brapi";
 import { DEFAULT_QUESTIONS, defaultQuestionTemplateKey } from "./questions";
@@ -59,6 +59,9 @@ export async function getPortfolioData(userId: string) {
             quantity: true,
             value: true,
             paidUnitPrice: true,
+            nativeCurrency: true,
+            paidUnitPriceNative: true,
+            executionFxRateToBrl: true,
             awaitingSyncAt: true,
           },
         },
@@ -154,6 +157,14 @@ export async function getPortfolioData(userId: string) {
         quantity: holding.quantity.toString(),
       })));
       const currentValue = aggregateHoldingValue(holdings);
+      const nativeCurrencies = new Set(holdings.map((holding) => holding.currency.trim().toUpperCase()));
+      const nativeCurrency = nativeCurrencies.size === 1 && !nativeCurrencies.has("BRL")
+        ? [...nativeCurrencies][0]
+        : null;
+      const holdingNativeValues = holdings.map(holdingCurrentValueNative);
+      const nativeCurrentValue = nativeCurrency && holdingNativeValues.every((value) => value !== null)
+        ? holdingNativeValues.reduce((total, value) => total.add(value!), new Decimal(0))
+        : null;
       const firstHolding = holdings[0];
       const marketMetadata = BRAPI_INSTRUMENTS.has(asset.instrumentType)
         ? brapiMetadataBySymbol.get(normalizeBrapiSymbol(asset.ticker))
@@ -184,6 +195,8 @@ export async function getPortfolioData(userId: string) {
         fxUpdatedAt: firstHolding?.fxUpdatedAt?.toISOString() ?? null,
         manualValue: asset.instrumentType === "FIXED_INCOME" ? currentValue.toString() : null,
         currentValue: currentValue.toString(),
+        nativeCurrentValue: nativeCurrentValue?.toString() ?? null,
+        nativeCurrency,
         averagePricePaid: averagePrice.price?.toString() ?? null,
         averagePriceCoverage: averagePrice.coverage,
         fractional: allowsFractionalUnits({
@@ -202,6 +215,9 @@ export async function getPortfolioData(userId: string) {
               quantity: awaitingSyncContribution.quantity.toString(),
               value: awaitingSyncContribution.value.toString(),
               paidUnitPrice: awaitingSyncContribution.paidUnitPrice?.toString() ?? null,
+              nativeCurrency: awaitingSyncContribution.nativeCurrency,
+              paidUnitPriceNative: awaitingSyncContribution.paidUnitPriceNative?.toString() ?? null,
+              executionFxRateToBrl: awaitingSyncContribution.executionFxRateToBrl?.toString() ?? null,
               awaitingSyncAt: awaitingSyncContribution.awaitingSyncAt?.toISOString() ?? null,
             }
           : null,
@@ -251,6 +267,7 @@ export async function getPortfolioData(userId: string) {
           averagePricePaid: holdingAveragePrices[index].price?.toString() ?? null,
           averagePriceCoverage: holdingAveragePrices[index].coverage,
           currentValue: holdingValues[index].toString(),
+          nativeCurrentValue: holdingNativeValues[index]?.toString() ?? null,
           fractional: holding.fractional,
           rateConvention: holding.rateConvention,
           benchmark: holding.benchmark,

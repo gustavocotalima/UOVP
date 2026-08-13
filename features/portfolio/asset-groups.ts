@@ -76,6 +76,19 @@ export function holdingCurrentValue(holding: HoldingAmount) {
   return new Decimal(holding.quantity).mul(holding.unitPrice);
 }
 
+export function holdingCurrentValueNative(holding: HoldingAmount) {
+  const currency = holding.currency?.trim().toUpperCase();
+  if (!currency || currency === "BRL") return null;
+  if (holding.pricingSource === "YAHOO" || holding.pricingSource === "BINANCE") {
+    const marketValue = new Decimal(holding.quantity).mul(holding.unitPrice);
+    if (marketValue.gt(0)) return marketValue;
+  }
+  if (holding.currentValue != null) return new Decimal(holding.currentValue);
+  if (holding.providerCurrentValue != null) return new Decimal(holding.providerCurrentValue);
+  const calculated = new Decimal(holding.quantity).mul(holding.unitPrice);
+  return calculated.gt(0) ? calculated : null;
+}
+
 export function aggregateHoldingValue(holdings: HoldingAmount[]) {
   return holdings.reduce((total, holding) => total.add(holdingCurrentValue(holding)), new Decimal(0));
 }

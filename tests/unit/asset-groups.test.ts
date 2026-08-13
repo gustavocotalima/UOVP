@@ -4,6 +4,7 @@ import {
   applyManualFixedIncomeContribution,
   fixedIncomeHoldingFingerprint,
   holdingCurrentValue,
+  holdingCurrentValueNative,
   parentPortfolioPercentage,
 } from "@/features/portfolio/asset-groups";
 import { allocateContribution } from "@/features/portfolio/allocation";
@@ -114,6 +115,19 @@ describe("grupos de ativos", () => {
       fxRateToBrl: null,
       providerCurrentValue: 900,
     }).toNumber()).toBe(0);
+  });
+
+  it("mantém o valor nativo de posições Yahoo separado do valor convertido", () => {
+    const holding = {
+      pricingSource: "YAHOO" as const,
+      currency: "USD",
+      quantity: 2,
+      unitPrice: 100,
+      fxRateToBrl: 5.25,
+    };
+
+    expect(holdingCurrentValueNative(holding)?.toNumber()).toBe(200);
+    expect(holdingCurrentValue(holding).toNumber()).toBe(1050);
   });
 
   it("converte pares Binance em USDT para BRL e não mistura valor nativo sem câmbio", () => {

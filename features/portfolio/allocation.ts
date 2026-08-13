@@ -13,12 +13,14 @@ export type AllocationAsset = {
   unitPrice: Decimal.Value;
   score: number;
   fractional: boolean;
+  eligibleToReceive?: boolean;
 };
 
 export type AllocationInput = {
   contribution: Decimal.Value;
   targets: Record<InvestmentClassKey, Decimal.Value>;
   assets: AllocationAsset[];
+  preserveTargetGapsWithoutEligibleAssets?: boolean;
 };
 
 export type AllocationSuggestion = {
@@ -117,9 +119,9 @@ export function allocateContribution(input: AllocationInput) {
     const classGaps = new Map<InvestmentClassKey, Decimal>();
     for (const investmentClass of Object.keys(input.targets) as InvestmentClassKey[]) {
       const classAssets = assets.filter((asset) => asset.investmentClass === investmentClass);
-      const eligible = classAssets.filter((asset) => asset.score > 0 && asset.price.gt(0));
+      const eligible = classAssets.filter((asset) => asset.eligibleToReceive !== false && asset.score > 0 && asset.price.gt(0));
       const target = new Decimal(input.targets[investmentClass] ?? 0);
-      if (!eligible.length || target.lte(0)) {
+      if (target.lte(0) || (!eligible.length && !input.preserveTargetGapsWithoutEligibleAssets)) {
         classGaps.set(investmentClass, new Decimal(0));
         continue;
       }
@@ -138,8 +140,12 @@ export function allocateContribution(input: AllocationInput) {
       if (gap.lte(0)) continue;
       const classBudget = outerRemaining.times(gap).div(gapTotal);
       const eligible = assets.filter(
-        (asset) => asset.investmentClass === investmentClass && asset.score > 0 && asset.price.gt(0),
+        (asset) => asset.investmentClass === investmentClass
+          && asset.eligibleToReceive !== false
+          && asset.score > 0
+          && asset.price.gt(0),
       );
+      if (!eligible.length) continue;
       const scoreTotal = eligible.reduce((total, asset) => total + asset.score, 0);
       const currentEligibleClassValue = sum(eligible.map((asset) => asset.current));
       const finalEligibleClassValue = currentEligibleClassValue.plus(classBudget);
