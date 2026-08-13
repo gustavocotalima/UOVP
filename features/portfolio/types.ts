@@ -190,7 +190,7 @@ export type SimulationDto = {
   id: string;
   inputAmount: string;
   inputCurrency: "BRL" | "USD";
-  allocationScope: "ALL_ASSETS" | "USD_ONLY";
+  allocationScope: "ALL_ASSETS" | "BRL_ONLY" | "USD_ONLY";
   requestedAmount: string;
   unallocatedAmount: string;
   unallocatedInputAmount: string;

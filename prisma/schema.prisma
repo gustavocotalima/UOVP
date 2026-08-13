@@ -166,6 +166,7 @@ enum ContributionCurrency {
 
 enum ContributionScope {
   ALL_ASSETS
+  BRL_ONLY
   USD_ONLY
 }
 

@@ -13,6 +13,11 @@ import { DonutChart } from "@/components/charts/donut-chart";
 import { formatCurrency, formatMoney, formatPercent } from "@/lib/money";
 import { executeContributionAction, simulateContributionAction } from "./actions";
 import { PORTFOLIO_SIMULATION_INVALIDATED_EVENT } from "./client-events";
+import {
+  currencyOnlyContributionScope,
+  defaultContributionScope,
+  type ContributionScopeKey,
+} from "./contribution-scope";
 import { INVESTMENT_CLASSES, INVESTMENT_CLASS_META, RATE_CONVENTIONS, RATE_CONVENTION_META, type RateConventionKey } from "./constants";
 import type { AssetDto, PortfolioDto, SimulationDto } from "./types";
 
@@ -80,7 +85,7 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
   const router = useRouter();
   const [value, setValue] = useState(1000);
   const [currency, setCurrency] = useState<"BRL" | "USD">("BRL");
-  const [scope, setScope] = useState<"ALL_ASSETS" | "USD_ONLY">("ALL_ASSETS");
+  const [scope, setScope] = useState<ContributionScopeKey>("ALL_ASSETS");
   const [simulation, setSimulation] = useState<SimulationDto>();
   const [contributionModal, setContributionModal] = useState<ContributionModalState>();
   const [message, setMessage] = useState<string>();
@@ -146,7 +151,7 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
     setMessage(undefined);
     startTransition(async () => {
       try {
-        const result = await simulateContributionAction(value, currency, currency === "USD" ? scope : "ALL_ASSETS");
+        const result = await simulateContributionAction(value, currency, scope);
         if (calculationRequestId.current !== requestId) return;
         setSimulation(result);
         if (!result.suggestions.length) setMessage("Nenhum ativo elegível. Confira metas, notas e preços.");
@@ -236,7 +241,7 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
                   calculationRequestId.current += 1;
                   const nextCurrency = event.target.value as "BRL" | "USD";
                   setCurrency(nextCurrency);
-                  setScope(nextCurrency === "USD" ? "USD_ONLY" : "ALL_ASSETS");
+                  setScope(defaultContributionScope(nextCurrency));
                   setSimulation(undefined);
                   setContributionModal(undefined);
                 }}
@@ -246,24 +251,24 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
               </Select>
             </div>
           </div>
-          {currency === "USD" && (
-            <div className="w-full max-w-xs space-y-2">
-              <Label htmlFor="contribution-scope">Ativos que podem receber o aporte</Label>
-              <Select
-                id="contribution-scope"
-                value={scope}
-                onChange={(event) => {
-                  calculationRequestId.current += 1;
-                  setScope(event.target.value as "ALL_ASSETS" | "USD_ONLY");
-                  setSimulation(undefined);
-                  setContributionModal(undefined);
-                }}
-              >
-                <option value="USD_ONLY">Somente ativos em USD</option>
-                <option value="ALL_ASSETS">Todos os ativos elegíveis</option>
-              </Select>
-            </div>
-          )}
+          <div className="w-full max-w-xs space-y-2">
+            <Label htmlFor="contribution-scope">Ativos que podem receber o aporte</Label>
+            <Select
+              id="contribution-scope"
+              value={scope}
+              onChange={(event) => {
+                calculationRequestId.current += 1;
+                setScope(event.target.value as ContributionScopeKey);
+                setSimulation(undefined);
+                setContributionModal(undefined);
+              }}
+            >
+              <option value={currencyOnlyContributionScope(currency)}>
+                Somente ativos em {currency}
+              </option>
+              <option value="ALL_ASSETS">Todos os ativos elegíveis</option>
+            </Select>
+          </div>
           <Button size="lg" onClick={calculate} disabled={pending || value <= 0 || !assets.length}><Calculator className="size-4" /> {pending ? "Calculando…" : "Calcular"}</Button>
           {!assets.length && <p className="text-sm text-[var(--muted-foreground)]">Adicione ativos antes de simular.</p>}
         </CardContent>
