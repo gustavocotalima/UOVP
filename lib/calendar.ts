@@ -71,3 +71,19 @@ export function formatCalendarDate(
     timeZone: validTimeZone(timeZone),
   }).format(typeof value === "string" ? new Date(value) : value);
 }
+
+/**
+ * Formats a provider date whose calendar day is meaningful on its own.
+ *
+ * Date-only values are commonly serialized as midnight UTC. Applying the
+ * user's time zone to them can move the displayed calendar day backwards.
+ */
+export function formatDateOnly(
+  value: Date | string,
+  options: Intl.DateTimeFormatOptions = { dateStyle: "short" },
+) {
+  return new Intl.DateTimeFormat("pt-BR", {
+    ...options,
+    timeZone: "UTC",
+  }).format(typeof value === "string" ? new Date(value) : value);
+}

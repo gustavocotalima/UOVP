@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { DonutChart } from "@/components/charts/donut-chart";
+import { formatDateOnly } from "@/lib/calendar";
 import { formatCurrency, formatMoney, formatPercent } from "@/lib/money";
 import {
   deleteAssetAction,
@@ -259,6 +260,10 @@ function reviewDateTime(value: string, timeZone: string) {
   return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone }).format(new Date(value));
 }
 
+function reviewOperationDate(value: string) {
+  return formatDateOnly(value);
+}
+
 function reviewProfitability(review: ReviewForm) {
   const indexer = review.rateType?.trim().toUpperCase();
   const base = review.rate === null ? null : reviewPercentage(review.rate);
@@ -365,7 +370,7 @@ function PluggyReviewSourceData({ review, timeZone }: { review: ReviewForm; time
                   <div>
                     <strong>{transaction.type.replaceAll("_", " ")}</strong>
                     <p className="mt-0.5 text-[var(--muted-foreground)]">
-                      {reviewDate(transaction.date, timeZone)}
+                      {reviewOperationDate(transaction.tradeDate ?? transaction.date)}
                       {transaction.quantity !== null ? ` · ${reviewDecimal(transaction.quantity)} un.` : ""}
                       {transaction.description ? ` · ${transaction.description}` : ""}
                     </p>
@@ -1409,7 +1414,7 @@ export function AssetsPanel({
                                       const operationAmount = transaction.netAmount ?? transaction.amount;
                                       return (
                                         <div key={transaction.id} className="rounded-lg bg-[var(--muted)]/35 p-3 text-xs">
-                                          <div className="flex items-start justify-between gap-3"><span><strong>{operationTypeLabel(transaction.type)}</strong><span className="mt-1 block text-[10px] text-[var(--muted-foreground)]">{reviewDate(transaction.tradeDate ?? transaction.date, timeZone)}</span></span><strong>{operationAmount === null ? "—" : reviewMoney(operationAmount, holding.currency)}</strong></div>
+                                          <div className="flex items-start justify-between gap-3"><span><strong>{operationTypeLabel(transaction.type)}</strong><span className="mt-1 block text-[10px] text-[var(--muted-foreground)]">{reviewOperationDate(transaction.tradeDate ?? transaction.date)}</span></span><strong>{operationAmount === null ? "—" : reviewMoney(operationAmount, holding.currency)}</strong></div>
                                           <div className="mt-2 flex justify-between gap-3 text-[10px] text-[var(--muted-foreground)]"><span>{transaction.quantity === null ? "Quantidade —" : `${Number(transaction.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 8 })} un.`}</span><span>{transaction.value === null ? "Preço —" : reviewMoney(transaction.value, holding.currency)}</span></div>
                                         </div>
                                       );
@@ -1637,7 +1642,7 @@ export function AssetsPanel({
                                                   const operationAmount = transaction.netAmount ?? transaction.amount;
                                                   return (
                                                     <div key={transaction.id} className="grid grid-cols-[110px_minmax(110px,1fr)_110px_130px_130px] gap-3 border-b px-3 py-2 last:border-0">
-                                                      <span className="whitespace-nowrap">{reviewDate(transaction.tradeDate ?? transaction.date, timeZone)}</span>
+                                                      <span className="whitespace-nowrap">{reviewOperationDate(transaction.tradeDate ?? transaction.date)}</span>
                                                       <span><strong>{operationTypeLabel(transaction.type)}</strong>{transaction.description && <span className="mt-0.5 block truncate text-[10px] text-[var(--muted-foreground)]" title={transaction.description}>{transaction.description}</span>}</span>
                                                       <span className="whitespace-nowrap">{transaction.quantity === null ? "—" : Number(transaction.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 8 })}</span>
                                                       <span className="whitespace-nowrap">{transaction.value === null ? "—" : reviewMoney(transaction.value, holding.currency)}</span>
