@@ -33,13 +33,19 @@ import {
   type BinanceAssetSearchResult,
   type BinanceQuote,
 } from "./binance";
-import { fetchAvailableBrapiQuotes, fetchBrapiQuotes, fetchBrapiTickerMetadata, normalizeBrapiSymbol, preferredBrapiLogoUrl, readCachedBrapiQuotes, searchBrapiEtfTickers, searchBrapiTickers, type BrapiQuote } from "./brapi";
+import { fetchAvailableBrapiQuotes, fetchBrapiQuotes, normalizeBrapiSymbol, readCachedBrapiQuotes, searchBrapiEtfTickers, searchBrapiTickers, type BrapiQuote } from "./brapi";
 import { clearBrapiApiKey, requireBrapiApiKey, storeBrapiApiKey } from "./brapi-credentials";
 import { ensurePortfolio, getPortfolioData } from "./data";
 import { FIXED_INCOME_INDEXATIONS, INSTRUMENT_TYPES, INVESTMENT_CLASSES, RATE_CONVENTIONS, FIXED_INCOME_INDEXATION_META, type InvestmentClassKey } from "./constants";
 import { DEFAULT_QUESTIONS, defaultQuestionTemplateKey } from "./questions";
 import { allowsFractionalUnits } from "./fractional-assets";
 import { sortContributionSuggestions } from "./contribution-order";
+import {
+  persistExactBrapiSearchMetadata,
+  persistExactYahooSearchMetadata,
+  resolveBrapiLogo,
+  resolveYahooLogo,
+} from "./market-logo-resolver";
 import {
   classifyYahooReitMetadata,
   fetchAvailableYahooQuotes,
@@ -115,6 +121,10 @@ const brapiApiKeySchema = z.string()
   .pipe(z.string().min(8, "Informe uma chave válida da brapi.").max(2000));
 
 const tickerSearchSchema = z.string().trim().min(1).max(60);
+const assetLogoRepairSchema = z.object({
+  assetId: z.string().cuid(),
+  failedLogoUrls: z.array(z.string().url()).max(5).default([]),
+});
 const brapiSearchKindSchema = z.enum(["BRAZILIAN_STOCKS", "REAL_ESTATE_FUNDS", "ETF"]);
 const yahooSearchKindSchema = z.enum(["INTERNATIONAL_STOCKS", "REITS", "ETF"]);
 const contributionCurrencySchema = z.enum(["BRL", "USD"]);
@@ -224,8 +234,10 @@ export async function saveAssetAction(input: AssetInput) {
   }
   let brapiQuote: BrapiQuote | undefined;
   let brapiMatch: Awaited<ReturnType<typeof searchBrapiTickers>>[number] | undefined;
+  let brapiLogoMetadata: Awaited<ReturnType<typeof persistExactBrapiSearchMetadata>> = null;
   let yahooQuote: YahooQuote | undefined;
   let yahooMatch: Awaited<ReturnType<typeof searchYahooTickers>>[number] | undefined;
+  let yahooLogoMetadata: Awaited<ReturnType<typeof persistExactYahooSearchMetadata>> = null;
   let yahooFx: Awaited<ReturnType<typeof fetchYahooFxRates>>[number] | undefined;
   let binanceQuote: BinanceQuote | undefined;
   let binanceMatch: BinanceAssetSearchResult | undefined;
@@ -239,6 +251,7 @@ export async function saveAssetAction(input: AssetInput) {
     const matches = instrumentType === "ETF"
       ? await searchBrapiEtfTickers({ query: parsed.ticker })
       : await searchBrapiTickers({ query: parsed.ticker, subType: parsed.investmentClass === "REAL_ESTATE_FUNDS" ? "fii" : undefined });
+    brapiLogoMetadata = await persistExactBrapiSearchMetadata(parsed.ticker, matches);
     brapiMatch = matches.find((match) => match.symbol === normalizeBrapiSymbol(parsed.ticker));
     if (!brapiMatch) {
       throw new Error(`${parsed.ticker} não foi identificado como um ativo válido pela brapi.`);
@@ -249,6 +262,7 @@ export async function saveAssetAction(input: AssetInput) {
   if (mustResolveMarketQuote && usesYahooQuotes(parsed.investmentClass, instrumentType, parsed.marketRegion)) {
     const kind = yahooSearchKind(parsed.investmentClass, instrumentType);
     const matches = await searchYahooTickers({ query: parsed.ticker, kind });
+    yahooLogoMetadata = await persistExactYahooSearchMetadata(parsed.ticker, matches);
     yahooMatch = matches.find((match) => match.symbol === normalizeYahooSymbol(parsed.ticker));
     if (!yahooMatch) {
       throw new Error(`${parsed.ticker} não foi identificado como um ativo internacional válido pelo Yahoo Finance.`);
@@ -354,7 +368,11 @@ export async function saveAssetAction(input: AssetInput) {
             : existingHolding?.pricingSource,
       fallback: parsed.fractional,
     }),
-    logoUrl: brapiMatch?.logoUrl ?? brapiQuote?.logoUrl ?? yahooQuote?.logoUrl ?? existingHolding?.logoUrl ?? null,
+    logoUrl: brapiLogoMetadata?.status === "VERIFIED"
+      ? brapiLogoMetadata.logoUrl
+      : yahooLogoMetadata?.status === "VERIFIED"
+        ? yahooLogoMetadata.logoUrl
+        : existingHolding?.logoUrl ?? null,
     priceUpdatedAt: brapiQuote?.asOf ?? yahooQuote?.asOf ?? binanceQuote?.asOf ?? existingHolding?.priceUpdatedAt ?? new Date(),
   };
 
@@ -392,6 +410,11 @@ export async function saveAssetAction(input: AssetInput) {
       });
     }
     if (pluggyControlled && (brapiQuote || yahooQuote)) {
+      const resolvedLogoUrl = brapiLogoMetadata?.status === "VERIFIED"
+        ? brapiLogoMetadata.logoUrl
+        : yahooLogoMetadata?.status === "VERIFIED"
+          ? yahooLogoMetadata.logoUrl
+          : null;
       await tx.assetHolding.updateMany({
         where: {
           assetId: parent.id,
@@ -414,7 +437,7 @@ export async function saveAssetAction(input: AssetInput) {
           marketQuoteType: brapiQuote ? null : yahooMatch?.quoteType ?? yahooQuote?.quoteType ?? null,
           marketSector: brapiQuote ? null : yahooMatch?.sector ?? null,
           marketIndustry: brapiQuote ? null : yahooMatch?.industry ?? null,
-          logoUrl: brapiMatch?.logoUrl ?? brapiQuote?.logoUrl ?? yahooQuote?.logoUrl ?? null,
+          ...(resolvedLogoUrl ? { logoUrl: resolvedLogoUrl } : {}),
           priceUpdatedAt: brapiQuote?.asOf ?? yahooQuote?.asOf ?? new Date(),
         },
       });
@@ -700,6 +723,7 @@ export async function importPortfolioRowsAction(input: {
     ),
   );
   const brapiQuotes = new Map<string, BrapiQuote>();
+  const brapiLogoMetadata = new Map<string, Awaited<ReturnType<typeof resolveBrapiLogo>>>();
   if (brapiRows.length) {
     const apiKey = await requireBrapiApiKey(userId);
     const quotes = await fetchBrapiQuotes({
@@ -712,6 +736,11 @@ export async function importPortfolioRowsAction(input: {
       .filter((row) => !brapiQuotes.has(normalizeBrapiSymbol(row.ticker)))
       .map((row) => row.ticker);
     if (missing.length) throw new Error(`A brapi não retornou cotação para: ${missing.join(", ")}.`);
+    const logoMetadata = await Promise.all(
+      [...new Set(brapiRows.map((row) => normalizeBrapiSymbol(row.ticker)))]
+        .map((ticker) => resolveBrapiLogo(ticker)),
+    );
+    for (const metadata of logoMetadata) brapiLogoMetadata.set(metadata.symbol, metadata);
   }
 
   const yahooRows = parsed.marketRows.filter((row) =>
@@ -723,6 +752,7 @@ export async function importPortfolioRowsAction(input: {
   );
   const yahooQuotes = new Map<string, YahooQuote>();
   const yahooMetadata = new Map<string, Awaited<ReturnType<typeof searchYahooTickers>>[number]>();
+  const yahooLogoMetadata = new Map<string, Awaited<ReturnType<typeof persistExactYahooSearchMetadata>>>();
   const yahooFxRates = new Map<string, Awaited<ReturnType<typeof fetchYahooFxRates>>[number]>();
   if (yahooRows.length) {
     const quotes = await fetchAvailableYahooQuotes({
@@ -743,6 +773,7 @@ export async function importPortfolioRowsAction(input: {
         kind,
         signal: lease.signal,
       });
+      const persistedLogo = await persistExactYahooSearchMetadata(row.ticker, matches);
       let match = matches.find((candidate) => candidate.symbol === normalizeYahooSymbol(row.ticker));
       if (!match) throw new Error(`${row.ticker} não foi identificado como ativo internacional válido.`);
       if (kind !== "ETF") {
@@ -763,6 +794,7 @@ export async function importPortfolioRowsAction(input: {
         match = { ...match, sector, industry, reitStatus: status, requiresReitConfirmation: status !== "CONFIRMED" };
       }
       yahooMetadata.set(match.symbol, match);
+      yahooLogoMetadata.set(match.symbol, persistedLogo);
     }
 
     const fxRates = await fetchYahooFxRates({
@@ -793,8 +825,15 @@ export async function importPortfolioRowsAction(input: {
       const investmentClass = row.investmentClass as InvestmentClass;
       const instrumentType = (row.instrumentType ?? inferInstrumentType(row.investmentClass)) as InstrumentType;
       const brapiQuote = brapiQuotes.get(normalizeBrapiSymbol(row.ticker));
+      const brapiLogo = brapiQuote ? brapiLogoMetadata.get(brapiQuote.requestedSymbol) : undefined;
       const yahooQuote = yahooQuotes.get(normalizeYahooSymbol(row.ticker));
       const yahooMatch = yahooQuote ? yahooMetadata.get(yahooQuote.symbol) : undefined;
+      const yahooLogo = yahooQuote ? yahooLogoMetadata.get(yahooQuote.symbol) : undefined;
+      const resolvedImportLogoUrl = brapiLogo?.status === "VERIFIED"
+        ? brapiLogo.logoUrl
+        : yahooLogo?.status === "VERIFIED"
+          ? yahooLogo.logoUrl
+          : null;
       const yahooFx = yahooQuote ? yahooFxRates.get(yahooQuote.currency) : undefined;
       const binanceQuote = binanceQuotes.get(row.ticker);
       const ticker = brapiQuote?.symbol ?? yahooQuote?.symbol ?? binanceQuote?.symbol ?? row.ticker;
@@ -853,7 +892,7 @@ export async function importPortfolioRowsAction(input: {
                 : "MANUAL",
           fallback: row.fractional,
         }),
-        logoUrl: brapiQuote?.logoUrl ?? yahooQuote?.logoUrl ?? null,
+        ...(resolvedImportLogoUrl ? { logoUrl: resolvedImportLogoUrl } : {}),
         priceUpdatedAt: brapiQuote?.asOf ?? yahooQuote?.asOf ?? binanceQuote?.asOf ?? new Date(),
       };
       const existingHolding = await tx.assetHolding.findFirst({
@@ -1058,10 +1097,11 @@ export async function searchBrapiTickersAction(input: string, kind: InvestmentCl
   });
   const query = tickerSearchSchema.parse(input);
   const parsedKind = brapiSearchKindSchema.parse(kind);
-  if (parsedKind !== "ETF") {
-    return searchBrapiTickers({ query, subType: parsedKind === "REAL_ESTATE_FUNDS" ? "fii" : undefined });
-  }
-  return searchBrapiEtfTickers({ query });
+  const results = parsedKind !== "ETF"
+    ? await searchBrapiTickers({ query, subType: parsedKind === "REAL_ESTATE_FUNDS" ? "fii" : undefined })
+    : await searchBrapiEtfTickers({ query });
+  await persistExactBrapiSearchMetadata(query, results);
+  return results;
 }
 
 export async function searchYahooTickersAction(input: string, kind: YahooSearchKind) {
@@ -1073,7 +1113,55 @@ export async function searchYahooTickersAction(input: string, kind: YahooSearchK
     windowMs: 60_000,
   });
   const query = tickerSearchSchema.parse(input);
-  return searchYahooTickers({ query, kind: yahooSearchKindSchema.parse(kind) });
+  const results = await searchYahooTickers({ query, kind: yahooSearchKindSchema.parse(kind) });
+  await persistExactYahooSearchMetadata(query, results);
+  return results;
+}
+
+export async function resolveAssetLogoAction(input: {
+  assetId: string;
+  failedLogoUrls?: string[];
+}) {
+  const userId = await requireUserId();
+  await assertUserOperationRateLimit({
+    userId,
+    operation: "market-logo-resolution",
+    limit: 120,
+    windowMs: 60 * 60_000,
+  });
+  const parsed = assetLogoRepairSchema.parse(input);
+  const asset = await prisma.asset.findFirst({
+    where: { id: parsed.assetId, portfolio: { userId } },
+    select: {
+      ticker: true,
+      investmentClass: true,
+      instrumentType: true,
+      marketRegion: true,
+    },
+  });
+  if (!asset) throw new Error("Ativo não encontrado.");
+
+  if (usesBrapiQuotes(
+    asset.investmentClass as InvestmentClassKey,
+    asset.instrumentType,
+    asset.marketRegion,
+  )) {
+    const metadata = await resolveBrapiLogo(asset.ticker, parsed.failedLogoUrls);
+    return metadata.status === "VERIFIED" ? metadata.logoUrl : null;
+  }
+  if (usesYahooQuotes(
+    asset.investmentClass as InvestmentClassKey,
+    asset.instrumentType,
+    asset.marketRegion,
+  )) {
+    const metadata = await resolveYahooLogo(
+      asset.ticker,
+      yahooSearchKind(asset.investmentClass as InvestmentClassKey, asset.instrumentType),
+      parsed.failedLogoUrls,
+    );
+    return metadata.status === "VERIFIED" ? metadata.logoUrl : null;
+  }
+  return null;
 }
 
 export async function searchBinanceAssetsAction(input: string) {
@@ -1296,20 +1384,12 @@ async function applyFreshSharedMarketCache({
             unitPrice: quote.price,
             currentValue: null,
             fractional: false,
-            issuer: quote.name,
-            productName: quote.name,
             currency: quote.currency,
             fxRateToBrl: null,
             fxUpdatedAt: null,
-            logoUrl: preferredBrapiLogoUrl({
-              quoteLogoUrl: quote.logoUrl,
-              existingLogoUrl: holding.logoUrl,
-              metadataLogoUrl: null,
-            }),
             priceUpdatedAt: cachedAt,
           },
         });
-        await tx.asset.update({ where: { id: holding.asset.id }, data: { name: quote.name } });
       }
       for (const { holding, quote, cachedAt, fxRateToBrl, fxUpdatedAt } of yahooUpdates) {
         await tx.assetHolding.update({
@@ -1324,21 +1404,14 @@ async function applyFreshSharedMarketCache({
               pricingSource: "YAHOO",
               fallback: holding.fractional,
             }),
-            ...(holding.positionSource === "MANUAL"
-              ? { issuer: quote.name, productName: quote.name }
-              : {}),
             currency: quote.currency,
             fxRateToBrl,
             fxUpdatedAt,
             marketExchange: quote.exchange,
             marketQuoteType: quote.quoteType,
-            logoUrl: quote.logoUrl ?? holding.logoUrl,
             priceUpdatedAt: cachedAt,
           },
         });
-        if (holding.positionSource === "MANUAL") {
-          await tx.asset.update({ where: { id: holding.asset.id }, data: { name: quote.name } });
-        }
       }
       for (const { holding, cachedAt, price, currency, fxRateToBrl } of binanceUpdates) {
         await tx.assetHolding.update({
@@ -1395,7 +1468,6 @@ async function refreshMarketPricesForUser(
       if (!brapiHoldings.length) {
         return {
           quotes: [] as BrapiQuote[],
-          metadata: [] as Awaited<ReturnType<typeof fetchBrapiTickerMetadata>>,
         };
       }
       const apiKey = await requireBrapiApiKey(userId);
@@ -1405,12 +1477,7 @@ async function refreshMarketPricesForUser(
         signal: lease?.signal,
         cacheMode: "REFRESH",
       });
-      const metadata = await fetchBrapiTickerMetadata({
-        tickers: brapiHoldings.flatMap((holding) => holding.ticker ? [holding.ticker] : []),
-        signal: lease?.signal,
-        cacheMode: "USE_CACHE",
-      });
-      return { quotes, metadata };
+      return { quotes };
     })(),
     (async () => {
       if (!yahooHoldings.length) {
@@ -1453,12 +1520,10 @@ async function refreshMarketPricesForUser(
     : null;
 
   const brapiQuotes = brapiSettled.status === "fulfilled" ? brapiSettled.value.quotes : [];
-  const brapiMetadata = brapiSettled.status === "fulfilled" ? brapiSettled.value.metadata : [];
   const yahooQuotes = yahooSettled.status === "fulfilled" ? yahooSettled.value.quotes : [];
   const yahooFxRates = yahooSettled.status === "fulfilled" ? yahooSettled.value.fxRates : [];
   const binanceQuotes = binanceSettled.status === "fulfilled" ? binanceSettled.value.quotes : [];
   const brapiQuotesBySymbol = new Map(brapiQuotes.map((quote) => [quote.requestedSymbol, quote]));
-  const brapiMetadataBySymbol = new Map(brapiMetadata.map((item) => [item.symbol, item]));
   const yahooQuotesBySymbol = new Map(yahooQuotes.map((quote) => [quote.requestedSymbol, quote]));
   const yahooFxByCurrency = new Map(yahooFxRates.map((rate) => [rate.currency, rate]));
   const binanceQuotesByAsset = new Map(binanceQuotes.map((quote) => [quote.requestedAsset, quote]));
@@ -1480,9 +1545,6 @@ async function refreshMarketPricesForUser(
   if (brapiUpdates.length || yahooUpdates.length || binanceUpdates.length) {
     const updateQuotes = async (tx: Prisma.TransactionClient) => {
       for (const { holding, quote } of brapiUpdates) {
-        const metadata = holding.ticker
-          ? brapiMetadataBySymbol.get(normalizeBrapiSymbol(holding.ticker))
-          : undefined;
         await tx.assetHolding.update({
           where: { id: holding.id },
           data: {
@@ -1490,22 +1552,11 @@ async function refreshMarketPricesForUser(
             unitPrice: quote.price,
             currentValue: null,
             fractional: holding.asset.instrumentType === "CRYPTO",
-            issuer: metadata?.name ?? quote.name,
-            productName: metadata?.name ?? quote.name,
             currency: quote.currency,
             fxRateToBrl: null,
             fxUpdatedAt: null,
-            logoUrl: preferredBrapiLogoUrl({
-              metadataLogoUrl: metadata?.logoUrl,
-              quoteLogoUrl: quote.logoUrl,
-              existingLogoUrl: holding.logoUrl,
-            }),
             priceUpdatedAt: refreshedAt,
           },
-        });
-        await tx.asset.update({
-          where: { id: holding.asset.id },
-          data: { name: metadata?.name ?? quote.name },
         });
       }
       for (const { holding, quote, fx } of yahooUpdates) {
@@ -1521,24 +1572,14 @@ async function refreshMarketPricesForUser(
               pricingSource: "YAHOO",
               fallback: holding.fractional,
             }),
-            ...(holding.positionSource === "MANUAL"
-              ? {
-                  issuer: quote.name,
-                  productName: quote.name,
-                }
-              : {}),
             currency: quote.currency,
             fxRateToBrl: fx.rateToBrl,
             fxUpdatedAt: fx.asOf,
             marketExchange: quote.exchange,
             marketQuoteType: quote.quoteType,
-            logoUrl: quote.logoUrl ?? holding.logoUrl,
             priceUpdatedAt: refreshedAt,
           },
         });
-        if (holding.positionSource === "MANUAL") {
-          await tx.asset.update({ where: { id: holding.asset.id }, data: { name: quote.name } });
-        }
       }
       for (const { holding, quote } of binanceUpdates) {
         await tx.assetHolding.update({

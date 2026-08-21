@@ -99,6 +99,14 @@ describe("integração brapi", () => {
     })).toBe("https://icons.brapi.dev/icons/SAPR4.svg");
   });
 
+  it("não usa o logo da cotação como fonte canônica", () => {
+    expect(preferredBrapiLogoUrl({
+      metadataLogoUrl: null,
+      quoteLogoUrl: "https://icons.brapi.dev/icons/EMBJ3.svg",
+      existingLogoUrl: null,
+    })).toBeNull();
+  });
+
   it("remove o placeholder genérico retornado pelo catálogo", async () => {
     const fetcher = vi.fn(async () => new Response(JSON.stringify({
       results: [{

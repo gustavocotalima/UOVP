@@ -4,12 +4,37 @@ import { resolvePluggyInvestmentIssuer } from "@/features/open-finance/instituti
 import { INVESTMENT_CLASSES, type InvestmentClassKey } from "./constants";
 import { aggregateHoldingValue, holdingCurrentValue, holdingCurrentValueNative, holdingUnitPriceBrl } from "./asset-groups";
 import { aggregateAveragePrices, calculateHoldingAveragePrice } from "./average-price";
-import { fetchBrapiTickerMetadata, normalizeBrapiSymbol } from "./brapi";
+import { normalizeBrapiSymbol } from "./brapi";
+import { normalizeYahooSymbol } from "./yahoo-finance";
+import { usableBrapiLogoUrl } from "./market-logo";
+import { readMarketMetadata } from "./market-metadata";
 import { DEFAULT_QUESTIONS, defaultQuestionTemplateKey } from "./questions";
 import { allowsFractionalUnits } from "./fractional-assets";
 
 const BRAPI_INSTRUMENTS = new Set(["STOCK", "ETF", "REAL_ESTATE_FUND"]);
 const MARKET_INSTRUMENTS = new Set(["STOCK", "ETF", "REAL_ESTATE_FUND", "REIT"]);
+
+function isBrapiAsset(asset: {
+  instrumentType: string;
+  investmentClass: string;
+  marketRegion: string | null;
+}) {
+  return BRAPI_INSTRUMENTS.has(asset.instrumentType)
+    && !["INTERNATIONAL_STOCKS", "REITS", "INTERNATIONAL_FIXED_INCOME"].includes(asset.investmentClass)
+    && (asset.investmentClass !== "STORE_OF_VALUE" || asset.marketRegion === "BRAZIL");
+}
+
+function isYahooAsset(asset: {
+  instrumentType: string;
+  investmentClass: string;
+  marketRegion: string | null;
+}) {
+  return MARKET_INSTRUMENTS.has(asset.instrumentType)
+    && (
+      ["INTERNATIONAL_STOCKS", "REITS", "INTERNATIONAL_FIXED_INCOME"].includes(asset.investmentClass)
+      || (asset.investmentClass === "STORE_OF_VALUE" && asset.marketRegion === "INTERNATIONAL")
+    );
+}
 
 export async function ensurePortfolio(userId: string) {
   return prisma.portfolio.upsert({
@@ -105,20 +130,16 @@ export async function getPortfolioData(userId: string) {
       sensitivity: "base",
     });
   });
-  const missingLogoTickers = assets.flatMap((asset) =>
-    BRAPI_INSTRUMENTS.has(asset.instrumentType)
-      && !["INTERNATIONAL_STOCKS", "REITS", "INTERNATIONAL_FIXED_INCOME"].includes(asset.investmentClass)
-      && (asset.investmentClass !== "STORE_OF_VALUE" || asset.marketRegion === "BRAZIL")
-      && asset.holdings.some((holding) => holding.includedInTotals && !holding.logoUrl)
-      ? [asset.ticker]
-      : [],
-  );
-  const brapiMetadata = missingLogoTickers.length
-    ? await fetchBrapiTickerMetadata({ tickers: missingLogoTickers }).catch(() => [])
-    : [];
-  const brapiMetadataBySymbol = new Map(
-    brapiMetadata.map((metadata) => [metadata.symbol, metadata]),
-  );
+  const [brapiMetadataBySymbol, yahooMetadataBySymbol] = await Promise.all([
+    readMarketMetadata(
+      "BRAPI",
+      assets.filter(isBrapiAsset).map((asset) => normalizeBrapiSymbol(asset.ticker)),
+    ),
+    readMarketMetadata(
+      "YAHOO",
+      assets.filter(isYahooAsset).map((asset) => normalizeYahooSymbol(asset.ticker)),
+    ),
+  ]);
   const targets = Object.fromEntries(
     INVESTMENT_CLASSES.map((investmentClass) => [
       investmentClass,
@@ -166,9 +187,16 @@ export async function getPortfolioData(userId: string) {
         ? holdingNativeValues.reduce((total, value) => total.add(value!), new Decimal(0))
         : null;
       const firstHolding = holdings[0];
-      const marketMetadata = BRAPI_INSTRUMENTS.has(asset.instrumentType)
+      const marketMetadata = isBrapiAsset(asset)
         ? brapiMetadataBySymbol.get(normalizeBrapiSymbol(asset.ticker))
-        : undefined;
+        : isYahooAsset(asset)
+          ? yahooMetadataBySymbol.get(normalizeYahooSymbol(asset.ticker))
+          : undefined;
+      const canonicalLogoUrl = marketMetadata?.status === "VERIFIED"
+        ? marketMetadata.provider === "BRAPI"
+          ? usableBrapiLogoUrl(marketMetadata.logoUrl)
+          : marketMetadata.logoUrl
+        : null;
       const latestPriceUpdate = holdings.reduce<Date | null>((latest, holding) => {
         if (!holding.priceUpdatedAt) return latest;
         return !latest || holding.priceUpdatedAt > latest ? holding.priceUpdatedAt : latest;
@@ -184,7 +212,7 @@ export async function getPortfolioData(userId: string) {
         fixedIncomeFamilyShortCode: asset.fixedIncomeFamily?.shortCode ?? null,
         indexation: asset.indexation,
         marketRegion: asset.marketRegion,
-        logoUrl: firstHolding?.logoUrl ?? marketMetadata?.logoUrl ?? null,
+        logoUrl: canonicalLogoUrl ?? firstHolding?.logoUrl ?? null,
         currency: firstHolding?.currency ?? "BRL",
         quantity: asset.instrumentType === "FIXED_INCOME"
           ? currentValue.toString()
@@ -274,7 +302,7 @@ export async function getPortfolioData(userId: string) {
           rateValue: holding.rateValue?.toString() ?? null,
           purchaseDate: holding.purchaseDate?.toISOString() ?? null,
           maturityDate: holding.maturityDate?.toISOString() ?? null,
-          logoUrl: holding.logoUrl ?? marketMetadata?.logoUrl ?? null,
+          logoUrl: canonicalLogoUrl ?? holding.logoUrl ?? null,
           priceUpdatedAt: holding.priceUpdatedAt?.toISOString() ?? null,
           providerCurrentValue: holding.providerCurrentValue?.toString() ?? null,
           providerStatus: holding.pluggyDiagramLink?.investment.status ?? null,
