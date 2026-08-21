@@ -21,6 +21,32 @@ describe("modais da carteira", () => {
       .and("include", "s.yimg.com");
   });
 
+  it("corrige e persiste um logo legado quebrado da brapi", () => {
+    cy.get<string>("@testUserEmail").then((email) => {
+      cy.task("seedBrokenMarketLogo", { email });
+    });
+    cy.reload();
+    cy.waitForHydration();
+    cy.get("[data-assets-panel-hydrated='true']", { timeout: 15_000 });
+
+    cy.contains("tbody tr", "EMBJ3")
+      .find("[data-asset-logo] img", { timeout: 15_000 })
+      .should("have.attr", "src")
+      .and("include", "/EMBR3.svg");
+
+    cy.task("getMarketLogoMetadata", { provider: "BRAPI", symbol: "EMBJ3" })
+      .should("deep.include", {
+        status: "VERIFIED",
+        logoUrl: "https://icons.brapi.dev/icons/EMBR3.svg",
+        source: "CATALOG",
+      });
+
+    cy.reload();
+    cy.contains("tbody tr", "EMBJ3")
+      .find("[data-asset-logo] img")
+      .should("have.attr", "src", "https://icons.brapi.dev/icons/EMBR3.svg");
+  });
+
   it("abre o modal de adição de ativo e fecha pelo controle acessível", () => {
     cy.contains("button", "Atualizar cotações").should("exist");
     cy.contains("button:visible", "Adicionar ativo").click();

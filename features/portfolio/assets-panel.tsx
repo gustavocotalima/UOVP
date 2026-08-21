@@ -18,6 +18,7 @@ import {
   deleteAssetHoldingAction,
   importPortfolioRowsAction,
   refreshMarketPricesAction,
+  resolveAssetLogoAction,
   saveAssetAction,
   saveAssetAnswersAction,
   saveAssetHoldingAction,
@@ -404,29 +405,10 @@ function PluggyReviewSourceData({ review, timeZone }: { review: ReviewForm; time
   );
 }
 
-const INTERNATIONAL_MARKET_CLASSES = new Set<InvestmentClassKey>([
-  "INTERNATIONAL_STOCKS",
-  "REITS",
-  "INTERNATIONAL_FIXED_INCOME",
-]);
-
 function assetLogoUrls(asset: AssetDto) {
   const urls: string[] = [];
   const storedLogoUrl = usableBrapiLogoUrl(asset.logoUrl);
   if (storedLogoUrl) urls.push(storedLogoUrl);
-
-  const isMarketAsset = ["STOCK", "ETF", "REAL_ESTATE_FUND", "REIT"].includes(asset.instrumentType);
-  if (!isMarketAsset) return urls;
-
-  const symbol = asset.ticker.trim().toUpperCase().replace(/\.SA$/, "").replace(/(\d)F$/, "$1");
-  const isInternational = INTERNATIONAL_MARKET_CLASSES.has(asset.investmentClass);
-  if (!isInternational && symbol) {
-    urls.push(`https://icons.brapi.dev/icons/${encodeURIComponent(symbol)}.svg`);
-  }
-
-  const fmpSymbol = isInternational ? asset.ticker : symbol ? `${symbol}.SA` : null;
-  const fmpLogoUrl = financialModelingPrepLogoUrl(fmpSymbol);
-  if (fmpLogoUrl) urls.push(fmpLogoUrl);
   return [...new Set(urls)];
 }
 
@@ -448,10 +430,39 @@ function AssetLogoCandidates({
   asset: AssetDto;
   logoUrls: string[];
 }) {
+  const [resolvedLogoUrl, setResolvedLogoUrl] = useState<string | null>(null);
   const [failedLogoUrls, setFailedLogoUrls] = useState<string[]>([]);
-  const logoUrl = logoUrls.find((candidate) => !failedLogoUrls.includes(candidate)) ?? null;
+  const attemptedResolutions = useRef(new Set<string>());
+  const [, startResolving] = useTransition();
+  const candidates = [...new Set([resolvedLogoUrl, ...logoUrls].filter((value): value is string => Boolean(value)))];
+  const logoUrl = candidates.find((candidate) => !failedLogoUrls.includes(candidate)) ?? null;
   const [loadedLogoUrl, setLoadedLogoUrl] = useState<string | null>(null);
   const logoLoaded = loadedLogoUrl === logoUrl;
+  const canResolveLogo = ["STOCK", "ETF", "REAL_ESTATE_FUND", "REIT"].includes(asset.instrumentType);
+
+  const resolveLogo = useCallback((failedUrls: string[]) => {
+    const attemptKey = failedUrls.length ? [...failedUrls].sort().join("|") : "__missing__";
+    if (!canResolveLogo || attemptedResolutions.current.has(attemptKey)) return;
+    attemptedResolutions.current.add(attemptKey);
+    startResolving(async () => {
+      try {
+        const resolved = await resolveAssetLogoAction({
+          assetId: asset.id,
+          failedLogoUrls: failedUrls,
+        });
+        if (resolved && !failedUrls.includes(resolved)) {
+          setResolvedLogoUrl(resolved);
+        }
+      } catch {
+        // The generic icon remains available when a provider or cache is unavailable.
+      }
+    });
+  }, [asset.id, canResolveLogo]);
+
+  useEffect(() => {
+    if (!logoUrl && canResolveLogo) resolveLogo(failedLogoUrls);
+  }, [canResolveLogo, failedLogoUrls, logoUrl, resolveLogo]);
+
   const captureLogoElement = useCallback((image: HTMLImageElement | null) => {
     if (image?.complete) setLoadedLogoUrl(image.naturalWidth > 0 ? logoUrl : null);
   }, [logoUrl]);
@@ -478,9 +489,11 @@ function AssetLogoCandidates({
           }}
           onError={() => {
             setLoadedLogoUrl(null);
-            setFailedLogoUrls((current) => logoUrl && !current.includes(logoUrl)
-              ? [...current, logoUrl]
-              : current);
+            const nextFailedLogoUrls = logoUrl && !failedLogoUrls.includes(logoUrl)
+              ? [...failedLogoUrls, logoUrl]
+              : failedLogoUrls;
+            setFailedLogoUrls(nextFailedLogoUrls);
+            resolveLogo(nextFailedLogoUrls);
           }}
         />
       )}
@@ -2023,7 +2036,6 @@ export function AssetsPanel({
                           {tickerOptions.map((option, index) => {
                             const logoUrl = option.provider === "BRAPI"
                               ? usableBrapiLogoUrl(option.logoUrl)
-                                ?? `https://icons.brapi.dev/icons/${encodeURIComponent(option.symbol)}.svg`
                               : option.logoUrl
                                 ?? (option.provider === "YAHOO"
                                   ? financialModelingPrepLogoUrl(option.symbol)

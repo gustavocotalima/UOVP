@@ -117,7 +117,6 @@ export async function readCachedBrapiQuotes(tickers: string[]) {
 
 export function preferredBrapiLogoUrl({
   metadataLogoUrl,
-  quoteLogoUrl,
   existingLogoUrl,
 }: {
   metadataLogoUrl: string | null | undefined;
@@ -125,8 +124,8 @@ export function preferredBrapiLogoUrl({
   existingLogoUrl: string | null | undefined;
 }) {
   return usableBrapiLogoUrl(metadataLogoUrl)
-    ?? usableBrapiLogoUrl(quoteLogoUrl)
-    ?? usableBrapiLogoUrl(existingLogoUrl);
+    ?? usableBrapiLogoUrl(existingLogoUrl)
+    ?? null;
 }
 
 export class BrapiApiError extends Error {

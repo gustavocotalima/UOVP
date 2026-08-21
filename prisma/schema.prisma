@@ -41,6 +41,22 @@ enum PricingSource {
   PLUGGY
 }
 
+enum MarketMetadataProvider {
+  BRAPI
+  YAHOO
+}
+
+enum MarketMetadataStatus {
+  VERIFIED
+  MISSING
+}
+
+enum MarketMetadataSource {
+  EXISTING
+  CATALOG
+  SEARCH
+}
+
 enum PositionSource {
   MANUAL
   PLUGGY
@@ -414,6 +430,23 @@ model AssetHolding {
   @@index([pricingSource, ticker])
   @@index([pricingSource, providerSymbol])
   @@index([catalogItemId])
+}
+
+model MarketAssetMetadata {
+  id            String                   @id @default(cuid())
+  provider      MarketMetadataProvider
+  symbol        String
+  name          String?
+  logoUrl       String?
+  status        MarketMetadataStatus
+  source        MarketMetadataSource
+  resolvedAt    DateTime?
+  lastAttemptAt DateTime                 @default(now())
+  createdAt     DateTime                 @default(now())
+  updatedAt     DateTime                 @updatedAt
+
+  @@unique([provider, symbol])
+  @@index([status, lastAttemptAt])
 }
 
 model InvestmentTarget {

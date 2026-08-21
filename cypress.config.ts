@@ -1,6 +1,27 @@
 import { defineConfig } from "cypress";
 import { PrismaClient } from "@prisma/client";
 import { createHash, randomBytes } from "node:crypto";
+import { createClient } from "redis";
+
+async function clearCypressMarketMetadataCache(provider: "BRAPI" | "YAHOO", symbol: string) {
+  const redisUrl = process.env.REDIS_URL?.trim();
+  if (!redisUrl) return;
+  const digest = createHash("sha256")
+    .update(JSON.stringify([provider, symbol]))
+    .digest("base64url")
+    .slice(0, 32);
+  const namespace = process.env.SHARED_CACHE_NAMESPACE?.trim() || "uovp:shared:v1";
+  const client = createClient({ url: redisUrl });
+  client.on("error", () => undefined);
+  try {
+    await client.connect();
+    await client.del(`${namespace}:market:metadata:v2:${digest}`);
+  } catch {
+    // Redis is optional; PostgreSQL remains sufficient for this browser test.
+  } finally {
+    if (client.isOpen) await client.quit().catch(() => undefined);
+  }
+}
 
 async function cleanupCypressUsers() {
   const prisma = new PrismaClient();
@@ -178,6 +199,74 @@ export default defineConfig({
               });
             }
             return null;
+          } finally {
+            await prisma.$disconnect();
+          }
+        },
+        async seedBrokenMarketLogo({ email }: { email: string }) {
+          const prisma = new PrismaClient();
+          try {
+            const user = await prisma.user.findUniqueOrThrow({ where: { email } });
+            const portfolio = await prisma.portfolio.upsert({
+              where: { userId: user.id },
+              update: {},
+              create: { userId: user.id },
+            });
+            const asset = await prisma.asset.upsert({
+              where: {
+                portfolioId_investmentClass_ticker: {
+                  portfolioId: portfolio.id,
+                  investmentClass: "BRAZILIAN_STOCKS",
+                  ticker: "EMBJ3",
+                },
+              },
+              update: { instrumentType: "STOCK", name: "Embraer S.A.", score: 5 },
+              create: {
+                portfolioId: portfolio.id,
+                investmentClass: "BRAZILIAN_STOCKS",
+                instrumentType: "STOCK",
+                ticker: "EMBJ3",
+                name: "Embraer S.A.",
+                score: 5,
+              },
+            });
+            await prisma.assetHolding.deleteMany({ where: { assetId: asset.id } });
+            await prisma.assetHolding.create({
+              data: {
+                assetId: asset.id,
+                issuer: "Embraer S.A.",
+                productName: "Embraer S.A.",
+                pricingSource: "BRAPI",
+                ticker: "EMBJ3",
+                currency: "BRL",
+                quantity: 1,
+                unitPrice: 80,
+                investedValue: 80,
+                logoUrl: "https://icons.brapi.dev/icons/EMBJ3.svg",
+              },
+            });
+            await prisma.marketAssetMetadata.deleteMany({
+              where: { provider: "BRAPI", symbol: "EMBJ3" },
+            });
+            await clearCypressMarketMetadataCache("BRAPI", "EMBJ3");
+            return null;
+          } finally {
+            await prisma.$disconnect();
+          }
+        },
+        async getMarketLogoMetadata({
+          provider,
+          symbol,
+        }: {
+          provider: "BRAPI" | "YAHOO";
+          symbol: string;
+        }) {
+          const prisma = new PrismaClient();
+          try {
+            return await prisma.marketAssetMetadata.findUnique({
+              where: { provider_symbol: { provider, symbol } },
+              select: { status: true, logoUrl: true, source: true },
+            });
           } finally {
             await prisma.$disconnect();
           }
