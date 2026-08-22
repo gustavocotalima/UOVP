@@ -35,6 +35,7 @@ vi.mock("@/features/portfolio/yahoo-finance", () => ({
 import {
   persistExactBrapiSearchMetadata,
   resolveBrapiLogo,
+  resolveYahooLogo,
 } from "@/features/portfolio/market-logo-resolver";
 
 function metadata(overrides: Record<string, unknown> = {}) {
@@ -58,7 +59,9 @@ describe("resolução persistente de logos de mercado", () => {
     mocks.saveVerifiedMarketMetadata.mockImplementation(async (value) => metadata(value));
     mocks.saveMissingMarketMetadata.mockImplementation(async (value) => metadata({
       ...value,
-      logoUrl: null,
+      provider: value.provider,
+      symbol: value.symbol,
+      logoUrl: value.failedLogoUrl ?? null,
       status: "MISSING",
       resolvedAt: null,
     }));
@@ -156,6 +159,48 @@ describe("resolução persistente de logos de mercado", () => {
     }])).resolves.toEqual(stored);
 
     expect(mocks.saveMissingMarketMetadata).not.toHaveBeenCalled();
+    expect(mocks.saveVerifiedMarketMetadata).not.toHaveBeenCalled();
+  });
+
+  it("recupera uma ausência legada do Yahoo e persiste o fallback de IAUM", async () => {
+    const missing = metadata({
+      provider: "YAHOO",
+      symbol: "IAUM",
+      name: "iShares Gold Trust Micro",
+      logoUrl: null,
+      status: "MISSING",
+      resolvedAt: null,
+      lastAttemptAt: new Date().toISOString(),
+    });
+    mocks.readMarketMetadata.mockResolvedValue(new Map([["IAUM", missing]]));
+
+    await resolveYahooLogo("IAUM", "ETF");
+
+    expect(mocks.searchYahooTickers).not.toHaveBeenCalled();
+    expect(mocks.saveVerifiedMarketMetadata).toHaveBeenCalledWith({
+      provider: "YAHOO",
+      symbol: "IAUM",
+      name: "iShares Gold Trust Micro",
+      logoUrl: "https://financialmodelingprep.com/image-stock/IAUM.png",
+      source: "CATALOG",
+    });
+  });
+
+  it("mantém por 24 horas o fallback do Yahoo confirmado como quebrado", async () => {
+    const failedLogoUrl = "https://financialmodelingprep.com/image-stock/IAUM.png";
+    const missing = metadata({
+      provider: "YAHOO",
+      symbol: "IAUM",
+      logoUrl: failedLogoUrl,
+      status: "MISSING",
+      resolvedAt: null,
+      lastAttemptAt: new Date().toISOString(),
+    });
+    mocks.readMarketMetadata.mockResolvedValue(new Map([["IAUM", missing]]));
+
+    await expect(resolveYahooLogo("IAUM", "ETF")).resolves.toEqual(missing);
+
+    expect(mocks.searchYahooTickers).not.toHaveBeenCalled();
     expect(mocks.saveVerifiedMarketMetadata).not.toHaveBeenCalled();
   });
 });

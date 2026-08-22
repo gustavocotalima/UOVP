@@ -139,10 +139,26 @@ export async function resolveYahooLogo(
 ) {
   const symbol = normalizeYahooSymbol(ticker);
   const failedUrls = new Set(failedLogoUrls);
+  const fallbackLogoUrl = financialModelingPrepLogoUrl(symbol);
   const existing = (await readMarketMetadata("YAHOO", [symbol])).get(symbol);
   const usable = usableVerifiedMetadata(existing, failedUrls);
   if (usable) return usable;
-  if (existing?.status === "MISSING" && !missingMetadataCanRetry(existing)) return existing;
+  if (existing?.status === "MISSING" && !missingMetadataCanRetry(existing)) {
+    // Records created before failed URLs were retained cannot distinguish a real
+    // negative result from a transient browser abort. Seed the deterministic
+    // fallback once; a subsequent confirmed failure stores that URL and restores
+    // the 24-hour negative-cache behavior.
+    if (!existing.logoUrl && fallbackLogoUrl && !failedUrls.has(fallbackLogoUrl)) {
+      return saveVerifiedMarketMetadata({
+        provider: "YAHOO",
+        symbol,
+        name: existing.name,
+        logoUrl: fallbackLogoUrl,
+        source: "CATALOG",
+      });
+    }
+    return existing;
+  }
 
   return withSharedCacheCoalescing({
     key: sharedCacheKey("market:logo-resolution:v2", "YAHOO", symbol),
@@ -151,7 +167,7 @@ export async function resolveYahooLogo(
       const exact = matches.find((candidate) => candidate.symbol === symbol);
       const candidates = [
         exact?.logoUrl ?? null,
-        financialModelingPrepLogoUrl(symbol),
+        fallbackLogoUrl,
       ].filter((value): value is string => Boolean(value));
       const logoUrl = candidates.find((candidate) => !failedUrls.has(candidate)) ?? null;
       if (exact && logoUrl) {
@@ -168,6 +184,7 @@ export async function resolveYahooLogo(
         symbol,
         name: exact?.name ?? existing?.name ?? null,
         source: "CATALOG",
+        failedLogoUrl: candidates.find((candidate) => failedUrls.has(candidate)) ?? null,
       });
     },
     readAfterWait: async (lockStartedAt) => {

@@ -432,10 +432,15 @@ function AssetLogoCandidates({
 }) {
   const [resolvedLogoUrl, setResolvedLogoUrl] = useState<string | null>(null);
   const [failedLogoUrls, setFailedLogoUrls] = useState<string[]>([]);
+  const [retryLogoUrl, setRetryLogoUrl] = useState<string | null>(null);
   const attemptedResolutions = useRef(new Set<string>());
+  const retriedLogoUrls = useRef(new Set<string>());
   const [, startResolving] = useTransition();
   const candidates = [...new Set([resolvedLogoUrl, ...logoUrls].filter((value): value is string => Boolean(value)))];
   const logoUrl = candidates.find((candidate) => !failedLogoUrls.includes(candidate)) ?? null;
+  const displayedLogoUrl = logoUrl && retryLogoUrl === logoUrl
+    ? `${logoUrl}${logoUrl.includes("?") ? "&" : "?"}uovp_logo_retry=1`
+    : logoUrl;
   const [loadedLogoUrl, setLoadedLogoUrl] = useState<string | null>(null);
   const logoLoaded = loadedLogoUrl === logoUrl;
   const canResolveLogo = ["STOCK", "ETF", "REAL_ESTATE_FUND", "REIT"].includes(asset.instrumentType);
@@ -480,15 +485,23 @@ function AssetLogoCandidates({
         <img
           data-asset-logo
           ref={captureLogoElement}
-          src={logoUrl}
+          src={displayedLogoUrl ?? undefined}
           alt={`Logo de ${asset.name}`}
           className={`absolute inset-[2px] h-[calc(100%-4px)] w-[calc(100%-4px)] rounded-[9px] bg-white object-contain ${logoLoaded ? "opacity-100" : "opacity-0"}`}
           loading="lazy"
           onLoad={(event) => {
-            if (event.currentTarget.naturalWidth > 0) setLoadedLogoUrl(logoUrl);
+            if (event.currentTarget.naturalWidth > 0) {
+              setLoadedLogoUrl(logoUrl);
+            }
           }}
           onError={() => {
             setLoadedLogoUrl(null);
+            if (logoUrl && !retriedLogoUrls.current.has(logoUrl)) {
+              retriedLogoUrls.current.add(logoUrl);
+              setRetryLogoUrl(logoUrl);
+              return;
+            }
+            setRetryLogoUrl(null);
             const nextFailedLogoUrls = logoUrl && !failedLogoUrls.includes(logoUrl)
               ? [...failedLogoUrls, logoUrl]
               : failedLogoUrls;
