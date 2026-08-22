@@ -1141,13 +1141,31 @@ export async function resolveAssetLogoAction(input: {
   });
   if (!asset) throw new Error("Ativo não encontrado.");
 
+  const persistResolvedLogo = async (logoUrl: string | null) => {
+    if (!logoUrl) return null;
+    await prisma.assetHolding.updateMany({
+      where: {
+        assetId: parsed.assetId,
+        OR: [
+          { logoUrl: null },
+          ...(parsed.failedLogoUrls.length
+            ? [{ logoUrl: { in: parsed.failedLogoUrls } }]
+            : []),
+        ],
+      },
+      data: { logoUrl },
+    });
+    revalidatePath("/carteira");
+    return logoUrl;
+  };
+
   if (usesBrapiQuotes(
     asset.investmentClass as InvestmentClassKey,
     asset.instrumentType,
     asset.marketRegion,
   )) {
     const metadata = await resolveBrapiLogo(asset.ticker, parsed.failedLogoUrls);
-    return metadata.status === "VERIFIED" ? metadata.logoUrl : null;
+    return persistResolvedLogo(metadata.status === "VERIFIED" ? metadata.logoUrl : null);
   }
   if (usesYahooQuotes(
     asset.investmentClass as InvestmentClassKey,
@@ -1159,7 +1177,7 @@ export async function resolveAssetLogoAction(input: {
       yahooSearchKind(asset.investmentClass as InvestmentClassKey, asset.instrumentType),
       parsed.failedLogoUrls,
     );
-    return metadata.status === "VERIFIED" ? metadata.logoUrl : null;
+    return persistResolvedLogo(metadata.status === "VERIFIED" ? metadata.logoUrl : null);
   }
   return null;
 }

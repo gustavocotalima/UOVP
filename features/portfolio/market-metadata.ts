@@ -152,11 +152,13 @@ export async function saveMissingMarketMetadata({
   symbol,
   name,
   source,
+  failedLogoUrl = null,
 }: {
   provider: MarketMetadataProvider;
   symbol: string;
   name: string | null;
   source: MarketMetadataSource;
+  failedLogoUrl?: string | null;
 }) {
   const normalizedSymbol = symbol.trim().toUpperCase();
   const now = new Date();
@@ -164,7 +166,7 @@ export async function saveMissingMarketMetadata({
     where: { provider_symbol: { provider, symbol: normalizedSymbol } },
     update: {
       name,
-      logoUrl: null,
+      logoUrl: failedLogoUrl,
       status: "MISSING",
       source,
       resolvedAt: null,
@@ -174,7 +176,7 @@ export async function saveMissingMarketMetadata({
       provider,
       symbol: normalizedSymbol,
       name,
-      logoUrl: null,
+      logoUrl: failedLogoUrl,
       status: "MISSING",
       source,
       resolvedAt: null,

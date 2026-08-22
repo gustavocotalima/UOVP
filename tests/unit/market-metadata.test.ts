@@ -88,7 +88,7 @@ describe("persistência compartilhada de metadados de mercado", () => {
 
   it("limita o cache negativo a 24 horas", async () => {
     mocks.upsert.mockResolvedValue(storedMetadata({
-      logoUrl: null,
+      logoUrl: "https://financialmodelingprep.com/image-stock/IAUM.png",
       status: "MISSING",
       resolvedAt: null,
     }));
@@ -98,7 +98,17 @@ describe("persistência compartilhada de metadados de mercado", () => {
       symbol: "UNKNOWN3",
       name: null,
       source: "CATALOG",
+      failedLogoUrl: "https://financialmodelingprep.com/image-stock/IAUM.png",
     });
+
+    expect(mocks.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      update: expect.objectContaining({
+        logoUrl: "https://financialmodelingprep.com/image-stock/IAUM.png",
+      }),
+      create: expect.objectContaining({
+        logoUrl: "https://financialmodelingprep.com/image-stock/IAUM.png",
+      }),
+    }));
 
     expect(mocks.setSharedCacheMany).toHaveBeenCalledWith([
       expect.objectContaining({ ttlSeconds: 86_400 }),
