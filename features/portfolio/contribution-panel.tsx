@@ -109,9 +109,9 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
       ? selectedEquivalentNative * Number(selectedSuggestion.fxRateToBrl ?? 0)
       : selectedEquivalentNative;
   const selectedHolding = selectedAsset?.holdings.find((holding) => holding.id === contributionModal?.holdingId);
-  const pluggyControlled = Boolean(
-    selectedAsset?.pluggyControlled
-    && (!isFixedIncome || (contributionModal?.destination === "EXISTING" && selectedHolding?.positionSource === "PLUGGY")),
+  const providerControlled = Boolean(
+    selectedAsset?.providerControlled
+    && (!isFixedIncome || (contributionModal?.destination === "EXISTING" && selectedHolding?.positionSource !== "MANUAL")),
   );
   const selectedCatalog = selectedAsset?.fixedIncomeFamilyCode
     ? catalog.filter((item) => item.familyCode === selectedAsset.fixedIncomeFamilyCode)
@@ -216,7 +216,7 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
             : item),
         });
         setMessage(result.awaitingSync
-          ? "Aporte planejado. Faça o investimento na instituição e sincronize a Pluggy para confirmar."
+          ? "Aporte planejado. Faça o investimento na instituição e sincronize o provedor para confirmar."
           : "Aporte registrado.");
         setContributionModal(undefined);
         router.refresh();
@@ -493,14 +493,14 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
                 )}
               </div>
             )}
-            {pluggyControlled && (
+            {providerControlled && (
               <div className="rounded-xl border border-[var(--primary)]/50 bg-[var(--primary)]/10 p-4 text-sm">
-                Esta posição é controlada pela Pluggy. O aporte ficará aguardando e só alterará a carteira depois que a instituição informar a compra.
+                Esta posição é controlada por um provedor. O aporte ficará aguardando e só alterará a carteira depois que a sincronização confirmar a compra.
               </div>
             )}
             <div className="flex justify-center pt-5">
               <Button className="min-w-40" onClick={executeContribution} disabled={pending || !Number.isFinite(selectedQuantity) || selectedQuantity <= 0 || !paidUnitPriceValid || Boolean(isFixedIncome && contributionModal.destination === "EXISTING" && !contributionModal.holdingId) || Boolean(isFixedIncome && contributionModal.destination === "NEW" && ((!contributionModal.newHolding.catalogItemId && contributionModal.newHolding.customTypeName.trim().length < 2) || contributionModal.newHolding.issuer.trim().length < 2 || contributionModal.newHolding.productName.trim().length < 2))}>
-                {pending ? "Salvando…" : pluggyControlled ? "Planejar aporte" : "Aportar"}
+                {pending ? "Salvando…" : providerControlled ? "Planejar aporte" : "Aportar"}
               </Button>
             </div>
           </div>

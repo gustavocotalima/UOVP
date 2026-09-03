@@ -4,6 +4,7 @@ import {
   isAutomaticRefreshStale,
   shouldRefreshMarketHoldings,
   shouldSyncPluggyItems,
+  shouldSyncBinanceConnection,
 } from "@/lib/automatic-refresh-policy";
 
 const now = new Date("2026-07-27T15:00:00.000Z");
@@ -47,6 +48,13 @@ describe("política de atualização automática", () => {
       { syncPending: false, lastSyncAt: new Date(now.getTime() - 60_000) },
     ], now)).toBe(false);
     expect(shouldSyncPluggyItems([], now)).toBe(false);
+  });
+
+  it("sincroniza a Binance somente quando a conexão está pendente ou vencida", () => {
+    expect(shouldSyncBinanceConnection(null, now)).toBe(false);
+    expect(shouldSyncBinanceConnection({ syncPending: false, lastSyncAt: new Date(now.getTime() - 60_000) }, now)).toBe(false);
+    expect(shouldSyncBinanceConnection({ syncPending: true, lastSyncAt: now }, now)).toBe(true);
+    expect(shouldSyncBinanceConnection({ syncPending: false, lastSyncAt: new Date(now.getTime() - AUTOMATIC_REFRESH_STALE_MS) }, now)).toBe(true);
   });
 
   it("trata timestamps inválidos como vencidos", () => {

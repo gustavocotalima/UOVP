@@ -1,6 +1,8 @@
 import { PageHeader } from "@/components/ui/page-header";
 import { getPluggyCredentialStatus } from "@/features/open-finance/pluggy-credentials";
 import { getBrapiCredentialStatus } from "@/features/portfolio/brapi-credentials";
+import { getBinanceConnectionStatus } from "@/features/portfolio/binance-wallet-credentials";
+import { BinanceWalletCard } from "@/features/settings/binance-wallet-card";
 import { SettingsClient } from "@/features/settings/settings-client";
 import { requireUser } from "@/lib/current-user";
 import { listRegistrationInvites } from "@/features/auth/invite-actions";
@@ -23,9 +25,10 @@ function pluggyWebhookUrl(): string | null {
 export default async function SettingsPage() {
   const user = await requireUser();
   const userId = user.id;
-  const [credential, pluggyCredential, invites, timeZone] = await Promise.all([
+  const [credential, pluggyCredential, binanceStatus, invites, timeZone] = await Promise.all([
     getBrapiCredentialStatus(userId),
     getPluggyCredentialStatus(userId),
+    getBinanceConnectionStatus(userId),
     user.isAdmin ? listRegistrationInvites() : Promise.resolve(null),
     getUserTimeZone(userId),
   ]);
@@ -49,6 +52,7 @@ export default async function SettingsPage() {
           createdAt: invite.createdAt.toISOString(),
         })) ?? null}
       />
+      <BinanceWalletCard initialStatus={binanceStatus} />
     </div>
   );
 }

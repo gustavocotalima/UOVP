@@ -11,7 +11,7 @@ export type AveragePriceTransaction = {
 };
 
 export type HoldingAveragePriceInput = {
-  positionSource: "MANUAL" | "PLUGGY";
+  positionSource: "MANUAL" | "PLUGGY" | "BINANCE";
   quantity: Decimal.Value;
   investedValue: DecimalValue;
   amountOriginal?: DecimalValue;
@@ -41,7 +41,7 @@ export function calculateHoldingAveragePrice(input: HoldingAveragePriceInput): A
     };
   }
 
-  if (input.positionSource === "PLUGGY") {
+  if (input.positionSource !== "MANUAL") {
     let purchasedQuantity = new Decimal(0);
     let purchasedCost = new Decimal(0);
     for (const transaction of input.transactions ?? []) {

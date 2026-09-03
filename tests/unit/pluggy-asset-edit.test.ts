@@ -104,7 +104,7 @@ describe("edição da classificação de ativos Pluggy", () => {
 
     expect(mocks.assetHoldingFindMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({
-        positionSource: { in: ["MANUAL", "PLUGGY"] },
+        positionSource: { in: ["MANUAL", "PLUGGY", "BINANCE"] },
       }),
     }));
     expect(mocks.tx.asset.update).toHaveBeenCalledWith(expect.objectContaining({

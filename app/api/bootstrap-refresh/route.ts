@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { refreshStaleMarketPricesAction } from "@/features/portfolio/actions";
 import { refreshStaleFinancialAccountFx } from "@/features/finance/account-fx";
 import { syncStalePluggyItemsForUser } from "@/features/open-finance/automatic-sync";
+import { syncStaleBinanceWalletForUser } from "@/features/portfolio/binance-wallet-sync";
 import { getActiveUser } from "@/lib/current-user";
 import { OperationInProgressError } from "@/lib/operation-security";
 import { isSameOriginRequest } from "@/lib/request-security";
@@ -33,10 +34,11 @@ export async function POST(request: Request) {
   if (!user) return NextResponse.json({ error: "Sessão expirada." }, { status: 401 });
 
   const startedAt = Date.now();
-  const [marketSettled, accountsSettled, pluggySettled] = await Promise.allSettled([
+  const [marketSettled, accountsSettled, pluggySettled, binanceSettled] = await Promise.allSettled([
     refreshStaleMarketPricesAction(),
     refreshStaleFinancialAccountFx(user.id),
     syncStalePluggyItemsForUser(user.id),
+    syncStaleBinanceWalletForUser(user.id),
   ]);
   const market = marketSettled.status === "fulfilled"
     ? {
@@ -55,9 +57,12 @@ export async function POST(request: Request) {
   const accounts = accountsSettled.status === "fulfilled"
     ? accountsSettled.value
     : failedResult(accountsSettled.reason);
-  const response: BootstrapRefreshResponse = { market, accounts, pluggy };
+  const binanceWallet = binanceSettled.status === "fulfilled"
+    ? { status: binanceSettled.value.status, changed: binanceSettled.value.changed, message: binanceSettled.value.message }
+    : failedResult(binanceSettled.reason);
+  const response: BootstrapRefreshResponse = { market, accounts, pluggy, binanceWallet };
 
-  if (market.changed || accounts.changed || pluggy.changed) {
+  if (market.changed || accounts.changed || pluggy.changed || binanceWallet.changed) {
     [
       "/home",
       "/carteira",
@@ -98,6 +103,14 @@ export async function POST(request: Request) {
       failedConnections: pluggySettled.status === "fulfilled"
         ? pluggySettled.value.failedConnections
         : undefined,
+    },
+    binanceWallet: {
+      reason: binanceSettled.status === "fulfilled" ? binanceSettled.value.reason : "AUTOMATIC_STALE",
+      status: binanceWallet.status,
+      changed: binanceWallet.changed,
+      discovered: binanceSettled.status === "fulfilled" ? binanceSettled.value.discovered : undefined,
+      tracked: binanceSettled.status === "fulfilled" ? binanceSettled.value.tracked : undefined,
+      failedWallets: binanceSettled.status === "fulfilled" ? binanceSettled.value.failedWallets : undefined,
     },
   });
 

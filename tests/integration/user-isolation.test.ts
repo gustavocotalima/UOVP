@@ -24,6 +24,7 @@ suite("isolamento entre usuários", () => {
   let firstFinancialAccountId = "";
   let secondFinanceTagId = "";
   let firstPluggyItemId = "";
+  let firstBinanceConnectionId = "";
 
   beforeAll(async () => {
     const first = await db!.user.create({ data: { email: `vitest-a-${suffix}@example.com`, portfolio: { create: {} } }, include: { portfolio: true } });
@@ -153,6 +154,19 @@ suite("isolamento entre usuários", () => {
       },
     });
     firstPluggyItemId = pluggyItem.id;
+    const binanceConnection = await db!.binanceConnection.create({
+      data: {
+        userId: first.id,
+        apiKeyCiphertext: "encrypted-key",
+        apiKeyLastFour: "1234",
+        apiSecretCiphertext: "encrypted-secret",
+        syncPending: false,
+        walletAssets: {
+          create: { symbol: "BTC", status: "AVAILABLE", spotQuantity: "0.125" },
+        },
+      },
+    });
+    firstBinanceConnectionId = binanceConnection.id;
   });
 
   afterAll(async () => {
@@ -351,6 +365,18 @@ suite("isolamento entre usuários", () => {
     expect(similarAfterDelete.budgetCategory).toBe("COMFORT");
     expect(similarAfterDelete.budgetCategorySource).toBe("PROVIDER_DEFAULT");
     expect(similarAfterDelete.classificationRuleId).toBeNull();
+  });
+
+  it("isola a conexão e os ativos Binance por usuário", async () => {
+    const [firstConnection, secondConnection, secondAssets] = await Promise.all([
+      db!.binanceConnection.findFirst({ where: { id: firstBinanceConnectionId, userId: firstUserId } }),
+      db!.binanceConnection.findFirst({ where: { id: firstBinanceConnectionId, userId: secondUserId } }),
+      db!.binanceWalletAsset.findMany({ where: { connection: { userId: secondUserId } } }),
+    ]);
+
+    expect(firstConnection?.apiKeyLastFour).toBe("1234");
+    expect(secondConnection).toBeNull();
+    expect(secondAssets).toHaveLength(0);
   });
 
   it("reconcilia posições Pluggy de forma idempotente e isolada por usuário", async () => {

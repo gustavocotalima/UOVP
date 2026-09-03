@@ -1328,7 +1328,7 @@ export function AssetsPanel({
             {message && <p role="status" className="mb-4 rounded-xl bg-[var(--muted)] p-3 text-sm">{message}</p>}
             <div className="space-y-3 lg:hidden">
               {filtered.map((asset) => {
-                const expandable = asset.instrumentType === "FIXED_INCOME" || asset.pluggyControlled || asset.holdings.length > 1 || Boolean(asset.awaitingSyncContribution);
+                const expandable = asset.instrumentType === "FIXED_INCOME" || asset.providerControlled || asset.holdings.length > 1 || Boolean(asset.awaitingSyncContribution);
                 const showsApplicationCount = ["FIXED_INCOME", "MUTUAL_FUND"].includes(asset.instrumentType);
                 const expanded = expandedAssets.has(asset.id) || searchExpandedAssets.has(asset.id);
                 return (
@@ -1415,8 +1415,8 @@ export function AssetsPanel({
                             <section key={holding.id} className="rounded-xl border bg-[var(--card)] p-3">
                               <div className="flex items-start justify-between gap-3">
                                 <div className="min-w-0"><strong className="block truncate text-sm">{holding.typeName}</strong><span className="block truncate text-xs text-[var(--muted-foreground)]">{holding.productName}</span></div>
-                                {holding.positionSource === "PLUGGY"
-                                  ? <span className="rounded-full bg-[var(--primary)]/12 px-2 py-1 text-[10px] font-semibold text-[var(--primary)]">Pluggy</span>
+                                {holding.positionSource !== "MANUAL"
+                                  ? <span className="rounded-full bg-[var(--primary)]/12 px-2 py-1 text-[10px] font-semibold text-[var(--primary)]">{holding.positionSource === "BINANCE" ? "Binance" : "Pluggy"}</span>
                                   : <div className="flex"><Button variant="ghost" size="icon" onClick={() => startHolding(asset, holding)} aria-label={`Editar ${holding.productName}`}><Pencil className="size-4" /></Button><Button variant="ghost" size="icon" className="text-[var(--danger)]" onClick={() => setDeleteTarget({ kind: "holding", id: holding.id, label: holding.productName })} aria-label={`Excluir ${holding.productName}`}><Trash2 className="size-4" /></Button></div>}
                               </div>
                               <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-3 text-xs">
@@ -1429,7 +1429,7 @@ export function AssetsPanel({
                                 {holdingProfitability(holding) && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Rentabilidade</dt><dd className="mt-1">{holdingProfitability(holding)}</dd></div>}
                                 {holding.purchaseDate && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Compra</dt><dd className="mt-1">{reviewDate(holding.purchaseDate, timeZone)}</dd></div>}
                                 {holding.maturityDate && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Vencimento</dt><dd className="mt-1">{reviewDate(holding.maturityDate, timeZone)}</dd></div>}
-                                {holding.positionSource === "PLUGGY" && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Status</dt><dd className="mt-1">{holding.providerStatus ?? "Sincronizado"}</dd></div>}
+                                {holding.positionSource !== "MANUAL" && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Status</dt><dd className="mt-1">{holding.providerStatus ?? "Sincronizado"}</dd></div>}
                               </dl>
 
                               {(holding.transactionCount > 0 || movementState?.loading || movementState?.error) && (
@@ -1488,7 +1488,7 @@ export function AssetsPanel({
                 </thead>
                 <tbody>
                   {filtered.map((asset) => {
-                    const expandable = asset.instrumentType === "FIXED_INCOME" || asset.pluggyControlled || asset.holdings.length > 1 || Boolean(asset.awaitingSyncContribution);
+                    const expandable = asset.instrumentType === "FIXED_INCOME" || asset.providerControlled || asset.holdings.length > 1 || Boolean(asset.awaitingSyncContribution);
                     const showsApplicationCount = ["FIXED_INCOME", "MUTUAL_FUND"].includes(asset.instrumentType);
                     const expanded = expandedAssets.has(asset.id) || searchExpandedAssets.has(asset.id);
                     const holdingColumns = {
@@ -1549,8 +1549,8 @@ export function AssetsPanel({
                               <span
                                 className="mt-1 inline-flex items-center gap-1 text-[10px] text-[var(--primary)]"
                                 title={asset.instrumentType === "FIXED_INCOME" || asset.awaitingSyncContribution.paidUnitPrice
-                                  ? `Aporte de ${formatMoney(asset.awaitingSyncContribution.value)} aguardando confirmação da Pluggy.`
-                                  : `Aporte de ${reviewDecimal(asset.awaitingSyncContribution.quantity)} unidades aguardando confirmação da Pluggy. Preço não informado.`
+                                  ? `Aporte de ${formatMoney(asset.awaitingSyncContribution.value)} aguardando confirmação do provedor.`
+                                  : `Aporte de ${reviewDecimal(asset.awaitingSyncContribution.quantity)} unidades aguardando confirmação do provedor. Preço não informado.`
                                 }
                               >
                                 <Clock3 className="size-3" aria-hidden="true" />
@@ -1651,8 +1651,8 @@ export function AssetsPanel({
                                           {holdingColumns.purchaseDate && <td className="whitespace-nowrap px-3 py-3">{holding.purchaseDate ? reviewDate(holding.purchaseDate, timeZone) : "—"}</td>}
                                           {holdingColumns.maturityDate && <td className="whitespace-nowrap px-3 py-3">{holding.maturityDate ? reviewDate(holding.maturityDate, timeZone) : "—"}</td>}
                                           <td className="px-3 py-3">
-                                            {holding.positionSource === "PLUGGY"
-                                              ? <div className="text-right"><span className="rounded-full bg-[var(--primary)]/12 px-2 py-1 text-[10px] font-semibold text-[var(--primary)]">Pluggy</span>{holding.institution && <span className="mt-1 block text-[10px] font-medium">{holding.institution}</span>}<span className="mt-0.5 block text-[10px] text-[var(--muted-foreground)]">{holding.providerStatus ?? "Sincronizado"}</span></div>
+                                            {holding.positionSource !== "MANUAL"
+                                              ? <div className="text-right"><span className="rounded-full bg-[var(--primary)]/12 px-2 py-1 text-[10px] font-semibold text-[var(--primary)]">{holding.positionSource === "BINANCE" ? "Binance" : "Pluggy"}</span>{holding.institution && <span className="mt-1 block text-[10px] font-medium">{holding.institution}</span>}<span className="mt-0.5 block text-[10px] text-[var(--muted-foreground)]">{holding.providerStatus ?? "Sincronizado"}</span></div>
                                               : <div className="flex justify-end gap-2"><Button variant="ghost" size="sm" onClick={() => startHolding(asset, holding)}><Pencil className="size-3.5" /> Editar</Button><Button variant="ghost" size="sm" className="text-[var(--danger)]" onClick={() => setDeleteTarget({ kind: "holding", id: holding.id, label: holding.productName })}><Trash2 className="size-3.5" /> Excluir</Button></div>}
                                           </td>
                                         </tr>
@@ -2149,8 +2149,8 @@ export function AssetsPanel({
                     </>
                   )}
                 </div>
-                <div className="space-y-2"><Label htmlFor="asset-quantity">Quantidade</Label><Input id="asset-quantity" type="number" min="0" step="any" value={form.quantity} onChange={(event) => setForm({ ...form, quantity: Number(event.target.value) })} disabled={editingAsset?.pluggyControlled} required /></div>
-                {editingAsset?.pluggyControlled && <p className="text-xs text-[var(--muted-foreground)] sm:col-span-2">A quantidade é controlada pela Pluggy e será atualizada na próxima sincronização.</p>}
+                <div className="space-y-2"><Label htmlFor="asset-quantity">Quantidade</Label><Input id="asset-quantity" type="number" min="0" step="any" value={form.quantity} onChange={(event) => setForm({ ...form, quantity: Number(event.target.value) })} disabled={editingAsset?.providerControlled} required /></div>
+                {editingAsset?.providerControlled && <p className="text-xs text-[var(--muted-foreground)] sm:col-span-2">A quantidade é controlada pelo provedor e será atualizada na próxima sincronização.</p>}
                 {simpleScoreForm && <div className="space-y-2 sm:col-span-2"><Label htmlFor="asset-strength">{form.instrumentType === "ETF" ? "Nota do ETF (manual)" : form.instrumentType === "MUTUAL_FUND" ? "Nota do fundo (manual)" : "Nota de força"}</Label><Input id="asset-strength" type="number" min="-30" max="30" value={form.score} onChange={(event) => setForm({ ...form, score: Number(event.target.value) })} /></div>}
             </div>
 

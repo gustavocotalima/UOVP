@@ -72,8 +72,36 @@ describe("modais da carteira", () => {
     cy.get("#settings-brapi-api-key").should("have.attr", "type", "password").and("have.attr", "autocomplete", "off");
     cy.contains("a", "Obter chave na brapi").should("have.attr", "href", "https://brapi.dev/dashboard");
     cy.contains("Yahoo Finance").should("be.visible");
-    cy.contains("Binance").should("be.visible");
+    cy.contains("Carteira Binance").should("be.visible");
+    cy.get("#binance-api-key").should("have.attr", "type", "password").and("have.attr", "autocomplete", "off");
+    cy.get("#binance-api-secret").should("have.attr", "type", "password").and("have.attr", "autocomplete", "off");
     cy.contains("Sem chave").should("be.visible");
+  });
+
+  it("exibe descoberta, conciliação e bloqueia a quantidade controlada pela Binance", () => {
+    cy.get<string>("@testUserEmail").then((email) => {
+      cy.task("seedBinanceWallet", { email });
+    });
+    cy.visit("/configuracoes");
+    cy.waitForHydration();
+    cy.contains("••••ABCD").should("be.visible");
+    cy.contains("Aguardando seleção").parent().should("contain", "2");
+    cy.contains("Ignorados").parent().should("contain", "1");
+    cy.contains("Ativos ignorados").should("be.visible");
+    cy.contains("p", "BTC").should("be.visible");
+    cy.contains("button", "Substituir manual").should("be.visible");
+    cy.contains("p", "ETH").should("be.visible");
+    cy.contains("Sem cotação suportada pela Binance.").should("be.visible");
+    cy.contains("p", "ETH").parents(".rounded-xl").first().within(() => {
+      cy.contains("button", "Acompanhar").should("be.disabled");
+    });
+
+    cy.visit("/carteira");
+    cy.waitForHydration();
+    cy.get("[data-assets-panel-hydrated=true]", { timeout: 15000 });
+    cy.get("button[aria-label=\"Editar ADA\"]:visible").click();
+    cy.get("#asset-quantity").should("be.disabled");
+    cy.get("[role=dialog]").should("contain", "quantidade é controlada pelo provedor");
   });
 
   it("exige seleção do catálogo Spot da Binance para criptomoedas", () => {

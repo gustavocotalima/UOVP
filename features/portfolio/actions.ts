@@ -221,15 +221,15 @@ export async function saveAssetAction(input: AssetInput) {
     where: {
       assetId: parsed.id,
       includedInTotals: true,
-      positionSource: { in: ["MANUAL", "PLUGGY"] },
+      positionSource: { in: ["MANUAL", "PLUGGY", "BINANCE"] },
       asset: { portfolio: { userId } },
     },
     orderBy: { createdAt: "asc" },
   }) : [];
   const existingHolding = existingPositions.find((holding) => holding.positionSource === "MANUAL") ?? null;
   const existingQuoteHolding = existingHolding ?? existingPositions[0] ?? null;
-  const hasPluggyControlledPosition = existingPositions.some((holding) => holding.positionSource === "PLUGGY");
-  if (parsed.id && !existingHolding && !hasPluggyControlledPosition) {
+  const hasProviderControlledPosition = existingPositions.some((holding) => holding.positionSource !== "MANUAL");
+  if (parsed.id && !existingHolding && !hasProviderControlledPosition) {
     throw new Error("Posição do ativo não encontrada.");
   }
   let brapiQuote: BrapiQuote | undefined;
@@ -392,6 +392,9 @@ export async function saveAssetAction(input: AssetInput) {
     const pluggyControlled = await tx.assetHolding.count({
       where: { assetId: parent.id, positionSource: "PLUGGY", includedInTotals: true },
     });
+    const providerControlled = await tx.assetHolding.count({
+      where: { assetId: parent.id, positionSource: { in: ["PLUGGY", "BINANCE"] }, includedInTotals: true },
+    });
     if (pluggyControlled) {
       await tx.pluggyInvestmentDiagramLink.updateMany({
         where: {
@@ -442,7 +445,7 @@ export async function saveAssetAction(input: AssetInput) {
         },
       });
     }
-    if (!pluggyControlled) {
+    if (!providerControlled) {
       const existingHolding = await tx.assetHolding.findFirst({
         where: {
           assetId: parent.id,
@@ -903,16 +906,16 @@ export async function importPortfolioRowsAction(input: {
         },
         orderBy: { createdAt: "asc" },
       });
-      const pluggyControlled = await tx.assetHolding.count({
+      const providerControlled = await tx.assetHolding.count({
         where: {
           assetId: parent.id,
-          positionSource: "PLUGGY",
+          positionSource: { not: "MANUAL" },
           includedInTotals: true,
         },
       });
-      if (pluggyControlled) {
+      if (providerControlled) {
         throw new Error(
-          `${ticker} é controlado pela Pluggy. Ajuste a posição pela instituição em vez de importá-la manualmente.`,
+          `${ticker} é controlado por um provedor. Ajuste a posição no provedor em vez de importá-la manualmente.`,
         );
       }
       if (existingHolding) {
@@ -1041,6 +1044,10 @@ export async function deleteAssetAction(assetId: string) {
         reviewReason: "Ativo removido do diagrama pelo usuário.",
       },
     });
+    await tx.binanceWalletAsset.updateMany({
+      where: { holding: { assetId: asset.id } },
+      data: { holdingId: null, status: "AVAILABLE" },
+    });
     await tx.contributionSuggestion.deleteMany({ where: { assetId: asset.id } });
     await tx.asset.delete({ where: { id: asset.id } });
     await bumpPortfolioAndInvalidateDrafts(tx, asset.portfolioId, userId);
@@ -1062,6 +1069,10 @@ export async function deleteAssetClassAction(investmentClass: InvestmentClassKey
         classificationSource: "USER_OVERRIDE",
         reviewReason: "Classe removida do diagrama pelo usuário.",
       },
+    });
+    await tx.binanceWalletAsset.updateMany({
+      where: { holding: { assetId: { in: assets.map((asset) => asset.id) } } },
+      data: { holdingId: null, status: "AVAILABLE" },
     });
     await tx.contributionSuggestion.deleteMany({ where: { assetId: { in: assets.map((asset) => asset.id) } } });
     await tx.asset.deleteMany({ where: { portfolioId: portfolio.id, investmentClass: parsedClass } });
@@ -1952,16 +1963,16 @@ export async function executeContributionAction(
 
       const externalSuggestion = selected.find((suggestion) => {
         if (suggestion.asset.instrumentType !== "FIXED_INCOME") {
-          return suggestion.asset.holdings.some((holding) => holding.positionSource === "PLUGGY");
+          return suggestion.asset.holdings.some((holding) => holding.positionSource !== "MANUAL");
         }
         return destination?.holdingId
           ? suggestion.asset.holdings.some((holding) =>
-              holding.id === destination.holdingId && holding.positionSource === "PLUGGY",
+              holding.id === destination.holdingId && holding.positionSource !== "MANUAL",
             )
           : false;
       });
       if (externalSuggestion) {
-        if (selected.length !== 1) throw new Error("Planeje aportes de posições Pluggy individualmente.");
+        if (selected.length !== 1) throw new Error("Planeje aportes de posições controladas por provedor individualmente.");
         const existingAwaiting = await tx.contributionSuggestion.count({
           where: {
             assetId: externalSuggestion.assetId,
@@ -1970,7 +1981,7 @@ export async function executeContributionAction(
           },
         });
         if (existingAwaiting) {
-          throw new Error("Este ativo já possui um aporte aguardando confirmação da Pluggy.");
+          throw new Error("Este ativo já possui um aporte aguardando confirmação do provedor.");
         }
         const quantity = parsedQuantity === undefined
           ? externalSuggestion.quantity
@@ -1988,10 +1999,10 @@ export async function executeContributionAction(
           ? parsedQuantity === undefined ? externalSuggestion.value : quantity
           : quantity.mul(paidUnitPriceBrl!);
         const baselineQuantity = externalSuggestion.asset.holdings
-          .filter((holding) => holding.positionSource === "PLUGGY" && holding.includedInTotals)
+          .filter((holding) => holding.positionSource !== "MANUAL" && holding.includedInTotals)
           .reduce((total, holding) => total.add(holding.quantity), new Prisma.Decimal(0));
         const baselineValue = externalSuggestion.asset.holdings
-          .filter((holding) => holding.positionSource === "PLUGGY" && holding.includedInTotals)
+          .filter((holding) => holding.positionSource !== "MANUAL" && holding.includedInTotals)
           .reduce(
             (total, holding) => total.add(
               holding.providerCurrentValue
@@ -2004,7 +2015,7 @@ export async function executeContributionAction(
           where: {
             assetHoldingId: {
               in: externalSuggestion.asset.holdings
-                .filter((holding) => holding.positionSource === "PLUGGY")
+                .filter((holding) => holding.positionSource !== "MANUAL")
                 .map((holding) => holding.id),
             },
           },
@@ -2045,7 +2056,7 @@ export async function executeContributionAction(
             externalBaselines: {
               deleteMany: {},
               create: externalSuggestion.asset.holdings
-                .filter((holding) => holding.positionSource === "PLUGGY" && holding.includedInTotals)
+                .filter((holding) => holding.positionSource !== "MANUAL" && holding.includedInTotals)
                 .map((holding) => ({
                   holdingId: holding.id,
                   quantity: holding.quantity,
@@ -2167,7 +2178,7 @@ export async function executeContributionAction(
       throw new Error("A carteira foi atualizada ao mesmo tempo. Recarregue e tente novamente.");
     }
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-      throw new Error("Este ativo já possui um aporte aguardando confirmação da Pluggy.");
+      throw new Error("Este ativo já possui um aporte aguardando confirmação do provedor.");
     }
     throw error;
   }

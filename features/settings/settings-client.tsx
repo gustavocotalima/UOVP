@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition, type FormEvent } from "react";
-import { CalendarClock, CheckCircle2, Coins, Copy, ExternalLink, Globe2, KeyRound, Link2, ShieldCheck, Trash2, UserPlus } from "lucide-react";
+import { CalendarClock, CheckCircle2, Copy, ExternalLink, Globe2, KeyRound, Link2, ShieldCheck, Trash2, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/dialog";
@@ -385,24 +385,6 @@ export function SettingsClient({
                 <p className="mt-1 text-sm leading-6 text-[var(--muted-foreground)]">
                   Ativado automaticamente e sem chave. Usado para ações, REITs, ETFs e câmbio para BRL.
                   É uma integração não oficial destinada ao uso pessoal.
-                </p>
-              </div>
-            </div>
-            <div className="mt-4 flex items-start gap-3 rounded-xl border bg-[var(--muted)]/25 p-4">
-              <Coins className="mt-0.5 size-5 shrink-0 text-[var(--primary)]" />
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="text-sm font-semibold">Binance</p>
-                  <span className="rounded-full bg-[var(--primary)]/12 px-2 py-1 text-[10px] font-semibold uppercase text-[var(--primary)]">
-                    Criptomoedas
-                  </span>
-                  <span className="rounded-full bg-[var(--success)]/12 px-2 py-1 text-[10px] font-semibold uppercase text-[var(--success)]">
-                    Sem chave
-                  </span>
-                </div>
-                <p className="mt-1 text-sm leading-6 text-[var(--muted-foreground)]">
-                  Ativada automaticamente com dados públicos do mercado Spot. Usa pares em BRL quando disponíveis
-                  e, nos demais casos, converte o par em USDT pela cotação USDT/BRL da própria Binance.
                 </p>
               </div>
             </div>
