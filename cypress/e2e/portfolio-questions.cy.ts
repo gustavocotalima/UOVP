@@ -55,4 +55,22 @@ describe("perguntas padrão da carteira", () => {
 
     expectVisibleQuestions(realEstateQuestions);
   });
+
+  it("devolve a interação da página depois de excluir uma pergunta", () => {
+    cy.contains("table tbody tr", "ROE").contains("button", "Editar").click();
+    cy.get('[role="dialog"]').contains("button", "Excluir pergunta").click();
+
+    cy.get('[role="dialog"]').should("have.length", 2);
+    cy.get('[role="dialog"]').last().contains("button", "Excluir pergunta").click();
+
+    cy.contains('[role="status"]', "Pergunta excluída.").should("be.visible");
+    cy.get('[role="dialog"]').should("not.exist");
+    cy.document().then((document) => {
+      const inertElements = Array.from(document.body.children)
+        .filter((element) => element instanceof HTMLElement && element.inert);
+      expect(inertElements).to.have.length(0);
+    });
+    cy.contains("button", "Adicionar pergunta").click();
+    cy.get('[role="dialog"]').should("be.visible");
+  });
 });
