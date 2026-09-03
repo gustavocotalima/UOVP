@@ -15,8 +15,24 @@ import { cn } from "@/lib/utils";
 import { Button } from "./button";
 
 const openDialogs: string[] = [];
+const originalBodyInert = new Map<HTMLElement, boolean>();
 let bodyLockCount = 0;
 let originalBodyOverflow = "";
+
+function synchronizeDialogLayers() {
+  const topDialogId = openDialogs.at(-1);
+  if (!topDialogId) {
+    for (const [element, inert] of originalBodyInert) element.inert = inert;
+    originalBodyInert.clear();
+    return;
+  }
+
+  for (const element of document.body.children) {
+    if (!(element instanceof HTMLElement)) continue;
+    if (!originalBodyInert.has(element)) originalBodyInert.set(element, element.inert);
+    element.inert = element.dataset.dialogId !== topDialogId;
+  }
+}
 
 function focusableElements(panel: HTMLElement | null) {
   if (!panel) return [];
@@ -89,12 +105,7 @@ export function Dialog({
       document.body.style.overflow = "hidden";
     }
     bodyLockCount += 1;
-    const backgroundElements = Array.from(document.body.children)
-      .filter((element): element is HTMLElement =>
-        element instanceof HTMLElement && element.dataset.dialogId !== dialogId,
-      )
-      .map((element) => ({ element, inert: element.inert }));
-    for (const { element } of backgroundElements) element.inert = true;
+    synchronizeDialogLayers();
     const timer = window.setTimeout(() => {
       initialFocusableElement(panelRef.current, initialFocusRef)?.focus();
     });
@@ -128,7 +139,7 @@ export function Dialog({
       document.removeEventListener("keydown", onKeyDown);
       const stackIndex = openDialogs.lastIndexOf(dialogId);
       if (stackIndex >= 0) openDialogs.splice(stackIndex, 1);
-      for (const { element, inert } of backgroundElements) element.inert = inert;
+      synchronizeDialogLayers();
       bodyLockCount = Math.max(0, bodyLockCount - 1);
       if (bodyLockCount === 0) document.body.style.overflow = originalBodyOverflow;
       previous?.focus();
