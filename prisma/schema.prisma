@@ -60,6 +60,14 @@ enum MarketMetadataSource {
 enum PositionSource {
   MANUAL
   PLUGGY
+  BINANCE
+}
+
+enum BinanceWalletAssetStatus {
+  AVAILABLE
+  NEEDS_REVIEW
+  TRACKED
+  IGNORED
 }
 
 enum ClassificationSource {
@@ -217,6 +225,7 @@ model User {
   pluggyDiagramLinks         PluggyInvestmentDiagramLink[]
   pluggyWebhookEvents        PluggyWebhookEvent[]
   operationLeases            UserOperationLease[]
+  binanceConnection          BinanceConnection?
   createdRegistrationInvites RegistrationInvite[]           @relation("CreatedRegistrationInvites")
   usedRegistrationInvite     RegistrationInvite?             @relation("UsedRegistrationInvite")
 }
@@ -425,11 +434,67 @@ model AssetHolding {
   catalogItem          AssetCatalogItem?            @relation(fields: [catalogItemId], references: [id], onDelete: SetNull)
   pluggyDiagramLink    PluggyInvestmentDiagramLink?
   contributionBaselines ContributionExternalBaseline[]
+  binanceWalletAsset    BinanceWalletAsset?
 
   @@index([assetId])
   @@index([pricingSource, ticker])
   @@index([pricingSource, providerSymbol])
   @@index([catalogItemId])
+}
+
+model BinanceConnection {
+  id                    String               @id @default(cuid())
+  userId                String               @unique
+  apiKeyCiphertext      String               @db.Text
+  apiKeyLastFour        String
+  apiSecretCiphertext   String               @db.Text
+  credentialUpdatedAt   DateTime             @default(now())
+  status                String               @default("CONNECTED")
+  ipRestricted          Boolean              @default(false)
+  readEnabled           Boolean              @default(true)
+  tradingEnabled        Boolean              @default(false)
+  withdrawalsEnabled    Boolean              @default(false)
+  permissionWarning     Boolean              @default(false)
+  lastAttemptAt         DateTime?
+  lastSyncAt            DateTime?
+  syncPending           Boolean              @default(true)
+  lastError             String?              @db.Text
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+  user                  User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  walletAssets          BinanceWalletAsset[]
+
+  @@index([syncPending, lastSyncAt])
+}
+
+model BinanceWalletAsset {
+  id                    String                   @id @default(cuid())
+  connectionId          String
+  symbol                String
+  name                  String?
+  status                BinanceWalletAssetStatus @default(AVAILABLE)
+  spotQuantity          Decimal                  @default(0) @db.Decimal(30, 10)
+  fundingQuantity       Decimal                  @default(0) @db.Decimal(30, 10)
+  earnFlexibleQuantity  Decimal                  @default(0) @db.Decimal(30, 10)
+  earnLockedQuantity    Decimal                  @default(0) @db.Decimal(30, 10)
+  btcValuation          Decimal?                 @db.Decimal(30, 12)
+  valuationSupported    Boolean?
+  valuationMethod       String?
+  valuationError        String?
+  spotUpdatedAt         DateTime?
+  fundingUpdatedAt      DateTime?
+  earnFlexibleUpdatedAt DateTime?
+  earnLockedUpdatedAt   DateTime?
+  holdingId             String?                  @unique
+  lastSeenAt            DateTime?
+  lastSyncAt            DateTime?
+  createdAt             DateTime                 @default(now())
+  updatedAt             DateTime                 @updatedAt
+  connection            BinanceConnection        @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  holding               AssetHolding?            @relation(fields: [holdingId], references: [id], onDelete: SetNull)
+
+  @@unique([connectionId, symbol])
+  @@index([connectionId, status])
 }
 
 model MarketAssetMetadata {

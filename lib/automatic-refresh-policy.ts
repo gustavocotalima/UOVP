@@ -26,3 +26,10 @@ export function shouldSyncPluggyItems(
   return items.length > 0
     && items.some((item) => item.syncPending || isAutomaticRefreshStale(item.lastSyncAt, now));
 }
+
+export function shouldSyncBinanceConnection(
+  connection: { syncPending: boolean; lastSyncAt: Date | string | null } | null | undefined,
+  now = new Date(),
+) {
+  return Boolean(connection && (connection.syncPending || isAutomaticRefreshStale(connection.lastSyncAt, now)));
+}

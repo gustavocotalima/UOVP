@@ -9,7 +9,7 @@ export type AssetHoldingDto = {
   institution: string | null;
   productName: string;
   pricingSource: "MANUAL" | "BRAPI" | "YAHOO" | "BINANCE" | "PLUGGY";
-  positionSource: "MANUAL" | "PLUGGY";
+  positionSource: "MANUAL" | "PLUGGY" | "BINANCE";
   ticker: string | null;
   providerSymbol: string | null;
   brapiAssetType: string | null;
@@ -86,7 +86,7 @@ export type AssetDto = {
   priceUpdatedAt: string | null;
   updatedAt: string;
   holdings: AssetHoldingDto[];
-  pluggyControlled: boolean;
+  providerControlled: boolean;
   needsScore: boolean;
   awaitingSyncContribution: {
     quantity: string;

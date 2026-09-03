@@ -156,7 +156,7 @@ export async function getPortfolioData(userId: string) {
       const activeHoldings = asset.holdings.filter((holding) => holding.includedInTotals);
       return activeHoldings.length > 0
         || asset.suggestions.length > 0
-        || !asset.holdings.some((holding) => holding.positionSource === "PLUGGY");
+        || !asset.holdings.some((holding) => holding.positionSource !== "MANUAL");
     }).map((asset) => {
       const holdings = asset.holdings.filter((holding) => holding.includedInTotals);
       const awaitingSyncContribution = asset.suggestions[0] ?? null;
@@ -236,7 +236,7 @@ export async function getPortfolioData(userId: string) {
         score: asset.score,
         priceUpdatedAt: latestPriceUpdate?.toISOString() ?? null,
         updatedAt: asset.updatedAt.toISOString(),
-        pluggyControlled: holdings.some((holding) => holding.positionSource === "PLUGGY"),
+        providerControlled: holdings.some((holding) => holding.positionSource !== "MANUAL"),
         needsScore: asset.score === 0,
         awaitingSyncContribution: awaitingSyncContribution
           ? {

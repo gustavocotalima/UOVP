@@ -10,4 +10,5 @@ export type BootstrapRefreshResponse = {
   market: BootstrapRefreshIntegrationResult;
   accounts: BootstrapRefreshIntegrationResult;
   pluggy: BootstrapRefreshIntegrationResult;
+  binanceWallet: BootstrapRefreshIntegrationResult;
 };

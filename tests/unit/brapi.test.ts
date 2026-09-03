@@ -318,4 +318,20 @@ describe("integração brapi", () => {
       needsRotation: true,
     });
   });
+
+  it("isola a chave e o segredo da Binance por usuário e por contexto", () => {
+    process.env.CREDENTIAL_ENCRYPTION_KEYS = "v1:" + Buffer.alloc(32, 11).toString("base64url");
+    process.env.CREDENTIAL_ENCRYPTION_ACTIVE_KEY = "v1";
+    const keyContext = { userId: "user-binance", type: "binance-api-key" as const };
+    const secretContext = { userId: "user-binance", type: "binance-api-secret" as const };
+    const encryptedKey = encryptCredential("binance-key", keyContext);
+    const encryptedSecret = encryptCredential("binance-secret", secretContext);
+
+    expect(encryptedKey).not.toContain("binance-key");
+    expect(encryptedSecret).not.toContain("binance-secret");
+    expect(decryptCredential(encryptedKey, keyContext).value).toBe("binance-key");
+    expect(decryptCredential(encryptedSecret, secretContext).value).toBe("binance-secret");
+    expect(() => decryptCredential(encryptedSecret, keyContext)).toThrow();
+    expect(() => decryptCredential(encryptedSecret, { ...secretContext, userId: "other-user" })).toThrow();
+  });
 });

@@ -14,7 +14,7 @@ const SESSION_KEY = "uovp:bootstrap-refresh:last-check";
 function responseIsValid(value: unknown): value is BootstrapRefreshResponse {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<BootstrapRefreshResponse>;
-  return [candidate.market, candidate.accounts, candidate.pluggy].every((result) =>
+  return [candidate.market, candidate.accounts, candidate.pluggy, candidate.binanceWallet].every((result) =>
     result
     && ["SKIPPED", "UPDATED", "PARTIAL", "FAILED"].includes(result.status)
     && typeof result.changed === "boolean",
@@ -51,7 +51,7 @@ export function AutomaticRefreshCoordinator() {
 
     runningRef.current = true;
     const loadingTimer = window.setTimeout(() => {
-      setNotice({ kind: "loading", text: "Atualizando cotações, câmbio e Open Finance…" });
+      setNotice({ kind: "loading", text: "Atualizando cotações, câmbio, Open Finance e Binance…" });
     }, 400);
     try {
       const response = await fetch("/api/bootstrap-refresh", {
@@ -64,10 +64,10 @@ export function AutomaticRefreshCoordinator() {
       if (!response.ok || !responseIsValid(payload)) {
         throw new Error("Não foi possível concluir a atualização automática.");
       }
-      if (payload.market.changed || payload.accounts.changed || payload.pluggy.changed) {
+      if (payload.market.changed || payload.accounts.changed || payload.pluggy.changed || payload.binanceWallet.changed) {
         router.refresh();
       }
-      const failed = [payload.market, payload.accounts, payload.pluggy].filter((result) =>
+      const failed = [payload.market, payload.accounts, payload.pluggy, payload.binanceWallet].filter((result) =>
         result.status === "FAILED" || result.status === "PARTIAL"
       );
       if (failed.length) {
@@ -77,8 +77,8 @@ export function AutomaticRefreshCoordinator() {
             || "Alguns dados não puderam ser atualizados. Os valores anteriores foram preservados.",
         });
         clearNoticeLater(8_000);
-      } else if (payload.market.changed || payload.accounts.changed || payload.pluggy.changed) {
-        setNotice({ kind: "success", text: "Dados atualizados." });
+      } else if (payload.market.changed || payload.accounts.changed || payload.pluggy.changed || payload.binanceWallet.changed) {
+        setNotice({ kind: "success", text: payload.binanceWallet.message ?? "Dados atualizados." });
         clearNoticeLater(3_500);
       } else {
         setNotice(null);

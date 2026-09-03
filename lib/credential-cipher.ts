@@ -6,7 +6,7 @@ const PROJECT_NAMESPACE = "uovp";
 
 export type CredentialContext = {
   userId: string;
-  type: "brapi" | "pluggy-client-id" | "pluggy-client-secret" | "pluggy-webhook-secret";
+  type: "brapi" | "pluggy-client-id" | "pluggy-client-secret" | "pluggy-webhook-secret" | "binance-api-key" | "binance-api-secret";
 };
 
 function associatedData(context: CredentialContext, namespace = PROJECT_NAMESPACE, version = ENVELOPE_VERSION) {

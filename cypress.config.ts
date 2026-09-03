@@ -254,6 +254,81 @@ export default defineConfig({
             await prisma.$disconnect();
           }
         },
+        async seedBinanceWallet({ email }: { email: string }) {
+          const prisma = new PrismaClient();
+          try {
+            const user = await prisma.user.findUniqueOrThrow({ where: { email } });
+            const portfolio = await prisma.portfolio.upsert({
+              where: { userId: user.id },
+              update: {},
+              create: { userId: user.id },
+            });
+            const asset = await prisma.asset.upsert({
+              where: {
+                portfolioId_investmentClass_ticker: {
+                  portfolioId: portfolio.id,
+                  investmentClass: "CRYPTO",
+                  ticker: "ADA",
+                },
+              },
+              update: { name: "Cardano", instrumentType: "CRYPTO", score: 5 },
+              create: {
+                portfolioId: portfolio.id,
+                investmentClass: "CRYPTO",
+                instrumentType: "CRYPTO",
+                ticker: "ADA",
+                name: "Cardano",
+                score: 5,
+              },
+            });
+            await prisma.assetHolding.deleteMany({ where: { assetId: asset.id } });
+            const holding = await prisma.assetHolding.create({
+              data: {
+                assetId: asset.id,
+                issuer: "Binance",
+                productName: "ADA · Binance",
+                pricingSource: "BINANCE",
+                positionSource: "BINANCE",
+                ticker: "ADA",
+                providerSymbol: "ADAUSDT",
+                marketExchange: "BINANCE",
+                marketQuoteType: "SPOT",
+                currency: "USDT",
+                quantity: "10.5",
+                unitPrice: "0.5",
+                fxRateToBrl: "5",
+                includedInTotals: true,
+                fractional: true,
+                priceUpdatedAt: new Date(),
+              },
+            });
+            await prisma.binanceConnection.deleteMany({ where: { userId: user.id } });
+            const connection = await prisma.binanceConnection.create({
+              data: {
+                userId: user.id,
+                apiKeyCiphertext: "test-encrypted-key",
+                apiKeyLastFour: "ABCD",
+                apiSecretCiphertext: "test-encrypted-secret",
+                status: "CONNECTED",
+                ipRestricted: true,
+                readEnabled: true,
+                lastSyncAt: new Date(),
+                syncPending: false,
+              },
+            });
+            await prisma.binanceWalletAsset.createMany({
+              data: [
+                { connectionId: connection.id, symbol: "ADA", status: "TRACKED", spotQuantity: "10.5", holdingId: holding.id, lastSeenAt: new Date(), lastSyncAt: new Date() },
+                { connectionId: connection.id, symbol: "BTC", status: "NEEDS_REVIEW", spotQuantity: "0.01", lastSeenAt: new Date(), lastSyncAt: new Date() },
+                { connectionId: connection.id, symbol: "ETH", status: "AVAILABLE", earnFlexibleQuantity: "0.2", valuationSupported: false, valuationError: "Sem cotação suportada pela Binance.", lastSeenAt: new Date(), lastSyncAt: new Date() },
+                { connectionId: connection.id, symbol: "BNB", status: "IGNORED", fundingQuantity: "1.5", valuationSupported: true, valuationMethod: "DIRECT", lastSeenAt: new Date(), lastSyncAt: new Date() },
+              ],
+            });
+            return null;
+          } finally {
+            await prisma.$disconnect();
+          }
+        },
         async getMarketLogoMetadata({
           provider,
           symbol,
