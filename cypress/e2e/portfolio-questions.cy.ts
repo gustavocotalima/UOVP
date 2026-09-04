@@ -70,7 +70,31 @@ describe("perguntas padrão da carteira", () => {
         .filter((element) => element instanceof HTMLElement && element.inert);
       expect(inertElements).to.have.length(0);
     });
+    cy.get("section:not([hidden]) table tbody").should("not.contain", "ROE");
+    cy.reload();
+    cy.waitForHydration();
+    cy.contains("button", "Perguntas").click();
+    cy.get("section:not([hidden]) table tbody").should("not.contain", "ROE");
+
     cy.contains("button", "Adicionar pergunta").click();
     cy.get('[role="dialog"]').should("be.visible");
+  });
+
+  it("exclui permanentemente uma pergunta personalizada", () => {
+    cy.contains("button", "Adicionar pergunta").click();
+    cy.get("#question-criterion").type("PERSONALIZADA");
+    cy.get("#question-text").type("Esta pergunta personalizada deve ser removida definitivamente?");
+    cy.get('button[form="question-modal-form"]').click();
+    cy.contains('[role="status"]', "Pergunta adicionada.").should("be.visible");
+
+    cy.contains("table tbody tr", "PERSONALIZADA").contains("button", "Editar").click();
+    cy.get('[role="dialog"]').contains("button", "Excluir pergunta").click();
+    cy.get('[role="dialog"]').last().contains("button", "Excluir pergunta").click();
+    cy.contains('[role="status"]', "Pergunta excluída.").should("be.visible");
+
+    cy.reload();
+    cy.waitForHydration();
+    cy.contains("button", "Perguntas").click();
+    cy.get("section:not([hidden]) table tbody").should("not.contain", "PERSONALIZADA");
   });
 });

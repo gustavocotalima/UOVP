@@ -2320,7 +2320,12 @@ export async function deleteQuestionAction(questionId: string) {
   await prisma.$transaction(async (tx) => {
     const question = await tx.diagramQuestion.findFirst({ where: { id: questionId, userId } });
     if (!question) throw new Error("Pergunta não encontrada.");
-    await tx.diagramQuestion.delete({ where: { id: question.id } });
+    if (question.templateKey) {
+      await tx.assetQuestionAnswer.deleteMany({ where: { questionId: question.id } });
+      await tx.diagramQuestion.update({ where: { id: question.id }, data: { active: false } });
+    } else {
+      await tx.diagramQuestion.delete({ where: { id: question.id } });
+    }
     await recomputeScoresForQuestionType(tx, userId, question.type);
   });
   revalidatePath("/carteira");
