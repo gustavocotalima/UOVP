@@ -36,7 +36,7 @@ export function QuestionsPanel({ questions }: { questions: DiagramQuestionDto[] 
   const [message, setMessage] = useState<string>();
   const visibleQuestions = useMemo(() => {
     const query = search.trim().toLowerCase();
-    return questions.filter((question) => question.type === type && (!query || question.text.toLowerCase().includes(query) || question.criterion.toLowerCase().includes(query)));
+    return questions.filter((question) => question.active && question.type === type && (!query || question.text.toLowerCase().includes(query) || question.criterion.toLowerCase().includes(query)));
   }, [questions, search, type]);
 
   function submit(event: FormEvent) {
