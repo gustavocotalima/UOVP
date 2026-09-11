@@ -198,7 +198,8 @@ export function calculateBudgetCategories(
   });
 }
 
-export function calculateTagTotals(transactions: FinanceTransactionDto[], tags: FinanceTagDto[]) {
+/** The same per-expense allocation feeds both tags and the daily calendar. */
+export function calculateNetExpenses(transactions: FinanceTransactionDto[]) {
   const reportable = transactions.filter(isReportable);
   const amounts = reportable.flatMap((transaction) => {
     const value = reportingValue(transaction);
@@ -211,12 +212,6 @@ export function calculateTagTotals(transactions: FinanceTransactionDto[], tags: 
     }];
   });
   const buckets = calculateOffsetBuckets(amounts);
-  const totals = new Map(tags.map((tag) => [tag.id, {
-    id: tag.id,
-    name: tag.name,
-    color: tag.color,
-    valueCents: 0,
-  }]));
   const remainingByBucket = new Map(
     [...buckets.entries()].map(([key, bucket]) => {
       const grossCents = toCents(bucket.expenses);
@@ -226,7 +221,7 @@ export function calculateTagTotals(transactions: FinanceTransactionDto[], tags: 
       }];
     }),
   );
-  let untaggedCents = 0;
+  const expenses: { transaction: FinanceTransactionDto; grossCents: number; netCents: number }[] = [];
 
   for (const transaction of reportable) {
     const value = reportingValue(transaction);
@@ -248,6 +243,21 @@ export function calculateTagTotals(transactions: FinanceTransactionDto[], tags: 
       remaining.grossCents -= grossCents;
       remaining.netCents -= netCents;
     }
+    expenses.push({ transaction, grossCents, netCents });
+  }
+  return expenses;
+}
+
+export function calculateTagTotals(transactions: FinanceTransactionDto[], tags: FinanceTagDto[]) {
+  const totals = new Map(tags.map((tag) => [tag.id, {
+    id: tag.id,
+    name: tag.name,
+    color: tag.color,
+    valueCents: 0,
+  }]));
+  let untaggedCents = 0;
+
+  for (const { transaction, netCents } of calculateNetExpenses(transactions)) {
     const tagIds = [...new Set(transaction.tags.map((tag) => tag.id))]
       .filter((tagId) => totals.has(tagId));
     if (!tagIds.length) {

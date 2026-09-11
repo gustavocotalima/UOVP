@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { calculateDailyExpenses } from "@/features/finance/daily-expenses";
 import {
   calculateAccountTotals,
   calculateBudgetCategories,
@@ -116,6 +117,129 @@ function transaction(overrides: Partial<FinanceTransactionDto> = {}): FinanceTra
     : overrides.reportingAmountBrl;
   return result;
 }
+
+describe("calendário de saídas líquidas", () => {
+  function september(overrides: Partial<FinanceTransactionDto> = {}) {
+    return transaction({
+      date: "2026-09-08T12:00:00.000Z",
+      referenceYear: 2026,
+      referenceMonth: 9,
+      budgetCategory: null,
+      ...overrides,
+    });
+  }
+
+  it("compensa o reinvestimento e concilia a grade com os lançamentos fora do mês", () => {
+    const transactions = [
+      september({ id: "income", kind: "INCOME", amount: "20.46" }),
+      september({ id: "dividend", kind: "INCOME", amount: "540.60", budgetCategory: "FINANCIAL_FREEDOM" }),
+      september({ id: "reinvestment", amount: "-540.60", budgetCategory: "FINANCIAL_FREEDOM", date: "2026-09-09T12:00:00Z" }),
+      september({ id: "expenses", amount: "-635.15" }),
+      september({ id: "installment", amount: "-44.25", date: "2026-08-15T12:00:00Z", accountType: "CREDIT_CARD" }),
+    ];
+    const calendar = calculateDailyExpenses(transactions, 2026, 9, "America/Sao_Paulo");
+    expect(calendar.totalCents).toBe(67940);
+    expect(calendar.totalCents / 100).toBe(calculatePeriod(transactions).spent);
+    expect(calendar.inCalendarCents).toBe(63515);
+    expect(calendar.outsideCents).toBe(4425);
+    expect(calendar.outsideEntries.map((entry) => entry.transaction.id)).toEqual(["installment"]);
+    expect(calendar.days[8].entries[0]).toMatchObject({ grossCents: 54060, netCents: 0 });
+    expect(calendar.daysWithExpenses).toBe(1);
+    expect(calendar.daysWithoutExpenses).toBe(29);
+    expect(calendar.averageCents).toBe(2117);
+    expect(calendar.peakDay?.day).toBe(8);
+  });
+
+  it("não inclui ocultas, transferências internas, removidas ou sem conversão", () => {
+    const calendar = calculateDailyExpenses([
+      september({ id: "valid", amount: "-10" }),
+      september({ id: "ignored", amount: "-900", ignored: true }),
+      september({ id: "transfer", amount: "-800", internalTransfer: true }),
+      september({ id: "removed", amount: "-700", providerLifecycle: "REMOVED" }),
+      september({ id: "missing-fx", amount: "-600", currencyCode: "USD", reportingAmountBrl: null }),
+    ], 2026, 9, "America/Sao_Paulo");
+    expect(calendar.totalCents).toBe(1000);
+    expect(calendar.days[7].entries.map((entry) => entry.transaction.id)).toEqual(["valid"]);
+  });
+
+  it("consolida USD pelo valor histórico BRL e preserva o original no detalhe", () => {
+    const calendar = calculateDailyExpenses([
+      september({ id: "usd", amount: "-50", currencyCode: "USD", reportingAmountBrl: "-250.25" }),
+    ], 2026, 9, "America/Sao_Paulo");
+    expect(calendar.totalCents).toBe(25025);
+    expect(calendar.days[7].entries[0].transaction.amount).toBe("-50");
+  });
+
+  it("usa o fuso do usuário e preserva datas sem horário", () => {
+    const transactions = [
+      september({ id: "august-local", amount: "-10", date: "2026-09-01T01:30:00Z" }),
+      september({ id: "september-local", amount: "-20", date: "2026-10-01T01:30:00Z" }),
+      september({ id: "date-only", amount: "-30", date: "2026-09-01" }),
+    ];
+    const calendar = calculateDailyExpenses(transactions, 2026, 9, "America/Sao_Paulo");
+    expect(calendar.days[0].totalCents).toBe(3000);
+    expect(calendar.days[29].totalCents).toBe(2000);
+    expect(calendar.outsideCents).toBe(1000);
+    const utc = calculateDailyExpenses(transactions, 2026, 9, "UTC");
+    expect(utc.days[0].totalCents).toBe(4000);
+    expect(utc.outsideCents).toBe(2000);
+  });
+
+  it("não compensa metas ou meses diferentes e ignora outro mês de referência", () => {
+    const calendar = calculateDailyExpenses([
+      september({ id: "expense", amount: "-100", budgetCategory: "FINANCIAL_FREEDOM" }),
+      september({ id: "other-goal", kind: "INCOME", amount: "200", budgetCategory: "COMFORT" }),
+      september({ id: "other-month", kind: "INCOME", amount: "300", budgetCategory: "FINANCIAL_FREEDOM", referenceMonth: 8 }),
+      september({ id: "next-invoice", amount: "-500", referenceMonth: 10 }),
+    ], 2026, 9, "America/Sao_Paulo");
+    expect(calendar.totalCents).toBe(10000);
+    expect(calendar.days[7].entries).toHaveLength(1);
+  });
+
+  it("distribui a compensação entre dias sem perder centavos nem duplicar tags", () => {
+    const food = { id: "food", systemKey: "FOOD", name: "Alimentação", color: "#ff0000" };
+    const leisure = { ...food, id: "leisure", systemKey: "LEISURE", name: "Lazer" };
+    const transactions = [
+      september({ id: "refund", kind: "INCOME", amount: "0.01", budgetCategory: "COMFORT" }),
+      ...[8, 9, 10].map((day) => september({
+        id: `expense-${day}`,
+        amount: "-0.01",
+        date: `2026-09-${String(day).padStart(2, "0")}T12:00:00Z`,
+        budgetCategory: "COMFORT",
+        tags: [food, leisure],
+      })),
+    ];
+    const calendar = calculateDailyExpenses(transactions, 2026, 9, "UTC");
+    const tags = calculateTagTotals(transactions, [food, leisure]);
+    expect(calendar.totalCents).toBe(2);
+    expect(calendar.days.reduce((sum, day) => sum + day.totalCents, 0)).toBe(2);
+    expect(tags.reduce((sum, tag) => sum + Math.round(tag.value * 100), 0)).toBe(2);
+    expect(calculatePeriod(transactions).spent).toBe(0.02);
+  });
+
+  it("calcula meses vazios, alinhamento semanal, fevereiro bissexto e virada do ano", () => {
+    const septemberCalendar = calculateDailyExpenses([], 2026, 9, "UTC");
+    expect(septemberCalendar.days).toHaveLength(30);
+    expect(septemberCalendar.firstWeekday).toBe(2);
+    expect(septemberCalendar.averageCents).toBe(0);
+    expect(septemberCalendar.peakDay).toBeNull();
+    expect(septemberCalendar.daysWithoutExpenses).toBe(30);
+    expect(calculateDailyExpenses([], 2028, 2, "UTC").days).toHaveLength(29);
+    expect(calculateDailyExpenses([], 2027, 2, "UTC").days).toHaveLength(28);
+    expect(calculateDailyExpenses([], 2027, 1, "UTC").days[0].date).toBe("2027-01-01");
+  });
+
+  it("ordena detalhes por valor e mantém lançamentos sem data válida fora da grade", () => {
+    const calendar = calculateDailyExpenses([
+      september({ id: "small", amount: "-1" }),
+      september({ id: "large", amount: "-20" }),
+      september({ id: "invalid-date", amount: "-3", date: "invalid" }),
+    ], 2026, 9, "UTC");
+    expect(calendar.days[7].entries.map((entry) => entry.transaction.id)).toEqual(["large", "small"]);
+    expect(calendar.totalCents).toBe(2400);
+    expect(calendar.outsideCents).toBe(300);
+  });
+});
 
 describe("finanças AUVP", () => {
   it("identifica apenas despesas visíveis e não internas sem classificação", () => {

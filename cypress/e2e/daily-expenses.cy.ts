@@ -1,0 +1,66 @@
+function expectNoHorizontalOverflow() {
+  cy.document().should((document) => {
+    expect(document.documentElement.scrollWidth).to.be.at.most(document.documentElement.clientWidth + 1);
+  });
+}
+
+describe("calendário de saídas do painel", () => {
+  beforeEach(() => {
+    cy.registerAndLogin();
+    cy.get<string>("@testUserEmail").then((email) => cy.task("seedDailyExpenses", { email }));
+    cy.visit("/home?year=2026&month=9");
+    cy.waitForHydration();
+  });
+
+  it("reconcilia os valores líquidos e mostra os lançamentos ao selecionar um dia", () => {
+    cy.get('[data-testid="daily-expenses-total"]').should("contain.text", "679,40");
+    cy.contains("p", "Despesas líquidas").parent().should("contain.text", "679,40");
+    cy.get('[data-testid="daily-expenses"] button[data-date]').should("have.length", 30);
+    cy.get('button[data-date="2026-09-08"]')
+      .should("have.attr", "aria-label").and("contain", "635,15");
+    cy.get('button[data-date="2026-09-08"]').focus().type("{enter}");
+    cy.get('[role="dialog"]').should("be.visible").within(() => {
+      cy.contains("8 de setembro de 2026").should("be.visible");
+      cy.contains("Despesa do dia").should("be.visible");
+      cy.contains("Reinvestimento").should("be.visible");
+      cy.contains("Compensado: R$ 540,60").should("be.visible");
+      cy.contains("Original: -R$ 540,60").should("be.visible");
+      cy.contains("Oculta do relatório").should("not.exist");
+      cy.contains("Transferência interna").should("not.exist");
+      cy.contains("Entrada disponível").should("not.exist");
+      cy.get("footer").should("contain.text", "635,15");
+      cy.get('button[aria-label="Fechar"]').focus().trigger("keydown", { key: "Tab", shiftKey: true });
+      cy.focused().should("have.attr", "aria-label", "Fechar");
+    });
+    cy.focused().type("{esc}");
+    cy.get('[role="dialog"]').should("not.exist");
+    cy.focused().should("have.attr", "data-date", "2026-09-08");
+
+    cy.contains("button", "Ver lançamentos fora do mês").click();
+    cy.get('[role="dialog"]').should("contain.text", "Parcela fora do mês")
+      .and("contain.text", "15/08/2026").and("contain.text", "44,25");
+    cy.get('[role="dialog"] button[aria-label="Fechar"]').click();
+    cy.get('button[data-date="2026-09-01"]').click();
+    cy.get('[role="dialog"]').should("contain.text", "Nenhuma saída incluída")
+      .find('button[aria-label="Fechar"]').click();
+    cy.get('button[aria-label="Próximo mês"]').click();
+    cy.get('[data-testid="daily-expenses"] button[data-date]').should("have.length", 31);
+    cy.get('[data-testid="daily-expenses-total"]').should("contain.text", "0,00");
+  });
+
+  it("mantém o calendário e os detalhes utilizáveis no celular, tablet e desktop", () => {
+    for (const [width, height] of [[360, 800], [390, 844], [430, 932], [768, 1024], [1366, 768], [1920, 1080], [2560, 1440]] as const) {
+      cy.viewport(width, height);
+      cy.get('[data-testid="daily-expenses"]').scrollIntoView();
+      expectNoHorizontalOverflow();
+      cy.get('button[data-date="2026-09-08"]').should(($button) => {
+        const rectangle = $button[0].getBoundingClientRect();
+        expect(rectangle.height).to.be.at.least(44);
+        expect($button[0].scrollWidth).to.be.at.most(rectangle.width + 1);
+      }).click();
+      cy.get('[role="dialog"]').should("be.visible").and("contain.text", "635,15");
+      expectNoHorizontalOverflow();
+      cy.get('[role="dialog"] button[aria-label="Fechar"]').click();
+    }
+  });
+});

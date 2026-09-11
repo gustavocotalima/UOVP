@@ -85,6 +85,38 @@ export default defineConfig({
             await prisma.$disconnect();
           }
         },
+        async seedDailyExpenses({ email }: { email: string }) {
+          if (!/^cypress-[^@]+@example\.com$/.test(email)) throw new Error("Only Cypress users may be seeded");
+          const prisma = new PrismaClient();
+          try {
+            const user = await prisma.user.findUniqueOrThrow({ where: { email } });
+            const account = await prisma.financialAccount.create({
+              data: { userId: user.id, source: "MANUAL", type: "BANK_ACCOUNT", name: "Conta calendário", currencyCode: "BRL", balance: 1220.78, balanceBrl: 1220.78 },
+            });
+            const common = {
+              userId: user.id,
+              accountId: account.id,
+              source: "MANUAL" as const,
+              kind: "EXPENSE" as const,
+              currencyCode: "BRL",
+              date: new Date("2026-09-08T12:00:00Z"),
+              referenceYear: 2026,
+              referenceMonth: 9,
+            };
+            await prisma.financeTransaction.createMany({ data: [
+              { ...common, description: "Despesa do dia", amount: -635.15, reportingAmountBrl: -635.15 },
+              { ...common, description: "Dividendo", kind: "INCOME", amount: 540.60, reportingAmountBrl: 540.60, budgetCategory: "FINANCIAL_FREEDOM" },
+              { ...common, description: "Reinvestimento", amount: -540.60, reportingAmountBrl: -540.60, budgetCategory: "FINANCIAL_FREEDOM" },
+              { ...common, description: "Parcela fora do mês", amount: -44.25, reportingAmountBrl: -44.25, date: new Date("2026-08-15T12:00:00Z"), installmentNumber: 2, installmentTotal: 3 },
+              { ...common, description: "Oculta do relatório", amount: -100, reportingAmountBrl: -100, ignored: true },
+              { ...common, description: "Transferência interna", amount: -200, reportingAmountBrl: -200, internalTransfer: true },
+              { ...common, description: "Entrada disponível", kind: "INCOME", amount: 20.46, reportingAmountBrl: 20.46 },
+            ] });
+            return null;
+          } finally {
+            await prisma.$disconnect();
+          }
+        },
         async seedFinanceClassification({ email }: { email: string }) {
           const prisma = new PrismaClient();
           try {

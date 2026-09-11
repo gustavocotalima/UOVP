@@ -17,6 +17,7 @@ import {
   categoryLabel,
 } from "./calculations";
 import type { FinanceData } from "./types";
+import { DailyExpensesCard } from "./daily-expenses-card";
 
 export function FinanceDashboardClient({ data }: { data: FinanceData }) {
   const [range, setRange] = useState<3 | 6 | 12>(6);
@@ -54,52 +55,8 @@ export function FinanceDashboardClient({ data }: { data: FinanceData }) {
         <Summary label="Resultado do período" value={period.balance} tone={period.balance < 0 ? "danger" : "default"} />
       </section>
 
-      <section className="grid gap-4 @6xl:grid-cols-[1.55fr_1fr] @6xl:gap-6">
-        <Card>
-          <CardHeader className="gap-4 @2xl:flex-row @2xl:items-start @2xl:justify-between">
-            <div>
-              <CardTitle>Histórico financeiro</CardTitle>
-              <p className="mt-1 text-sm text-[var(--muted-foreground)]">Entradas e despesas líquidas dos últimos meses</p>
-            </div>
-            <div className="flex rounded-xl bg-[var(--muted)] p-1">
-              {([3, 6, 12] as const).map((value) => (
-                <button
-                  key={value}
-                  type="button"
-                  aria-pressed={range === value}
-                  className={cn("rounded-lg px-3 py-1.5 text-xs font-semibold", range === value && "bg-[var(--card)] shadow-sm")}
-                  onClick={() => setRange(value)}
-                >
-                  {value === 12 ? "1A" : `${value}M`}
-                </button>
-              ))}
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="h-64 @3xl:h-80">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={history}>
-                  <defs>
-                    <linearGradient id="finance-income" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#76bc8e" stopOpacity={0.35} />
-                      <stop offset="100%" stopColor="#76bc8e" stopOpacity={0.02} />
-                    </linearGradient>
-                    <linearGradient id="finance-spent" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#d2ad50" stopOpacity={0.35} />
-                      <stop offset="100%" stopColor="#d2ad50" stopOpacity={0.02} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="month" stroke="var(--muted-foreground)" axisLine={false} tickLine={false} />
-                  <YAxis stroke="var(--muted-foreground)" axisLine={false} tickLine={false} tickFormatter={(value) => `${Math.round(value / 1000)}k`} />
-                  <Tooltip formatter={(value) => formatMoney(Number(value))} contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12 }} />
-                  <Area type="monotone" dataKey="income" name="Entradas líquidas" stroke="#76bc8e" fill="url(#finance-income)" strokeWidth={2.5} />
-                  <Area type="monotone" dataKey="spent" name="Despesas líquidas" stroke="#d2ad50" fill="url(#finance-spent)" strokeWidth={2.5} />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
+      <section className="grid gap-4 @6xl:grid-cols-2 @6xl:gap-6">
+        <DailyExpensesCard key={`${data.year}-${data.month}`} data={data} />
 
         <Card>
           <CardHeader>
@@ -133,6 +90,52 @@ export function FinanceDashboardClient({ data }: { data: FinanceData }) {
           </CardContent>
         </Card>
       </section>
+
+      <Card>
+        <CardHeader className="gap-4 @2xl:flex-row @2xl:items-start @2xl:justify-between">
+          <div>
+            <CardTitle>Histórico financeiro</CardTitle>
+            <p className="mt-1 text-sm text-[var(--muted-foreground)]">Entradas e despesas líquidas dos últimos meses</p>
+          </div>
+          <div className="flex rounded-xl bg-[var(--muted)] p-1">
+            {([3, 6, 12] as const).map((value) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={range === value}
+                className={cn("rounded-lg px-3 py-1.5 text-xs font-semibold", range === value && "bg-[var(--card)] shadow-sm")}
+                onClick={() => setRange(value)}
+              >
+                {value === 12 ? "1A" : `${value}M`}
+              </button>
+            ))}
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="h-64 @3xl:h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={history}>
+                <defs>
+                  <linearGradient id="finance-income" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#76bc8e" stopOpacity={0.35} />
+                    <stop offset="100%" stopColor="#76bc8e" stopOpacity={0.02} />
+                  </linearGradient>
+                  <linearGradient id="finance-spent" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#d2ad50" stopOpacity={0.35} />
+                    <stop offset="100%" stopColor="#d2ad50" stopOpacity={0.02} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="month" stroke="var(--muted-foreground)" axisLine={false} tickLine={false} />
+                <YAxis stroke="var(--muted-foreground)" axisLine={false} tickLine={false} tickFormatter={(value) => `${Math.round(value / 1000)}k`} />
+                <Tooltip formatter={(value) => formatMoney(Number(value))} contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12 }} />
+                <Area type="monotone" dataKey="income" name="Entradas líquidas" stroke="#76bc8e" fill="url(#finance-income)" strokeWidth={2.5} />
+                <Area type="monotone" dataKey="spent" name="Despesas líquidas" stroke="#d2ad50" fill="url(#finance-spent)" strokeWidth={2.5} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </CardContent>
+      </Card>
 
       <section className="grid gap-4 @6xl:grid-cols-[1fr_1.25fr] @6xl:gap-6">
         <Card>
