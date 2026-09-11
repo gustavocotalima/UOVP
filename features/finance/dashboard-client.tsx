@@ -58,16 +58,20 @@ export function FinanceDashboardClient({ data }: { data: FinanceData }) {
       <section className="grid gap-4 @6xl:grid-cols-2 @6xl:gap-6">
         <DailyExpensesCard key={`${data.year}-${data.month}`} data={data} />
 
-        <Card>
+        <Card className="@6xl:flex @6xl:flex-col" data-testid="expense-tags">
           <CardHeader>
             <CardTitle>Transações por Tags</CardTitle>
             <p className="text-sm text-[var(--muted-foreground)]">Distribuição das despesas líquidas do mês</p>
           </CardHeader>
-          <CardContent>
+          <CardContent className="@6xl:flex @6xl:flex-1 @6xl:flex-col">
             {tags.length ? (
               <>
-                <DonutChart data={tags.map((tag) => ({ name: tag.name, color: tag.color, value: tag.value }))} centerLabel="Despesas líquidas" />
-                <div className="space-y-2">
+                <DonutChart
+                  data={tags.map((tag) => ({ name: tag.name, color: tag.color, value: tag.value }))}
+                  centerLabel="Despesas líquidas"
+                  className="@6xl:h-auto @6xl:min-h-64 @6xl:flex-1"
+                />
+                <div className="space-y-2 @6xl:shrink-0">
                   {tags.slice(0, 6).map((tag) => (
                     <div key={tag.id} className="flex items-center justify-between text-xs">
                       <span className="flex min-w-0 items-center gap-2">
@@ -84,7 +88,7 @@ export function FinanceDashboardClient({ data }: { data: FinanceData }) {
                 <div><Tags className="mx-auto mb-3 size-8 opacity-45" /><p>Nenhuma despesa categorizada por tag.</p></div>
               </div>
             )}
-            <Button asChild variant="ghost" className="mt-4 w-full">
+            <Button asChild variant="ghost" className="mt-4 w-full @6xl:shrink-0">
               <Link href={`/transacoes?year=${data.year}&month=${data.month}`}>Categorize todas as transações</Link>
             </Button>
           </CardContent>
