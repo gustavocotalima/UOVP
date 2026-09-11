@@ -63,4 +63,39 @@ describe("calendário de saídas do painel", () => {
       cy.get('[role="dialog"] button[aria-label="Fechar"]').click();
     }
   });
+
+  it("expande o gráfico de tags no desktop sem aumentar o gráfico no celular", () => {
+    for (const width of [360, 390, 430, 768]) {
+      cy.viewport(width, 900);
+      cy.get('[data-testid="expense-tags"] [role="img"]').should(($chart) => {
+        expect($chart[0].getBoundingClientRect().height).to.equal(width < 640 ? 224 : 256);
+      });
+      expectNoHorizontalOverflow();
+    }
+
+    for (const width of [1920, 2560]) {
+      cy.viewport(width, 1080);
+      cy.get('[data-testid="expense-tags"]').should(($card) => {
+        const card = $card[0];
+        const chart = card.querySelector('[role="img"]')!;
+        const chartBounds = chart.getBoundingClientRect();
+        const svg = chart.querySelector("svg")!;
+        const link = card.querySelector("a")!;
+        expect(chartBounds.height).to.be.greaterThan(256);
+        expect(svg.getBoundingClientRect().height).to.be.closeTo(chartBounds.height, 1);
+        expect(card.getBoundingClientRect().bottom - link.getBoundingClientRect().bottom).to.be.at.most(22);
+      });
+      cy.get('[data-testid="expense-tags"] [role="img"]').then(($chart) => {
+        const originalHeight = $chart[0].getBoundingClientRect().height;
+        cy.get('[data-testid="daily-expenses"]').then(($calendar) => {
+          $calendar.css("min-height", $calendar[0].getBoundingClientRect().height + 120);
+        });
+        cy.get('[data-testid="expense-tags"] [role="img"]').should(($expanded) => {
+          expect($expanded[0].getBoundingClientRect().height).to.be.closeTo(originalHeight + 120, 1);
+        });
+        cy.get('[data-testid="daily-expenses"]').invoke("css", "min-height", "");
+      });
+      expectNoHorizontalOverflow();
+    }
+  });
 });
