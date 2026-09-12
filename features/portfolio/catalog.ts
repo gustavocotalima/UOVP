@@ -13,6 +13,7 @@ export type AssetCatalogSeedItem = {
 
 export const FIXED_INCOME_FAMILIES = [
   { code: "PUBLIC_TREASURY", name: "Tesouro Direto", shortCode: "TESOURO", sortOrder: 10 },
+  { code: "PAYMENT_ACCOUNT_RESERVES", name: "Reservas remuneradas em contas de pagamento (sem FGC)", shortCode: "CONTA-PGTO", sortOrder: 50 },
   { code: "BANK_DEPOSITS_FGC", name: "Depósitos bancários com FGC", shortCode: "CDB/RDB/LC", sortOrder: 60 },
   { code: "COOPERATIVE_DEPOSITS", name: "Depósito cooperativo com FGCoop", shortCode: "RDC", sortOrder: 70 },
   { code: "EXEMPT_CREDIT_LETTERS", name: "Letras de crédito isentas com FGC", shortCode: "LCI/LCA", sortOrder: 80 },

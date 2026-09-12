@@ -9,6 +9,8 @@ import {
 } from "@/features/open-finance/diagram-classification";
 import {
   PLUGGY_DIAGRAM_EXCLUSION_REASON,
+  PLUGGY_DIAGRAM_REVIEW_REASON,
+  reopenDeletedPluggyPositionForReview,
   shouldReconcileExcludedPluggyPosition,
 } from "@/features/open-finance/diagram-exclusion";
 
@@ -172,5 +174,23 @@ describe("Pluggy diagram classification", () => {
       status: "MAPPED",
       reviewReason: null,
     })).toBe(true);
+  });
+
+  it("returns a deleted fixed-income provider position to review without preserving the wrong family", () => {
+    expect(reopenDeletedPluggyPositionForReview({
+      instrumentType: "FIXED_INCOME",
+      investmentClass: "FIXED_INCOME",
+      marketRegion: null,
+      indexation: "POST_FIXED",
+    }, PLUGGY_DIAGRAM_REVIEW_REASON.ASSET_DELETE)).toEqual({
+      status: "NEEDS_REVIEW",
+      classificationSource: "USER_OVERRIDE",
+      suggestedInstrumentType: "FIXED_INCOME",
+      suggestedInvestmentClass: "FIXED_INCOME",
+      suggestedMarketRegion: null,
+      suggestedFamilyCode: null,
+      suggestedIndexation: "POST_FIXED",
+      reviewReason: PLUGGY_DIAGRAM_REVIEW_REASON.ASSET_DELETE,
+    });
   });
 });
