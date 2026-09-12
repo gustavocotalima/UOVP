@@ -457,4 +457,60 @@ suite("isolamento entre usuários", () => {
     expect(stillExcluded.reviewReason).toBe(PLUGGY_DIAGRAM_EXCLUSION_REASON.USER);
     expect(stillExcluded.holding?.includedInTotals).toBe(false);
   });
+  it("envia Caixinhas positivas para revisão sem expô-las a outro usuário", async () => {
+    const sourceAccount = await db!.pluggyAccount.create({
+      data: {
+        pluggyItemDbId: firstPluggyItemId,
+        pluggyAccountId: `pluggy-account-reserved-${suffix}`,
+        type: "BANK",
+        name: "Mercado Pago",
+        marketingName: "Mercado Pago",
+        balance: 25,
+        currencyCode: "BRL",
+      },
+    });
+    const investment = await db!.pluggyInvestment.create({
+      data: {
+        pluggyItemDbId: firstPluggyItemId,
+        pluggyInvestmentId: `pluggy-reserved-${suffix}`,
+        source: "ACCOUNT_RESERVED_BALANCE",
+        pluggyAccountDbId: sourceAccount.id,
+        providerReference: `reserved-${suffix}`,
+        name: "Reserva de emergência",
+        type: "FIXED_INCOME",
+        subtype: "RESERVED_BALANCE",
+        balance: 250,
+        amountWithdrawal: 250,
+        currencyCode: "BRL",
+        rateType: "CDI",
+        status: "ACTIVE",
+        providerAvailable: true,
+      },
+    });
+
+    await reconcilePluggyInvestmentsForUser(firstUserId);
+
+    const [link, providerHolding, leakedLink] = await Promise.all([
+      db!.pluggyInvestmentDiagramLink.findUniqueOrThrow({
+        where: { pluggyInvestmentDbId: investment.id },
+      }),
+      db!.assetHolding.findFirst({
+        where: { pluggyDiagramLink: { pluggyInvestmentDbId: investment.id } },
+      }),
+      db!.pluggyInvestmentDiagramLink.findFirst({
+        where: { userId: secondUserId, pluggyInvestmentDbId: investment.id },
+      }),
+    ]);
+
+    expect(link).toMatchObject({
+      userId: firstUserId,
+      status: "NEEDS_REVIEW",
+      suggestedInstrumentType: "FIXED_INCOME",
+      suggestedInvestmentClass: "FIXED_INCOME",
+      suggestedFamilyCode: null,
+      suggestedIndexation: "POST_FIXED",
+    });
+    expect(providerHolding).toBeNull();
+    expect(leakedLink).toBeNull();
+  });
 });

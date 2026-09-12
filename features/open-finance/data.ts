@@ -36,6 +36,11 @@ export function sumAmountsByCurrency(values: CurrencyAmount[]) {
   }, {});
 }
 
+function accountInvestmentRemuneration(metadata: unknown) {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null;
+  return (metadata as Record<string, unknown>).remuneration ?? null;
+}
+
 export async function getOpenFinanceData(userId: string) {
   const [items, preference, financialAccounts] = await Promise.all([
     prisma.pluggyItem.findMany({
@@ -48,7 +53,12 @@ export async function getOpenFinanceData(userId: string) {
         },
         investments: {
           orderBy: [{ type: "asc" }, { name: "asc" }],
-          include: { _count: { select: { transactions: true } } },
+          include: {
+            sourceAccount: {
+              select: { name: true, marketingName: true },
+            },
+            _count: { select: { transactions: true } },
+          },
         },
       },
     }),
@@ -139,6 +149,12 @@ export async function getOpenFinanceData(userId: string) {
   const investments = visibleItems.flatMap((item) =>
     item.investments.map((investment) => ({
       id: investment.id,
+      source: investment.source,
+      sourceAccountName: investment.sourceAccount?.marketingName
+        ?? investment.sourceAccount?.name
+        ?? null,
+      movementsAvailable: investment.source === "INVESTMENTS_API",
+      remuneration: accountInvestmentRemuneration(investment.metadata),
       institution: itemInstitutionName(item),
       investmentInstitution: investment.institutionName,
       institutionImageUrl: itemLogo(item),
@@ -166,12 +182,14 @@ export async function getOpenFinanceData(userId: string) {
       institutionNumber: investment.institutionNumber,
       insurerName: investment.insurerName,
       insurerCnpj: investment.insurerCnpj,
-      issuer: resolvePluggyInvestmentIssuer(
-        investment.issuer,
-        investment.institutionName,
-        itemInstitutionName(item),
-        item.connectorName,
-      ),
+      issuer: investment.source === "INVESTMENTS_API"
+        ? resolvePluggyInvestmentIssuer(
+            investment.issuer,
+            investment.institutionName,
+            itemInstitutionName(item),
+            item.connectorName,
+          )
+        : null,
       issuerCnpj: investment.issuerCnpj,
       rate: investment.rate?.toString() ?? null,
       rateType: investment.rateType,
@@ -180,7 +198,9 @@ export async function getOpenFinanceData(userId: string) {
       dueDate: investment.dueDate?.toISOString() ?? null,
       issueDate: investment.issueDate?.toISOString() ?? null,
       gracePeriodDate: investment.gracePeriodDate?.toISOString() ?? null,
-      metadata: investment.metadata,
+      metadata: investment.source === "INVESTMENTS_API"
+        ? investment.metadata
+        : null,
       status: investment.status,
       providerAvailable: investment.providerAvailable,
       updatedAt: (investment.providerUpdatedAt ?? investment.updatedAt).toISOString(),

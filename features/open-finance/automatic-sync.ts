@@ -51,7 +51,9 @@ export async function syncStalePluggyItemsForUser(
         return {
           status: result.failedItemCount
             ? changed ? "PARTIAL" as const : "FAILED" as const
-            : "UPDATED" as const,
+            : result.partialItemCount
+              ? "PARTIAL" as const
+              : "UPDATED" as const,
           changed,
           reason,
           requestedConnections: result.itemCount,
@@ -59,7 +61,9 @@ export async function syncStalePluggyItemsForUser(
           failedConnections: result.failedItemCount,
           message: result.failedItemCount
             ? `${result.failedItemCount} conexão(ões) não puderam ser sincronizadas.`
-            : null,
+            : result.partialItemCount
+              ? `${result.partialItemCount} conexão(ões) não informaram todos os saldos reservados.`
+              : null,
         };
       },
     });

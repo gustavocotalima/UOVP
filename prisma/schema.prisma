@@ -158,6 +158,12 @@ enum PluggyRecordLifecycle {
   REMOVED
 }
 
+enum PluggyInvestmentSource {
+  INVESTMENTS_API
+  ACCOUNT_RESERVED_BALANCE
+  ACCOUNT_AUTOMATIC_BALANCE
+}
+
 enum FinanceClassificationMatchType {
   MERCHANT_CNPJ
   MERCHANT_NAME
@@ -884,6 +890,7 @@ model PluggyAccount {
   updatedAt         DateTime            @updatedAt
   item              PluggyItem          @relation(fields: [pluggyItemDbId], references: [id], onDelete: Cascade)
   transactions      PluggyTransaction[]
+  investments       PluggyInvestment[]
 
   @@index([pluggyItemDbId, type])
 }
@@ -929,6 +936,9 @@ model PluggyInvestment {
   id                   String                        @id @default(cuid())
   pluggyItemDbId       String
   pluggyInvestmentId   String                        @unique
+  source               PluggyInvestmentSource        @default(INVESTMENTS_API)
+  pluggyAccountDbId    String?
+  providerReference    String?
   name                 String
   code                 String?
   isin                 String?
@@ -972,10 +982,13 @@ model PluggyInvestment {
   createdAt            DateTime                      @default(now())
   updatedAt            DateTime                      @updatedAt
   item                 PluggyItem                    @relation(fields: [pluggyItemDbId], references: [id], onDelete: Cascade)
+  sourceAccount        PluggyAccount?                @relation(fields: [pluggyAccountDbId], references: [id], onDelete: Cascade)
   transactions         PluggyInvestmentTransaction[]
   diagramLink          PluggyInvestmentDiagramLink?
 
   @@index([pluggyItemDbId, type])
+  @@index([pluggyAccountDbId, source])
+  @@unique([pluggyAccountDbId, source, providerReference])
   @@index([code])
 }
 

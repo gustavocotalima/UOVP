@@ -35,6 +35,7 @@ import {
   resolvePluggyInstitutionLogo,
   resolvePluggyInstitutionName,
 } from "./institution-logo";
+import { extractAccountInvestmentSnapshots } from "./reserved-balances";
 
 const WRITE_BATCH_SIZE = 100;
 const INVESTMENT_SYNC_CONCURRENCY = 6;
@@ -400,6 +401,9 @@ function investmentOperation(
   const institutionName = typeof investment.institution === "string" ? investment.institution : institution?.name ?? null;
   const data = {
     pluggyItemDbId,
+    source: "INVESTMENTS_API" as const,
+    pluggyAccountDbId: null,
+    providerReference: null,
     name: investment.name,
     code: investment.code ?? null,
     isin: investment.isin ?? null,
@@ -446,6 +450,141 @@ function investmentOperation(
     update: data,
     create: { pluggyInvestmentId: investment.id, ...data },
   });
+}
+
+const ACCOUNT_INVESTMENT_SOURCES = [
+  "ACCOUNT_RESERVED_BALANCE",
+  "ACCOUNT_AUTOMATIC_BALANCE",
+] as const;
+
+async function syncAccountInvestmentSnapshots(
+  tx: Prisma.TransactionClient,
+  pluggyItemDbId: string,
+  pluggyAccountDbId: string,
+  institutionName: string | null,
+  account: PluggyAccountResponse,
+) {
+  const extracted = extractAccountInvestmentSnapshots(account);
+  const detailedPayloadProvided = Array.isArray(account.bankData?.reservedBalances);
+  const explicitlyHasNoReservedBalance = account.bankData?.hasReservedBalance === false;
+
+  if (!detailedPayloadProvided && !explicitlyHasNoReservedBalance) {
+    const previous = await tx.pluggyInvestment.findMany({
+      where: {
+        pluggyAccountDbId,
+        source: { in: [...ACCOUNT_INVESTMENT_SOURCES] },
+      },
+      select: { source: true },
+    });
+    const hasDetailedSnapshot = previous.some(
+      (investment) => investment.source === "ACCOUNT_RESERVED_BALANCE",
+    );
+    if (hasDetailedSnapshot || (!extracted.managed && previous.length > 0)) {
+      return {
+        syncedCount: 0,
+        partial: true,
+      };
+    }
+  }
+
+  if (!extracted.managed) {
+    const previousCount = await tx.pluggyInvestment.count({
+      where: {
+        pluggyAccountDbId,
+        source: { in: [...ACCOUNT_INVESTMENT_SOURCES] },
+      },
+    });
+    return {
+      syncedCount: 0,
+      partial: previousCount > 0,
+    };
+  }
+
+  for (const snapshot of extracted.snapshots) {
+    const balance = asDecimal(snapshot.balance);
+    const data = {
+      pluggyItemDbId,
+      source: snapshot.source,
+      pluggyAccountDbId,
+      providerReference: snapshot.providerReference,
+      name: snapshot.name,
+      code: null,
+      isin: null,
+      type: "FIXED_INCOME",
+      subtype: snapshot.source === "ACCOUNT_RESERVED_BALANCE"
+        ? "RESERVED_BALANCE"
+        : "AUTOMATIC_BALANCE",
+      balance,
+      value: null,
+      quantity: null,
+      amount: null,
+      taxes: null,
+      taxes2: null,
+      amountProfit: null,
+      amountWithdrawal: balance,
+      amountOriginal: null,
+      lastMonthRate: null,
+      annualRate: null,
+      lastTwelveMonthsRate: null,
+      currencyCode: snapshot.currencyCode,
+      quotaDate: asDate(snapshot.providerUpdatedAt),
+      owner: null,
+      number: null,
+      institutionName,
+      institutionNumber: null,
+      insurerName: null,
+      insurerCnpj: null,
+      issuer: null,
+      issuerCnpj: null,
+      rate: null,
+      rateType: snapshot.rateType,
+      fixedAnnualRate: null,
+      purchaseDate: null,
+      dueDate: null,
+      issueDate: null,
+      gracePeriodDate: null,
+      metadata: nullableJson(snapshot.metadata),
+      status: balance.gt(0) ? "ACTIVE" : "TOTAL_WITHDRAWAL",
+      providerAvailable: true,
+      providerRemovedAt: null,
+      providerCreatedAt: asDate(snapshot.providerCreatedAt),
+      providerUpdatedAt: asDate(snapshot.providerUpdatedAt),
+    };
+    await tx.pluggyInvestment.upsert({
+      where: { pluggyInvestmentId: snapshot.pluggyInvestmentId },
+      update: data,
+      create: {
+        pluggyInvestmentId: snapshot.pluggyInvestmentId,
+        ...data,
+      },
+    });
+  }
+
+  if (extracted.complete) {
+    await tx.pluggyInvestment.updateMany({
+      where: {
+        pluggyAccountDbId,
+        source: { in: [...ACCOUNT_INVESTMENT_SOURCES] },
+        providerAvailable: true,
+        ...(extracted.snapshots.length
+          ? {
+              pluggyInvestmentId: {
+                notIn: extracted.snapshots.map((snapshot) => snapshot.pluggyInvestmentId),
+              },
+            }
+          : {}),
+      },
+      data: {
+        providerAvailable: false,
+        providerRemovedAt: new Date(),
+      },
+    });
+  }
+
+  return {
+    syncedCount: extracted.snapshots.length,
+    partial: !extracted.complete,
+  };
 }
 
 function investmentTransactionOperation(
@@ -615,19 +754,33 @@ async function syncPluggyItemForUserUnlocked(
     const currentFxByCurrency = new Map(currentFxRates.map((rate) => [rate.currency, rate]));
 
     let transactionCount = 0;
+    let accountInvestmentCount = 0;
+    let reservedBalancePartial = false;
+    const syncedPluggyAccountDbIds: string[] = [];
     const classification = emptyClassificationSummary();
     for (const [accountIndex, account] of accounts.entries()) {
-      const { storedAccount, financialAccount } = await lease.runFencedTransaction(async (tx) => ({
-        storedAccount: await upsertAccount(tx, stored.id, account),
-        financialAccount: await upsertFinancialAccount(
+      const { storedAccount, financialAccount, accountInvestments } = await lease.runFencedTransaction(async (tx) => {
+        const storedAccount = await upsertAccount(tx, stored.id, account);
+        const financialAccount = await upsertFinancialAccount(
           tx,
           userId,
           syncedItem,
           account,
           accountIndex,
           currentFxByCurrency.get((account.currencyCode ?? "BRL").trim().toUpperCase()),
-        ),
-      }));
+        );
+        const accountInvestments = await syncAccountInvestmentSnapshots(
+          tx,
+          stored.id,
+          storedAccount.id,
+          institutionName,
+          account,
+        );
+        return { storedAccount, financialAccount, accountInvestments };
+      });
+      syncedPluggyAccountDbIds.push(storedAccount.id);
+      accountInvestmentCount += accountInvestments.syncedCount;
+      reservedBalancePartial ||= accountInvestments.partial;
       const transactions = await getPluggyTransactions(credentials, account.id, lease.signal);
       const accountCurrency = financialAccount.currencyCode.trim().toUpperCase();
       const historicalFxByDate = accountCurrency === "BRL"
@@ -714,33 +867,51 @@ async function syncPluggyItemForUserUnlocked(
 
     const investmentTransactionCount = await syncInvestments(credentials, stored.id, investments, lease);
     await lease.runFencedTransaction(async (tx) => {
+      const removedAt = new Date();
       await Promise.all([
-      tx.financialAccount.updateMany({
-        where: {
-          userId,
-          source: "PLUGGY",
-          providerItemId: stored.pluggyItemId,
-          externalId: { notIn: accounts.map((account) => account.id) },
-        },
-        data: { active: false },
-      }),
-      tx.pluggyInvestment.updateMany({
-        where: {
-          pluggyItemDbId: stored.id,
-          ...(investments.length ? { pluggyInvestmentId: { notIn: investments.map((investment) => investment.id) } } : {}),
-        },
-        data: { providerAvailable: false, providerRemovedAt: new Date() },
-      }),
-      tx.pluggyItem.update({
-        where: { id: stored.id },
-        data: {
-          ...remoteItemData,
-          connectorImageUrl,
-          institutionName,
-          syncPending: false,
-          lastSyncAt: new Date(),
-        },
-      }),
+        tx.financialAccount.updateMany({
+          where: {
+            userId,
+            source: "PLUGGY",
+            providerItemId: stored.pluggyItemId,
+            externalId: { notIn: accounts.map((account) => account.id) },
+          },
+          data: { active: false },
+        }),
+        tx.pluggyInvestment.updateMany({
+          where: {
+            pluggyItemDbId: stored.id,
+            source: "INVESTMENTS_API",
+            ...(investments.length
+              ? { pluggyInvestmentId: { notIn: investments.map((investment) => investment.id) } }
+              : {}),
+          },
+          data: { providerAvailable: false, providerRemovedAt: removedAt },
+        }),
+        tx.pluggyInvestment.updateMany({
+          where: {
+            pluggyItemDbId: stored.id,
+            source: { in: [...ACCOUNT_INVESTMENT_SOURCES] },
+            providerAvailable: true,
+            ...(syncedPluggyAccountDbIds.length
+              ? { pluggyAccountDbId: { notIn: syncedPluggyAccountDbIds } }
+              : { pluggyAccountDbId: { not: null } }),
+          },
+          data: { providerAvailable: false, providerRemovedAt: removedAt },
+        }),
+        tx.pluggyItem.update({
+          where: { id: stored.id },
+          data: {
+            ...remoteItemData,
+            connectorImageUrl,
+            institutionName,
+            syncPending: reservedBalancePartial,
+            errorMessage: reservedBalancePartial
+              ? "A Pluggy não informou um snapshot completo dos saldos reservados."
+              : remoteItemData.errorMessage,
+            lastSyncAt: new Date(),
+          },
+        }),
       ]);
     });
 
@@ -749,7 +920,9 @@ async function syncPluggyItemForUserUnlocked(
     return {
       accountCount: accounts.length,
       transactionCount,
-      investmentCount: investments.length,
+      investmentCount: investments.length + accountInvestmentCount,
+      accountInvestmentCount,
+      reservedBalancePartial,
       investmentTransactionCount,
       diagram,
       classification,
@@ -782,6 +955,8 @@ export async function syncPluggyItemForUser(userId: string, pluggyItemId: string
       accountCount: 0,
       transactionCount: 0,
       investmentCount: 0,
+      accountInvestmentCount: 0,
+      reservedBalancePartial: false,
       investmentTransactionCount: 0,
       diagram: { mapped: 0, review: 0, changed: true },
       classification: emptyClassificationSummary(),
@@ -798,10 +973,12 @@ export async function syncAllPluggyItemsForUser(userId: string) {
     itemCount: items.length,
     succeededItemCount: 0,
     failedItemCount: 0,
+    partialItemCount: 0,
     failures: [] as Array<{ itemId: string; message: string }>,
     accountCount: 0,
     transactionCount: 0,
     investmentCount: 0,
+    accountInvestmentCount: 0,
     investmentTransactionCount: 0,
     diagramMappedCount: 0,
     diagramReviewCount: 0,
@@ -814,6 +991,8 @@ export async function syncAllPluggyItemsForUser(userId: string) {
       totals.accountCount += result.accountCount;
       totals.transactionCount += result.transactionCount;
       totals.investmentCount += result.investmentCount;
+      totals.accountInvestmentCount += result.accountInvestmentCount;
+      if (result.reservedBalancePartial) totals.partialItemCount += 1;
       totals.investmentTransactionCount += result.investmentTransactionCount;
       totals.diagramMappedCount += result.diagram.mapped;
       totals.diagramReviewCount += result.diagram.review;

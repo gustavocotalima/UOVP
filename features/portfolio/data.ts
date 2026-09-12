@@ -257,12 +257,14 @@ export async function getPortfolioData(userId: string) {
           issuer: holding.pluggyDiagramLink && MARKET_INSTRUMENTS.has(asset.instrumentType)
             ? marketMetadata?.name ?? asset.name
             : holding.pluggyDiagramLink
-              ? resolvePluggyInvestmentIssuer(
-                  holding.pluggyDiagramLink.investment.issuer,
-                  holding.pluggyDiagramLink.investment.institutionName,
-                  holding.pluggyDiagramLink.investment.item.institutionName,
-                  holding.pluggyDiagramLink.investment.item.connectorName,
-                )
+              ? holding.pluggyDiagramLink.investment.source === "INVESTMENTS_API"
+                ? resolvePluggyInvestmentIssuer(
+                    holding.pluggyDiagramLink.investment.issuer,
+                    holding.pluggyDiagramLink.investment.institutionName,
+                    holding.pluggyDiagramLink.investment.item.institutionName,
+                    holding.pluggyDiagramLink.investment.item.connectorName,
+                  )
+                : holding.issuer
               : holding.issuer,
           institution: holding.pluggyDiagramLink
             ? resolvePluggyInvestmentIssuer(
@@ -305,6 +307,7 @@ export async function getPortfolioData(userId: string) {
           logoUrl: canonicalLogoUrl ?? holding.logoUrl ?? null,
           priceUpdatedAt: holding.priceUpdatedAt?.toISOString() ?? null,
           providerCurrentValue: holding.providerCurrentValue?.toString() ?? null,
+          providerInvestmentSource: holding.pluggyDiagramLink?.investment.source ?? null,
           providerStatus: holding.pluggyDiagramLink?.investment.status ?? null,
           providerAvailable: holding.pluggyDiagramLink?.investment.providerAvailable ?? true,
           transactionCount: holding.pluggyDiagramLink?.investment._count.transactions ?? 0,
@@ -323,6 +326,7 @@ export async function getPortfolioData(userId: string) {
     })),
     integrationReview: integrationReview.map((link) => ({
       id: link.id,
+      source: link.investment.source,
       investmentName: link.investment.name,
       institution: resolvePluggyInvestmentIssuer(
         null,
@@ -353,12 +357,14 @@ export async function getPortfolioData(userId: string) {
       institutionNumber: link.investment.institutionNumber,
       insurerName: link.investment.insurerName,
       insurerCnpj: link.investment.insurerCnpj,
-      issuer: resolvePluggyInvestmentIssuer(
-        link.investment.issuer,
-        link.investment.institutionName,
-        link.investment.item.institutionName,
-        link.investment.item.connectorName,
-      ),
+      issuer: link.investment.source === "INVESTMENTS_API"
+        ? resolvePluggyInvestmentIssuer(
+            link.investment.issuer,
+            link.investment.institutionName,
+            link.investment.item.institutionName,
+            link.investment.item.connectorName,
+          )
+        : null,
       issuerCnpj: link.investment.issuerCnpj,
       rate: link.investment.rate?.toString() ?? null,
       rateType: link.investment.rateType,

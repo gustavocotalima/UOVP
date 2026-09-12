@@ -42,7 +42,37 @@ export const pluggyItemSchema = z
   })
   .passthrough();
 
-const accountSchema = z
+const reservedBalanceRemunerationSchema = z
+  .object({
+    indexer: nullableString,
+    rateType: nullableString,
+    calculation: nullableString,
+    ratePeriodicity: nullableString,
+    preFixedRate: nullableNumber,
+    postFixedIndexerPercentage: nullableNumber,
+  })
+  .passthrough();
+
+const reservedBalanceSchema = z
+  .object({
+    name: z.string(),
+    identification: z.union([z.string(), z.number()]).nullable().optional(),
+    availableAmounts: z
+      .array(
+        z
+          .object({
+            amount: nullableNumber,
+            currencyCode: nullableString,
+            remuneration: reservedBalanceRemunerationSchema.nullable().optional(),
+          })
+          .passthrough(),
+      )
+      .nullable()
+      .optional(),
+  })
+  .passthrough();
+
+export const pluggyAccountSchema = z
   .object({
     id: z.string().uuid(),
     type: z.string(),
@@ -55,6 +85,10 @@ const accountSchema = z
     bankData: z
       .object({
         transferNumber: nullableString,
+        closingBalance: nullableNumber,
+        automaticallyInvestedBalance: nullableNumber,
+        hasReservedBalance: z.boolean().nullable().optional(),
+        reservedBalances: z.array(reservedBalanceSchema).nullable().optional(),
       })
       .passthrough()
       .nullable()
@@ -221,7 +255,7 @@ const apiErrorSchema = z
   .passthrough();
 
 export type PluggyItemResponse = z.infer<typeof pluggyItemSchema>;
-export type PluggyAccountResponse = z.infer<typeof accountSchema>;
+export type PluggyAccountResponse = z.infer<typeof pluggyAccountSchema>;
 export type PluggyTransactionResponse = z.infer<typeof transactionSchema>;
 export type PluggyInvestmentResponse = z.infer<typeof investmentSchema>;
 export type PluggyInvestmentTransactionResponse = z.infer<typeof investmentTransactionSchema>;
@@ -395,7 +429,7 @@ export async function getPluggyAccounts(credentials: PluggyCredentials, itemId: 
   const data = await pluggyRequest(
     credentials,
     `/accounts?itemId=${encodeURIComponent(itemId)}`,
-    z.object({ results: z.array(accountSchema) }).passthrough(),
+    z.object({ results: z.array(pluggyAccountSchema) }).passthrough(),
     { signal },
   );
   return data.results;
