@@ -8,4 +8,13 @@ describe("grupos de renda fixa", () => {
     expect(treasuryFamilies).toEqual([expect.objectContaining({ code: "PUBLIC_TREASURY", name: "Tesouro Direto" })]);
     expect([1, 2, 3, 4, 15, 16, 17].map((id) => CATALOG_FAMILY_BY_ID[id])).toEqual(Array(7).fill("PUBLIC_TREASURY"));
   });
+
+  it("offers a separate non-FGC family for remunerated payment-account reserves", () => {
+    expect(FIXED_INCOME_FAMILIES).toContainEqual({
+      code: "PAYMENT_ACCOUNT_RESERVES",
+      name: "Reservas remuneradas em contas de pagamento (sem FGC)",
+      shortCode: "CONTA-PGTO",
+      sortOrder: 50,
+    });
+  });
 });

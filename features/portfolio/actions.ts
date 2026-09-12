@@ -15,6 +15,10 @@ import {
   shouldRefreshMarketHoldings,
 } from "@/lib/automatic-refresh-policy";
 import { anonymizedUserId, logIntegrationRefresh } from "@/lib/integration-observability";
+import {
+  PLUGGY_DIAGRAM_REVIEW_REASON,
+  reopenDeletedPluggyPositionForReview,
+} from "@/features/open-finance/diagram-exclusion";
 import { allocateContribution, questionChangeAffectsAllocation } from "./allocation";
 import {
   applyManualFixedIncomeContribution,
@@ -1038,11 +1042,10 @@ export async function deleteAssetAction(assetId: string) {
   await prisma.$transaction(async (tx) => {
     await tx.pluggyInvestmentDiagramLink.updateMany({
       where: { holding: { assetId: asset.id } },
-      data: {
-        status: "EXCLUDED",
-        classificationSource: "USER_OVERRIDE",
-        reviewReason: "Ativo removido do diagrama pelo usuário.",
-      },
+      data: reopenDeletedPluggyPositionForReview(
+        asset,
+        PLUGGY_DIAGRAM_REVIEW_REASON.ASSET_DELETE,
+      ),
     });
     await tx.binanceWalletAsset.updateMany({
       where: { holding: { assetId: asset.id } },
@@ -1054,6 +1057,7 @@ export async function deleteAssetAction(assetId: string) {
   });
   revalidatePath("/carteira");
   revalidatePath("/home");
+  revalidatePath("/open-finance");
 }
 
 export async function deleteAssetClassAction(investmentClass: InvestmentClassKey) {
@@ -1061,15 +1065,25 @@ export async function deleteAssetClassAction(investmentClass: InvestmentClassKey
   const parsedClass = investmentClassSchema.parse(investmentClass) as InvestmentClass;
   const portfolio = await ensurePortfolio(userId);
   await prisma.$transaction(async (tx) => {
-    const assets = await tx.asset.findMany({ where: { portfolioId: portfolio.id, investmentClass: parsedClass }, select: { id: true } });
-    await tx.pluggyInvestmentDiagramLink.updateMany({
-      where: { holding: { assetId: { in: assets.map((asset) => asset.id) } } },
-      data: {
-        status: "EXCLUDED",
-        classificationSource: "USER_OVERRIDE",
-        reviewReason: "Classe removida do diagrama pelo usuário.",
+    const assets = await tx.asset.findMany({
+      where: { portfolioId: portfolio.id, investmentClass: parsedClass },
+      select: {
+        id: true,
+        instrumentType: true,
+        investmentClass: true,
+        marketRegion: true,
+        indexation: true,
       },
     });
+    for (const asset of assets) {
+      await tx.pluggyInvestmentDiagramLink.updateMany({
+        where: { holding: { assetId: asset.id } },
+        data: reopenDeletedPluggyPositionForReview(
+          asset,
+          PLUGGY_DIAGRAM_REVIEW_REASON.CLASS_DELETE,
+        ),
+      });
+    }
     await tx.binanceWalletAsset.updateMany({
       where: { holding: { assetId: { in: assets.map((asset) => asset.id) } } },
       data: { holdingId: null, status: "AVAILABLE" },
@@ -1080,6 +1094,7 @@ export async function deleteAssetClassAction(investmentClass: InvestmentClassKey
   });
   revalidatePath("/carteira");
   revalidatePath("/home");
+  revalidatePath("/open-finance");
 }
 
 export async function saveBrapiApiKeyAction(input: string) {
