@@ -61,6 +61,18 @@ export async function POST(request: Request) {
         { status: 207 },
       );
     }
+    const partialConnections = "partialItemCount" in result
+      ? result.partialItemCount
+      : result.reservedBalancePartial ? 1 : 0;
+    if (partialConnections > 0) {
+      return NextResponse.json(
+        {
+          ...result,
+          warning: `${partialConnections} conexão(ões) não informaram todos os saldos reservados. Os valores anteriores foram preservados.`,
+        },
+        { status: 207 },
+      );
+    }
     return NextResponse.json(result);
   } catch (error) {
     const status = error instanceof OperationRateLimitError

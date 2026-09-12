@@ -57,6 +57,7 @@ function isMarketInstrument(instrumentType: InstrumentType | null) {
 }
 
 function providerIssuer(investment: InvestmentWithItem) {
+  if (investment.source !== "INVESTMENTS_API") return "";
   return resolvePluggyInvestmentIssuer(
     investment.issuer,
     investment.institutionName,

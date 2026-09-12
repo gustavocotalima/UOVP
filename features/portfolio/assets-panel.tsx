@@ -253,6 +253,12 @@ function reviewPercentage(value: string) {
   return `${Number(value).toLocaleString("pt-BR", { maximumFractionDigits: 4 })}%`;
 }
 
+function pluggyInvestmentSourceLabel(source: AssetHoldingDto["providerInvestmentSource"]) {
+  if (source === "ACCOUNT_RESERVED_BALANCE") return "Pluggy · Caixinha";
+  if (source === "ACCOUNT_AUTOMATIC_BALANCE") return "Pluggy · Saldo investido";
+  return "Pluggy";
+}
+
 function reviewDate(value: string, timeZone: string) {
   return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeZone }).format(new Date(value));
 }
@@ -305,6 +311,7 @@ function PluggyReviewSourceData({ review, timeZone }: { review: ReviewForm; time
           { label: "Emissor", value: review.issuer },
           { label: "CNPJ do emissor", value: review.issuerCnpj },
           { label: "CNPJ da instituição", value: review.institutionNumber },
+          { label: "Origem do saldo", value: review.source === "ACCOUNT_RESERVED_BALANCE" ? "Caixinha" : review.source === "ACCOUNT_AUTOMATIC_BALANCE" ? "Saldo investido automaticamente" : null },
           { label: "Tipo Pluggy", value: review.providerType },
           { label: "Subtipo Pluggy", value: review.providerSubtype },
           { label: "Código / ticker", value: review.code },
@@ -1416,7 +1423,7 @@ export function AssetsPanel({
                               <div className="flex items-start justify-between gap-3">
                                 <div className="min-w-0"><strong className="block truncate text-sm">{holding.typeName}</strong><span className="block truncate text-xs text-[var(--muted-foreground)]">{holding.productName}</span></div>
                                 {holding.positionSource !== "MANUAL"
-                                  ? <span className="rounded-full bg-[var(--primary)]/12 px-2 py-1 text-[10px] font-semibold text-[var(--primary)]">{holding.positionSource === "BINANCE" ? "Binance" : "Pluggy"}</span>
+                                  ? <span className="rounded-full bg-[var(--primary)]/12 px-2 py-1 text-[10px] font-semibold text-[var(--primary)]">{holding.positionSource === "BINANCE" ? "Binance" : pluggyInvestmentSourceLabel(holding.providerInvestmentSource)}</span>
                                   : <div className="flex"><Button variant="ghost" size="icon" onClick={() => startHolding(asset, holding)} aria-label={`Editar ${holding.productName}`}><Pencil className="size-4" /></Button><Button variant="ghost" size="icon" className="text-[var(--danger)]" onClick={() => setDeleteTarget({ kind: "holding", id: holding.id, label: holding.productName })} aria-label={`Excluir ${holding.productName}`}><Trash2 className="size-4" /></Button></div>}
                               </div>
                               <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-3 text-xs">
@@ -1431,6 +1438,12 @@ export function AssetsPanel({
                                 {holding.maturityDate && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Vencimento</dt><dd className="mt-1">{reviewDate(holding.maturityDate, timeZone)}</dd></div>}
                                 {holding.positionSource !== "MANUAL" && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Status</dt><dd className="mt-1">{holding.providerStatus ?? "Sincronizado"}</dd></div>}
                               </dl>
+
+                              {holding.providerInvestmentSource && holding.providerInvestmentSource !== "INVESTMENTS_API" && (
+                                <p className="mt-3 rounded-lg border border-dashed p-3 text-xs text-[var(--muted-foreground)]">
+                                  A instituição disponibiliza somente o saldo atual desta posição, sem movimentações individuais.
+                                </p>
+                              )}
 
                               {(holding.transactionCount > 0 || movementState?.loading || movementState?.error) && (
                                 <div className="mt-3 border-t pt-3">

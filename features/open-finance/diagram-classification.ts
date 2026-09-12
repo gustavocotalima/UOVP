@@ -8,6 +8,7 @@ import type {
 export type PluggyInvestmentForClassification = {
   id: string;
   pluggyInvestmentId: string;
+  source?: string;
   name: string;
   code: string | null;
   type: string;
@@ -153,6 +154,22 @@ export function classifyPluggyInvestment(investment: PluggyInvestmentForClassifi
     };
   }
   if (type === "FIXED_INCOME") {
+    if (
+      investment.source === "ACCOUNT_RESERVED_BALANCE"
+      || investment.source === "ACCOUNT_AUTOMATIC_BALANCE"
+    ) {
+      const indexation = inferFixedIncomeIndexation(investment);
+      return {
+        instrumentType: "FIXED_INCOME",
+        investmentClass: "FIXED_INCOME",
+        familyCode: null,
+        indexation,
+        catalogItemId: null,
+        ...inferRateDetails(investment),
+        needsReview: true,
+        reviewReason: "Confirme o grupo e a indexação deste saldo reservado antes de incluí-lo na carteira.",
+      };
+    }
     const fixed = FIXED_INCOME_SUBTYPES[subtype];
     if (!fixed) {
       return {

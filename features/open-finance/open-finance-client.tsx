@@ -767,6 +767,8 @@ function investmentSubtype(value: string | null, type: string) {
     REAL_ESTATE_FUND: "Fundo imobiliário",
     INVESTMENT_FUND: "Fundo de investimento",
     RETIREMENT: "Previdência",
+    RESERVED_BALANCE: "Caixinha",
+    AUTOMATIC_BALANCE: "Saldo investido",
   };
   return labels[normalized] ?? normalized.replaceAll("_", " ");
 }
@@ -962,8 +964,16 @@ function InvestmentDetails({
   timeZone: string;
   onLoadMore: () => void;
 }) {
+  const sourceLabel = investment.source === "ACCOUNT_RESERVED_BALANCE"
+    ? "Caixinha"
+    : "Saldo investido automaticamente";
+  const sourceInstitution = investment.investmentInstitution || investment.institution;
   const details = [
     { label: "Saldo", value: money(investment.balance, investment.currencyCode) },
+    !investment.movementsAvailable
+      ? { label: "Origem", value: `${sourceInstitution} · ${sourceLabel}` }
+      : null,
+    investment.sourceAccountName ? { label: "Conta de origem", value: investment.sourceAccountName } : null,
     { label: "Rentabilidade", value: rate(investment) },
     investment.amountOriginal !== null ? { label: "Valor investido", value: money(investment.amountOriginal, investment.currencyCode) } : null,
     investment.amount !== null ? { label: "Valor bruto informado", value: money(investment.amount, investment.currencyCode) } : null,
@@ -1006,6 +1016,7 @@ function InvestmentDetails({
         ))}
       </dl>
 
+      {investment.remuneration && <JsonDetails title="Remuneração informada" value={investment.remuneration} />}
       {investment.metadata && <JsonDetails title="Dados adicionais" value={investment.metadata} />}
 
       <div className="mt-6">
@@ -1063,7 +1074,9 @@ function InvestmentDetails({
           )}
           {!loading && !investment.transactions.length && (
             <p className="rounded-xl border border-dashed p-4 text-center text-xs text-[var(--muted-foreground)]">
-              A instituição não informou movimentações para este ativo.
+              {investment.movementsAvailable
+                ? "A instituição não informou movimentações para este ativo."
+                : "A instituição disponibiliza somente o saldo atual desta posição, sem movimentações individuais."}
             </p>
           )}
         </div>

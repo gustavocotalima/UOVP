@@ -38,6 +38,7 @@ export type AssetHoldingDto = {
   logoUrl: string | null;
   priceUpdatedAt: string | null;
   providerCurrentValue: string | null;
+  providerInvestmentSource: "INVESTMENTS_API" | "ACCOUNT_RESERVED_BALANCE" | "ACCOUNT_AUTOMATIC_BALANCE" | null;
   providerStatus: string | null;
   providerAvailable: boolean;
   transactionCount: number;
@@ -115,6 +116,7 @@ export type PortfolioDto = {
   }>;
   integrationReview: Array<{
     id: string;
+    source: "INVESTMENTS_API" | "ACCOUNT_RESERVED_BALANCE" | "ACCOUNT_AUTOMATIC_BALANCE";
     investmentName: string;
     institution: string;
     providerType: string;

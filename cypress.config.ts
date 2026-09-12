@@ -361,6 +361,69 @@ export default defineConfig({
             await prisma.$disconnect();
           }
         },
+        async seedPluggyReservedBalance({ email }: { email: string }) {
+          const prisma = new PrismaClient();
+          try {
+            const user = await prisma.user.findUniqueOrThrow({ where: { email } });
+            const suffix = `${Date.now()}-${Math.floor(Math.random() * 10_000)}`;
+            const item = await prisma.pluggyItem.create({
+              data: {
+                userId: user.id,
+                pluggyItemId: `cypress-reserved-item-${suffix}`,
+                connectorName: "Mercado Pago",
+                institutionName: "Mercado Pago",
+                status: "UPDATED",
+                syncPending: false,
+                lastSyncAt: new Date(),
+              },
+            });
+            const account = await prisma.pluggyAccount.create({
+              data: {
+                pluggyItemDbId: item.id,
+                pluggyAccountId: `cypress-reserved-account-${suffix}`,
+                type: "BANK",
+                subtype: "PAYMENT_ACCOUNT",
+                name: "Conta Mercado Pago",
+                marketingName: "Mercado Pago",
+                balance: 25,
+                currencyCode: "BRL",
+              },
+            });
+            const investment = await prisma.pluggyInvestment.create({
+              data: {
+                pluggyItemDbId: item.id,
+                pluggyInvestmentId: `cypress-reserved-investment-${suffix}`,
+                source: "ACCOUNT_RESERVED_BALANCE",
+                pluggyAccountDbId: account.id,
+                providerReference: `cypress-reserved-${suffix}`,
+                name: "Reserva de emergência",
+                type: "FIXED_INCOME",
+                subtype: "RESERVED_BALANCE",
+                balance: 250,
+                amountWithdrawal: 250,
+                currencyCode: "BRL",
+                rateType: "CDI",
+                status: "ACTIVE",
+                providerAvailable: true,
+              },
+            });
+            await prisma.pluggyInvestmentDiagramLink.create({
+              data: {
+                userId: user.id,
+                pluggyInvestmentDbId: investment.id,
+                status: "NEEDS_REVIEW",
+                suggestedInstrumentType: "FIXED_INCOME",
+                suggestedInvestmentClass: "FIXED_INCOME",
+                suggestedIndexation: "POST_FIXED",
+                reviewReason: "Confirme o grupo e a indexação deste saldo reservado antes de incluí-lo na carteira.",
+                lastReconciledAt: new Date(),
+              },
+            });
+            return null;
+          } finally {
+            await prisma.$disconnect();
+          }
+        },
         async getMarketLogoMetadata({
           provider,
           symbol,
