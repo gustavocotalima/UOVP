@@ -115,6 +115,7 @@ function sanitizeBinanceError(status: number, code?: number, retryAfterSeconds?:
     return "A Binance recusou a chave ou o endereço IP deste servidor.";
   }
   if (code === -1021) return "O relógio do servidor não pôde ser sincronizado com a Binance.";
+  if (status === 451) return "A Binance bloqueou o acesso a partir da região ou do IP deste servidor. Use um servidor em uma região aceita pela Binance.";
   if (status === 418) return "A Binance bloqueou temporariamente este servidor por excesso de requisições.";
   if (status === 429) {
     return `O limite de requisições da Binance foi atingido${retryAfterSeconds ? `. Tente novamente em ${retryAfterSeconds} segundo(s)` : ""}.`;

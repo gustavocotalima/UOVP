@@ -10,7 +10,7 @@ import { prisma } from "@/lib/prisma";
 import { allowsFractionalUnits } from "./fractional-assets";
 import { bumpPortfolioAndInvalidateDrafts } from "./invalidation";
 import { fetchBinanceQuotes, type BinanceQuote } from "./binance";
-import { BinancePrivateClient } from "./binance-wallet-client";
+import { BinancePrivateApiError, BinancePrivateClient } from "./binance-wallet-client";
 import {
   getBinanceConnectionStatus,
   storeBinanceCredentials,
@@ -53,13 +53,22 @@ export async function saveBinanceConnectionAction(input: { apiKey: string; apiSe
   const userId = await requireUserId();
   await assertUserOperationRateLimit({ userId, operation: "binance-connect", limit: 5, windowMs: 15 * 60_000 });
   const credentials = credentialsSchema.parse(input);
-  const client = new BinancePrivateClient(credentials);
-  const permissions = await client.permissions();
-  if (!permissions.readEnabled) throw new Error("A chave da Binance precisa permitir leitura da conta.");
-  await storeBinanceCredentials(userId, credentials, permissions);
-  const sync = await syncBinanceWalletForUser(userId, { reason: "MANUAL" });
-  revalidateBinancePaths();
-  return { connection: await getBinanceConnectionStatus(userId), sync };
+  try {
+    const client = new BinancePrivateClient(credentials);
+    const permissions = await client.permissions();
+    if (!permissions.readEnabled) {
+      return { ok: false as const, error: "A chave da Binance precisa permitir leitura da conta." };
+    }
+    await storeBinanceCredentials(userId, credentials, permissions);
+    const sync = await syncBinanceWalletForUser(userId, { reason: "MANUAL" });
+    revalidateBinancePaths();
+    return { ok: true as const, connection: await getBinanceConnectionStatus(userId), sync };
+  } catch (error) {
+    if (error instanceof BinancePrivateApiError) {
+      return { ok: false as const, error: error.message };
+    }
+    throw error;
+  }
 }
 
 export async function syncBinanceWalletAction() {
