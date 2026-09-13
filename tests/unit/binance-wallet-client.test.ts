@@ -54,6 +54,14 @@ describe("cliente privado da Binance", () => {
     });
   });
 
+  it("expõe uma mensagem segura quando a região do servidor é bloqueada", async () => {
+    const fetcher = vi.fn<typeof fetch>(async () => json({ code: 0 }, 451));
+    await expect(new BinancePrivateClient(credentials, fetcher).permissions()).rejects.toMatchObject({
+      status: 451,
+      message: "A Binance bloqueou o acesso a partir da região ou do IP deste servidor. Use um servidor em uma região aceita pela Binance.",
+    });
+  });
+
   it("recalcula o relógio e tenta uma vez novamente para -1021", async () => {
     let permissionCalls = 0;
     const fetcher = vi.fn<typeof fetch>(async (input) => {

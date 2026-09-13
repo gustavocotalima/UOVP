@@ -43,6 +43,10 @@ export function BinanceWalletCard({ initialStatus }: { initialStatus: BinanceCon
     startTransition(async () => {
       try {
         const result = await saveBinanceConnectionAction({ apiKey, apiSecret });
+        if (!result.ok) {
+          setMessage({ kind: "error", text: result.error });
+          return;
+        }
         setStatus(result.connection);
         setApiKey("");
         setApiSecret("");

@@ -18,6 +18,7 @@ import {
   type DiagramClassification,
 } from "./diagram-classification";
 import { shouldReconcileExcludedPluggyPosition } from "./diagram-exclusion";
+import { canReconcileChangedProviderSnapshot } from "./contribution-reconciliation";
 import { resolvePluggyInvestmentIssuer } from "./institution-logo";
 
 type InvestmentWithItem = Prisma.PluggyInvestmentGetPayload<{
@@ -271,10 +272,30 @@ async function confirmAwaitingSuggestions(
         return convertedAmount.sub(suggestion.value).abs().lte(tolerance);
       }) ?? [],
     )[0];
-    if (!quantityConfirmed && !valueConfirmed && !matchingBuy) continue;
+    const providerUpdatedAt = pluggyHoldings.reduce<Date | null>((latest, holding) => {
+      const updatedAt = holding.pluggyDiagramLink?.investment.providerUpdatedAt ?? null;
+      return updatedAt && (!latest || updatedAt > latest) ? updatedAt : latest;
+    }, null);
+    const baselineQuantity = suggestion.baselineQuantity
+      ?? (detailedBaselines.length
+        ? detailedBaselines.reduce(
+            (total, baseline) => total.add(baseline.quantity),
+            new Prisma.Decimal(0),
+          )
+        : null);
+    const snapshotReconciled = isMarketInstrument(suggestion.asset.instrumentType)
+      && canReconcileChangedProviderSnapshot({
+        requestedAt,
+        providerUpdatedAt,
+        currentQuantity: currentQuantity.toString(),
+        baselineQuantity: baselineQuantity?.toString() ?? null,
+      });
+    if (!quantityConfirmed && !valueConfirmed && !matchingBuy && !snapshotReconciled) continue;
     const confirmationReference = matchingBuy
       ? `PLUGGY_TRANSACTION:${matchingBuy.id}`
-      : `PLUGGY_POSITION:${suggestion.assetId}:${requestedAt.toISOString()}:${currentQuantity.toString()}:${currentValue.toString()}`;
+      : snapshotReconciled
+        ? `PLUGGY_RECONCILED_SNAPSHOT:${suggestion.assetId}:${requestedAt.toISOString()}:${currentQuantity.toString()}`
+        : `PLUGGY_POSITION:${suggestion.assetId}:${requestedAt.toISOString()}:${currentQuantity.toString()}:${currentValue.toString()}`;
     const alreadyConsumed = await tx.contributionSuggestion.count({
       where: { confirmationReference },
     });
