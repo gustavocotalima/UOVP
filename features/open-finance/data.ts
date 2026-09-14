@@ -4,6 +4,7 @@ import {
   resolvePluggyInstitutionLogo,
   resolvePluggyInstitutionName,
 } from "./institution-logo";
+import { connectedInvestmentMetadataDto } from "./investment-metadata-dto";
 
 type CurrencyAmount = {
   amount: string | number;
@@ -42,7 +43,7 @@ function accountInvestmentRemuneration(metadata: unknown) {
 }
 
 export async function getOpenFinanceData(userId: string) {
-  const [items, preference, financialAccounts] = await Promise.all([
+  const [items, preference, financialAccounts, catalog] = await Promise.all([
     prisma.pluggyItem.findMany({
       where: { userId },
       orderBy: { connectorName: "asc" },
@@ -56,6 +57,13 @@ export async function getOpenFinanceData(userId: string) {
           include: {
             sourceAccount: {
               select: { name: true, marketingName: true },
+            },
+            diagramLink: {
+              include: {
+                holding: {
+                  include: { asset: true },
+                },
+              },
             },
             _count: { select: { transactions: true } },
           },
@@ -85,6 +93,7 @@ export async function getOpenFinanceData(userId: string) {
         bankCode: true,
       },
     }),
+    prisma.assetCatalogItem.findMany({ orderBy: [{ category: "asc" }, { id: "asc" }] }),
   ]);
 
   const bankCodesByItem = new Map<string, Array<string | null>>();
@@ -205,6 +214,19 @@ export async function getOpenFinanceData(userId: string) {
       providerAvailable: investment.providerAvailable,
       updatedAt: (investment.providerUpdatedAt ?? investment.updatedAt).toISOString(),
       transactionCount: investment._count.transactions,
+      connectedMetadata: connectedInvestmentMetadataDto({
+        link: investment.diagramLink,
+        investment,
+        holding: investment.diagramLink?.holding ?? null,
+        providerIssuer: investment.source === "INVESTMENTS_API"
+          ? resolvePluggyInvestmentIssuer(
+              investment.issuer,
+              investment.institutionName,
+              itemInstitutionName(item),
+              item.connectorName,
+            )
+          : investment.institutionName ?? itemInstitutionName(item),
+      }),
       transactions: [] as OpenFinanceInvestmentTransaction[],
     })),
   );
@@ -231,6 +253,11 @@ export async function getOpenFinanceData(userId: string) {
     ),
     timeZone: preference?.timeZone ?? "America/Sao_Paulo",
     webhookConfigured: Boolean(preference?.pluggyWebhookSecretCiphertext),
+    investmentMetadataCatalog: catalog.map((item) => ({
+      id: item.id,
+      name: item.name,
+      familyCode: item.familyCode,
+    })),
     items: visibleItems.map((item) => ({
       id: item.id,
       pluggyItemId: item.pluggyItemId,

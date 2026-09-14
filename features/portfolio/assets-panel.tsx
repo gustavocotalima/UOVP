@@ -37,6 +37,7 @@ import type { YahooSearchKind, YahooTickerSearchResult } from "./yahoo-finance";
 import { FIXED_INCOME_INDEXATIONS, FIXED_INCOME_INDEXATION_META, INSTRUMENT_TYPES, INSTRUMENT_TYPE_META, INVESTMENT_CLASSES, INVESTMENT_CLASS_META, MOCK_ASSET_CATALOG, RATE_CONVENTIONS, RATE_CONVENTION_META, type FixedIncomeIndexationKey, type InstrumentTypeKey, type InvestmentClassKey, type RateConventionKey } from "./constants";
 import type { AssetDto, AssetHoldingDto, DiagramQuestionDto, PortfolioDto } from "./types";
 import { excludePluggyDiagramLinkAction, reviewPluggyDiagramLinkAction } from "@/features/open-finance/diagram-actions";
+import { InvestmentMetadataEditor } from "@/features/open-finance/investment-metadata-editor";
 import { financialModelingPrepLogoUrl, usableBrapiLogoUrl } from "./market-logo";
 
 type FormAsset = {
@@ -550,6 +551,7 @@ export function AssetsPanel({
   const [form, setForm] = useState<FormAsset | null>(null);
   const [fixedGroupForm, setFixedGroupForm] = useState<FixedIncomeGroupForm | null>(null);
   const [holdingForm, setHoldingForm] = useState<HoldingForm | null>(null);
+  const [metadataEditor, setMetadataEditor] = useState<AssetHoldingDto["connectedMetadata"]>(null);
   const [reviewForm, setReviewForm] = useState<ReviewForm | null>(null);
   const [expandedAssets, setExpandedAssets] = useState<Set<string>>(() => new Set());
   const [holdingTransactions, setHoldingTransactions] = useState<Record<string, HoldingTransactionsState>>({});
@@ -1423,7 +1425,15 @@ export function AssetsPanel({
                               <div className="flex items-start justify-between gap-3">
                                 <div className="min-w-0"><strong className="block truncate text-sm">{holding.typeName}</strong><span className="block truncate text-xs text-[var(--muted-foreground)]">{holding.productName}</span></div>
                                 {holding.positionSource !== "MANUAL"
-                                  ? <span className="rounded-full bg-[var(--primary)]/12 px-2 py-1 text-[10px] font-semibold text-[var(--primary)]">{holding.positionSource === "BINANCE" ? "Binance" : pluggyInvestmentSourceLabel(holding.providerInvestmentSource)}</span>
+                                  ? <div className="flex shrink-0 flex-col items-end gap-1">
+                                      <span className="rounded-full bg-[var(--primary)]/12 px-2 py-1 text-[10px] font-semibold text-[var(--primary)]">{holding.positionSource === "BINANCE" ? "Binance" : pluggyInvestmentSourceLabel(holding.providerInvestmentSource)}</span>
+                                      {holding.connectedMetadata?.overrideFields.length ? <span className="text-[10px] font-semibold text-[var(--primary)]">Editado manualmente</span> : null}
+                                      {holding.connectedMetadata && (
+                                        <Button variant="ghost" size="sm" onClick={() => setMetadataEditor(holding.connectedMetadata)}>
+                                          <Pencil className="size-3.5" /> Informações
+                                        </Button>
+                                      )}
+                                    </div>
                                   : <div className="flex"><Button variant="ghost" size="icon" onClick={() => startHolding(asset, holding)} aria-label={`Editar ${holding.productName}`}><Pencil className="size-4" /></Button><Button variant="ghost" size="icon" className="text-[var(--danger)]" onClick={() => setDeleteTarget({ kind: "holding", id: holding.id, label: holding.productName })} aria-label={`Excluir ${holding.productName}`}><Trash2 className="size-4" /></Button></div>}
                               </div>
                               <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-3 text-xs">
@@ -1665,7 +1675,14 @@ export function AssetsPanel({
                                           {holdingColumns.maturityDate && <td className="whitespace-nowrap px-3 py-3">{holding.maturityDate ? reviewDate(holding.maturityDate, timeZone) : "—"}</td>}
                                           <td className="px-3 py-3">
                                             {holding.positionSource !== "MANUAL"
-                                              ? <div className="text-right"><span className="rounded-full bg-[var(--primary)]/12 px-2 py-1 text-[10px] font-semibold text-[var(--primary)]">{holding.positionSource === "BINANCE" ? "Binance" : "Pluggy"}</span>{holding.institution && <span className="mt-1 block text-[10px] font-medium">{holding.institution}</span>}<span className="mt-0.5 block text-[10px] text-[var(--muted-foreground)]">{holding.providerStatus ?? "Sincronizado"}</span></div>
+                                              ? <div className="flex flex-col items-end gap-1 text-right"><span className="rounded-full bg-[var(--primary)]/12 px-2 py-1 text-[10px] font-semibold text-[var(--primary)]">{holding.positionSource === "BINANCE" ? "Binance" : "Pluggy"}</span>{holding.institution && <span className="block text-[10px] font-medium">{holding.institution}</span>}<span className="block text-[10px] text-[var(--muted-foreground)]">{holding.providerStatus ?? "Sincronizado"}</span>
+                                                  {holding.connectedMetadata?.overrideFields.length ? <span className="text-[10px] font-semibold text-[var(--primary)]">Editado manualmente</span> : null}
+                                                  {holding.connectedMetadata && (
+                                                    <Button variant="ghost" size="sm" onClick={() => setMetadataEditor(holding.connectedMetadata)}>
+                                                      <Pencil className="size-3.5" /> Informações
+                                                    </Button>
+                                                  )}
+                                                </div>
                                               : <div className="flex justify-end gap-2"><Button variant="ghost" size="sm" onClick={() => startHolding(asset, holding)}><Pencil className="size-3.5" /> Editar</Button><Button variant="ghost" size="sm" className="text-[var(--danger)]" onClick={() => setDeleteTarget({ kind: "holding", id: holding.id, label: holding.productName })}><Trash2 className="size-3.5" /> Excluir</Button></div>}
                                           </td>
                                         </tr>
@@ -1746,6 +1763,14 @@ export function AssetsPanel({
           </CardContent>
         </Card>
       </div>
+
+      <InvestmentMetadataEditor
+        key={metadataEditor ? `${metadataEditor.linkId}:${metadataEditor.expectedUpdatedAt}` : "closed"}
+        metadata={metadataEditor}
+        catalog={catalog}
+        open={metadataEditor !== null}
+        onOpenChange={(open) => !open && setMetadataEditor(null)}
+      />
 
       <Dialog
         open={reviewForm !== null}

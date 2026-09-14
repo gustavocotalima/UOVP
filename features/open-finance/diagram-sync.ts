@@ -177,6 +177,64 @@ function linkedHoldingData(
   };
 }
 
+type LinkedHoldingData = ReturnType<typeof linkedHoldingData>;
+type ExistingDiagramLink = NonNullable<InvestmentWithItem["diagramLink"]>;
+
+function positiveDecimal(value: Prisma.Decimal | null | undefined) {
+  return value?.gt(0) ?? false;
+}
+
+function hasUnreliableProviderRate(investment: InvestmentWithItem) {
+  const hasRate = positiveDecimal(investment.rate);
+  const hasFixedRate = positiveDecimal(investment.fixedAnnualRate);
+  const hasAnnualRate = positiveDecimal(investment.annualRate);
+  if (!hasRate && !hasFixedRate && !hasAnnualRate) return true;
+  return Boolean(investment.rateType) && !hasRate && hasFixedRate;
+}
+
+function applyMetadataOverrides(
+  providerData: LinkedHoldingData,
+  investment: InvestmentWithItem,
+  link: ExistingDiagramLink | null,
+  holding: {
+    rateConvention: LinkedHoldingData["rateConvention"];
+    benchmark: string | null;
+    rateValue: Prisma.Decimal | null;
+  } | null,
+) {
+  if (!link) return providerData;
+  const fields = new Set<string>(link.metadataOverrideFields);
+  const data = { ...providerData };
+
+  if (fields.has("PRODUCT_NAME") && link.overrideProductName) {
+    data.productName = link.overrideProductName;
+  }
+  if (fields.has("ISSUER") && link.overrideIssuer) {
+    data.issuer = link.overrideIssuer;
+  }
+  if (fields.has("PRODUCT_TYPE")) {
+    data.catalogItemId = link.overrideCatalogItemId;
+    data.customTypeName = link.overrideCatalogItemId ? null : link.overrideCustomTypeName;
+  }
+  if (fields.has("RATE_TERMS")) {
+    data.rateConvention = link.overrideRateConvention;
+    data.benchmark = link.overrideBenchmark;
+    data.rateValue = link.overrideRateValue;
+  } else if (hasUnreliableProviderRate(investment)) {
+    data.rateConvention = holding?.rateConvention ?? null;
+    data.benchmark = holding?.benchmark ?? null;
+    data.rateValue = holding?.rateValue ?? null;
+  }
+  if (fields.has("PURCHASE_DATE")) {
+    data.purchaseDate = link.overridePurchaseDate;
+  }
+  if (fields.has("MATURITY_DATE")) {
+    data.maturityDate = link.overrideMaturityDate;
+  }
+
+  return data;
+}
+
 async function confirmAwaitingSuggestions(
   tx: Prisma.TransactionClient,
   userId: string,
@@ -776,17 +834,29 @@ export async function reconcilePluggyInvestmentsForUser(
         review += 1;
         continue;
       }
-      const data = linkedHoldingData(
-        investment,
-        classification,
-        marketRegion ?? null,
-        quoteHolding,
-        resolvedFx,
+      const data = applyMetadataOverrides(
+        linkedHoldingData(
+          investment,
+          classification,
+          marketRegion ?? null,
+          quoteHolding,
+          resolvedFx,
+        ),
+        investment, existingLink, holding,
       );
       if (holding) {
         changed ||= holding.assetId !== asset.id
           || !sameDecimal(holding.quantity, data.quantity)
           || !sameDecimal(holding.providerCurrentValue, data.providerCurrentValue)
+          || holding.catalogItemId !== data.catalogItemId
+          || holding.customTypeName !== data.customTypeName
+          || holding.issuer !== data.issuer
+          || holding.productName !== data.productName
+          || holding.rateConvention !== data.rateConvention
+          || holding.benchmark !== data.benchmark
+          || !sameDecimal(holding.rateValue, data.rateValue)
+          || !sameDate(holding.purchaseDate, data.purchaseDate)
+          || !sameDate(holding.maturityDate, data.maturityDate)
           || holding.includedInTotals !== data.includedInTotals
           || holding.positionSource !== "PLUGGY";
         holding = await tx.assetHolding.update({

@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import Decimal from "decimal.js";
 import { resolvePluggyInvestmentIssuer } from "@/features/open-finance/institution-logo";
+import { connectedInvestmentMetadataDto } from "@/features/open-finance/investment-metadata-dto";
 import { INVESTMENT_CLASSES, type InvestmentClassKey } from "./constants";
 import { aggregateHoldingValue, holdingCurrentValue, holdingCurrentValueNative, holdingUnitPriceBrl } from "./asset-groups";
 import { aggregateAveragePrices, calculateHoldingAveragePrice } from "./average-price";
@@ -254,7 +255,9 @@ export async function getPortfolioData(userId: string) {
           catalogItemId: holding.catalogItemId,
           typeName: holding.catalogItem?.name ?? holding.customTypeName ?? "Outro",
           customTypeName: holding.customTypeName,
-          issuer: holding.pluggyDiagramLink && MARKET_INSTRUMENTS.has(asset.instrumentType)
+          issuer: holding.pluggyDiagramLink?.metadataOverrideFields.includes("ISSUER")
+            ? holding.issuer
+            : holding.pluggyDiagramLink && MARKET_INSTRUMENTS.has(asset.instrumentType)
             ? marketMetadata?.name ?? asset.name
             : holding.pluggyDiagramLink
               ? holding.pluggyDiagramLink.investment.source === "INVESTMENTS_API"
@@ -311,6 +314,25 @@ export async function getPortfolioData(userId: string) {
           providerStatus: holding.pluggyDiagramLink?.investment.status ?? null,
           providerAvailable: holding.pluggyDiagramLink?.investment.providerAvailable ?? true,
           transactionCount: holding.pluggyDiagramLink?.investment._count.transactions ?? 0,
+          connectedMetadata: holding.pluggyDiagramLink
+            ? connectedInvestmentMetadataDto({
+                link: holding.pluggyDiagramLink,
+                investment: holding.pluggyDiagramLink.investment,
+                holding: {
+                  ...holding,
+                  asset: {
+                    instrumentType: asset.instrumentType,
+                    fixedIncomeFamilyCode: asset.fixedIncomeFamilyCode,
+                  },
+                },
+                providerIssuer: resolvePluggyInvestmentIssuer(
+                  holding.pluggyDiagramLink.investment.issuer,
+                  holding.pluggyDiagramLink.investment.institutionName,
+                  holding.pluggyDiagramLink.investment.item.institutionName,
+                  holding.pluggyDiagramLink.investment.item.connectorName,
+                ),
+              })
+            : null,
           transactions: [],
           updatedAt: holding.updatedAt.toISOString(),
         })),

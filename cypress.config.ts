@@ -424,6 +424,125 @@ export default defineConfig({
             await prisma.$disconnect();
           }
         },
+        async seedPluggyEditableInvestment({ email }: { email: string }) {
+          if (!/^cypress-[^@]+@example\.com$/.test(email)) throw new Error("Only Cypress users may be seeded");
+          const prisma = new PrismaClient();
+          try {
+            const user = await prisma.user.findUniqueOrThrow({ where: { email } });
+            const portfolio = await prisma.portfolio.upsert({
+              where: { userId: user.id },
+              update: {},
+              create: { userId: user.id },
+            });
+            await prisma.fixedIncomeFamily.upsert({
+              where: { code: "BANK_DEPOSITS_FGC" },
+              update: {},
+              create: {
+                code: "BANK_DEPOSITS_FGC",
+                name: "Depósitos bancários com FGC",
+                shortCode: "CDB/RDB/LC",
+                sortOrder: 10,
+              },
+            });
+            await prisma.assetCatalogItem.upsert({
+              where: { id: 5 },
+              update: {},
+              create: {
+                id: 5,
+                category: "Renda fixa",
+                name: "CDB",
+                summary: "Certificado de depósito bancário.",
+                taxPF: "Conforme legislação vigente.",
+                taxPJ: "Conforme legislação vigente.",
+                howToBuy: "Instituição financeira.",
+                costs: "Conforme instituição.",
+                risks: "Risco de crédito.",
+                guarantees: "Conforme elegibilidade ao FGC.",
+                familyCode: "BANK_DEPOSITS_FGC",
+              },
+            });
+            const suffix = `${Date.now()}-${Math.floor(Math.random() * 10_000)}`;
+            const item = await prisma.pluggyItem.create({
+              data: {
+                userId: user.id,
+                pluggyItemId: `cypress-metadata-item-${suffix}`,
+                connectorName: "Banco Inter",
+                institutionName: "Inter",
+                status: "UPDATED",
+                syncPending: false,
+                lastSyncAt: new Date(),
+              },
+            });
+            const investment = await prisma.pluggyInvestment.create({
+              data: {
+                pluggyItemDbId: item.id,
+                pluggyInvestmentId: `cypress-metadata-investment-${suffix}`,
+                name: "CDB ORIGINAL CYPRESS",
+                issuer: "BANCO ORIGINAL CYPRESS S.A.",
+                issuerCnpj: "00.000.000/0001-00",
+                type: "FIXED_INCOME",
+                subtype: "CDB",
+                balance: 1_000,
+                amount: 950,
+                quantity: 1,
+                value: 1_000,
+                currencyCode: "BRL",
+                rate: 0,
+                rateType: "CDI",
+                fixedAnnualRate: 8.95,
+                purchaseDate: new Date("2026-06-15T12:00:00.000Z"),
+                dueDate: new Date("2027-08-24T12:00:00.000Z"),
+                status: "ACTIVE",
+                providerAvailable: true,
+              },
+            });
+            const asset = await prisma.asset.create({
+              data: {
+                portfolioId: portfolio.id,
+                investmentClass: "FIXED_INCOME",
+                instrumentType: "FIXED_INCOME",
+                ticker: `CYP-META-${suffix}`,
+                name: "Depósitos bancários com FGC · Pós-fixado",
+                fixedIncomeFamilyCode: "BANK_DEPOSITS_FGC",
+                indexation: "POST_FIXED",
+                score: 5,
+              },
+            });
+            const holding = await prisma.assetHolding.create({
+              data: {
+                assetId: asset.id,
+                catalogItemId: 5,
+                issuer: "BANCO ORIGINAL CYPRESS S.A.",
+                productName: "CDB ORIGINAL CYPRESS",
+                pricingSource: "PLUGGY",
+                positionSource: "PLUGGY",
+                currency: "BRL",
+                quantity: 1,
+                unitPrice: 1_000,
+                investedValue: 950,
+                currentValue: 1_000,
+                providerCurrentValue: 1_000,
+                rateConvention: "PERCENT_OF_INDEXER",
+                benchmark: "CDI",
+                rateValue: 100,
+                purchaseDate: new Date("2026-06-15T12:00:00.000Z"),
+                maturityDate: new Date("2027-08-24T12:00:00.000Z"),
+              },
+            });
+            await prisma.pluggyInvestmentDiagramLink.create({
+              data: {
+                userId: user.id,
+                pluggyInvestmentDbId: investment.id,
+                assetHoldingId: holding.id,
+                status: "MAPPED",
+                lastReconciledAt: new Date(),
+              },
+            });
+            return null;
+          } finally {
+            await prisma.$disconnect();
+          }
+        },
         async getMarketLogoMetadata({
           provider,
           symbol,

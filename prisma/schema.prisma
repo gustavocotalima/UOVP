@@ -76,6 +76,15 @@ enum ClassificationSource {
   USER_OVERRIDE
 }
 
+enum PluggyInvestmentMetadataOverrideField {
+  PRODUCT_NAME
+  ISSUER
+  PRODUCT_TYPE
+  RATE_TERMS
+  PURCHASE_DATE
+  MATURITY_DATE
+}
+
 enum PluggyDiagramMappingStatus {
   MAPPED
   NEEDS_REVIEW
@@ -1005,6 +1014,17 @@ model PluggyInvestmentDiagramLink {
   suggestedFamilyCode      String?
   suggestedIndexation      FixedIncomeIndexation?
   reviewReason             String?
+  metadataOverrideFields   PluggyInvestmentMetadataOverrideField[] @default([])
+  overrideProductName      String?
+  overrideIssuer           String?
+  overrideCatalogItemId    Int?
+  overrideCustomTypeName   String?
+  overrideRateConvention   RateConvention?
+  overrideBenchmark        String?
+  overrideRateValue        Decimal?                   @db.Decimal(12, 6)
+  overridePurchaseDate     DateTime?
+  overrideMaturityDate     DateTime?
+  metadataOverrideUpdatedAt DateTime?
   lastReconciledAt         DateTime?
   createdAt                DateTime                   @default(now())
   updatedAt                DateTime                   @updatedAt
