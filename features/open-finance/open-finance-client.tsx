@@ -15,6 +15,7 @@ import {
   Landmark,
   Link2,
   LoaderCircle,
+  Pencil,
   RefreshCw,
   ShieldCheck,
   TrendingUp,
@@ -28,6 +29,7 @@ import { InstitutionLogo } from "@/components/ui/institution-logo";
 import { SegmentedTabs } from "@/components/ui/segmented-tabs";
 import { cn } from "@/lib/utils";
 import type { OpenFinanceData } from "./data";
+import { InvestmentMetadataEditor } from "./investment-metadata-editor";
 import {
   deletePluggyConnectionAction,
   resolvePluggyItemDisconnectionAction,
@@ -121,6 +123,9 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("connections");
   const [expandedInvestment, setExpandedInvestment] = useState<string | null>(null);
+  const [metadataEditor, setMetadataEditor] = useState<
+    OpenFinanceData["investments"][number]["connectedMetadata"]
+  >(null);
   const [transactions, setTransactions] = useState(data.transactions);
   const [transactionPage, setTransactionPage] = useState(1);
   const [transactionTotal, setTransactionTotal] = useState(0);
@@ -643,6 +648,7 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
             transactionPages={investmentTransactionPages}
             loadingInvestmentId={investmentTransactionsLoading}
             onLoadMore={(id, page) => void loadInvestmentTransactions(id, page)}
+            onEditMetadata={setMetadataEditor}
             timeZone={data.timeZone}
           />
         </section>
@@ -717,6 +723,16 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
         danger
         pending={busy?.startsWith("delete:") ?? false}
         onConfirm={() => void deleteConnection()}
+      />
+
+      <InvestmentMetadataEditor
+        key={metadataEditor ? `${metadataEditor.linkId}:${metadataEditor.expectedUpdatedAt}` : "closed"}
+        metadata={metadataEditor}
+        catalog={data.investmentMetadataCatalog}
+        open={metadataEditor !== null}
+        onOpenChange={(open) => {
+          if (!open) setMetadataEditor(null);
+        }}
       />
 
     </>
@@ -794,14 +810,28 @@ function status(value: string | null) {
 }
 
 function rate(investment: Investment) {
-  if (investment.rate !== null) {
+  if (investment.rate !== null && Number(investment.rate) !== 0) {
     return `${percentage(investment.rate)}${investment.rateType ? ` ${investment.rateType}` : ""}`;
   }
-  if (investment.fixedAnnualRate !== null) {
+  if (investment.fixedAnnualRate !== null && Number(investment.fixedAnnualRate) !== 0) {
     return `${percentage(investment.fixedAnnualRate)} a.a.${investment.rateType ? ` · ${investment.rateType}` : ""}`;
   }
   if (investment.annualRate !== null) return `${percentage(investment.annualRate)} a.a.`;
   return "N/A";
+}
+
+function effectiveRate(metadata: NonNullable<Investment["connectedMetadata"]>["effectiveMetadata"]) {
+  if (!metadata.rateConvention) return "N/A";
+  const benchmark = metadata.benchmark?.trim();
+  const value = metadata.rateValue === null ? null : percentage(metadata.rateValue);
+  if (metadata.rateConvention === "FIXED_ANNUAL") return value ? `${value} a.a.` : "N/A";
+  if (metadata.rateConvention === "PERCENT_OF_INDEXER") {
+    return benchmark && value ? `${value} do ${benchmark}` : "N/A";
+  }
+  if (metadata.rateConvention === "INDEXER_PLUS") {
+    return benchmark && value ? `${benchmark} + ${value} a.a.` : "N/A";
+  }
+  return [benchmark, value].filter(Boolean).join(" · ") || "N/A";
 }
 
 function InvestmentPortfolio({
@@ -816,6 +846,7 @@ function InvestmentPortfolio({
   transactionPages,
   loadingInvestmentId,
   onLoadMore,
+  onEditMetadata,
   timeZone,
 }: {
   investments: OpenFinanceData["investments"];
@@ -829,6 +860,7 @@ function InvestmentPortfolio({
   transactionPages: Record<string, { page: number; total: number }>;
   loadingInvestmentId: string | null;
   onLoadMore: (id: string, page: number) => void;
+  onEditMetadata: (metadata: NonNullable<Investment["connectedMetadata"]>) => void;
   timeZone: string;
 }) {
   const groups = [...investments.reduce((map, investment) => {
@@ -899,8 +931,13 @@ function InvestmentPortfolio({
                       </span>
                       <span className="min-w-0">
                         <span className="flex min-w-0 items-center gap-2">
-                          <strong className="block truncate text-sm">{investment.name}</strong>
+                          <strong className="block truncate text-sm">
+                            {investment.connectedMetadata?.effectiveMetadata.productName ?? investment.name}
+                          </strong>
                           {sold && <span className="shrink-0 rounded-full bg-[var(--muted)] px-2 py-0.5 text-[10px] text-[var(--muted-foreground)]">Vendido</span>}
+                          {Boolean(investment.connectedMetadata?.overrideFields.length) && (
+                            <span className="shrink-0 rounded-full bg-[var(--primary)]/12 px-2 py-0.5 text-[10px] text-[var(--primary)]">Editado manualmente</span>
+                          )}
                         </span>
                         <span className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
                           {investment.institutionImageUrl && (
@@ -939,6 +976,7 @@ function InvestmentPortfolio({
                         investment.id,
                         (transactionPages[investment.id]?.page ?? 0) + 1,
                       )}
+                      onEditMetadata={onEditMetadata}
                     />
                   )}
                 </div>
@@ -957,13 +995,16 @@ function InvestmentDetails({
   loadedTotal,
   timeZone,
   onLoadMore,
+  onEditMetadata,
 }: {
   investment: Investment;
   loading?: boolean;
   loadedTotal: number;
   timeZone: string;
   onLoadMore: () => void;
+  onEditMetadata: (metadata: NonNullable<Investment["connectedMetadata"]>) => void;
 }) {
+  const effectiveMetadata = investment.connectedMetadata?.effectiveMetadata;
   const sourceLabel = investment.source === "ACCOUNT_RESERVED_BALANCE"
     ? "Caixinha"
     : "Saldo investido automaticamente";
@@ -974,7 +1015,10 @@ function InvestmentDetails({
       ? { label: "Origem", value: `${sourceInstitution} · ${sourceLabel}` }
       : null,
     investment.sourceAccountName ? { label: "Conta de origem", value: investment.sourceAccountName } : null,
-    { label: "Rentabilidade", value: rate(investment) },
+    {
+      label: "Rentabilidade",
+      value: effectiveMetadata ? effectiveRate(effectiveMetadata) : rate(investment),
+    },
     investment.amountOriginal !== null ? { label: "Valor investido", value: money(investment.amountOriginal, investment.currencyCode) } : null,
     investment.amount !== null ? { label: "Valor bruto informado", value: money(investment.amount, investment.currencyCode) } : null,
     investment.amountProfit !== null ? { label: "Lucro / prejuízo", value: money(investment.amountProfit, investment.currencyCode) } : null,
@@ -986,10 +1030,12 @@ function InvestmentDetails({
     investment.lastMonthRate !== null ? { label: "Rentabilidade no mês", value: percentage(investment.lastMonthRate) } : null,
     investment.lastTwelveMonthsRate !== null ? { label: "Rentabilidade em 12 meses", value: percentage(investment.lastTwelveMonthsRate) } : null,
     investment.annualRate !== null ? { label: "Rentabilidade anual", value: percentage(investment.annualRate) } : null,
-    investment.fixedAnnualRate !== null ? { label: "Taxa fixa anual", value: percentage(investment.fixedAnnualRate) } : null,
+    !investment.connectedMetadata && investment.fixedAnnualRate !== null ? { label: "Taxa fixa anual", value: percentage(investment.fixedAnnualRate) } : null,
     investment.taxes !== null ? { label: "Imposto de renda", value: money(investment.taxes, investment.currencyCode) } : null,
     investment.taxes2 !== null ? { label: "IOF / outros impostos", value: money(investment.taxes2, investment.currencyCode) } : null,
-    investment.issuer ? { label: "Emissor", value: investment.issuer } : null,
+    (effectiveMetadata?.issuer || investment.issuer)
+      ? { label: "Emissor", value: effectiveMetadata?.issuer || investment.issuer! }
+      : null,
     investment.issuerCnpj ? { label: "CNPJ do emissor", value: investment.issuerCnpj } : null,
     investment.institutionNumber ? { label: "CNPJ da instituição", value: investment.institutionNumber } : null,
     investment.insurerName ? { label: "Seguradora", value: investment.insurerName } : null,
@@ -997,9 +1043,13 @@ function InvestmentDetails({
     investment.owner ? { label: "Titular", value: investment.owner } : null,
     investment.number ? { label: "Número", value: investment.number } : null,
     investment.issueDate ? { label: "Emissão", value: shortDate(investment.issueDate, timeZone) } : null,
-    investment.purchaseDate ? { label: "Compra", value: shortDate(investment.purchaseDate, timeZone) } : null,
+    (effectiveMetadata?.purchaseDate || investment.purchaseDate)
+      ? { label: "Compra", value: shortDate(effectiveMetadata?.purchaseDate || investment.purchaseDate!, timeZone) }
+      : null,
     investment.gracePeriodDate ? { label: "Fim da carência", value: shortDate(investment.gracePeriodDate, timeZone) } : null,
-    investment.dueDate ? { label: "Vencimento", value: shortDate(investment.dueDate, timeZone) } : null,
+    (effectiveMetadata?.maturityDate || investment.dueDate)
+      ? { label: "Vencimento", value: shortDate(effectiveMetadata?.maturityDate || investment.dueDate!, timeZone) }
+      : null,
     investment.quotaDate ? { label: "Data da posição", value: shortDate(investment.quotaDate, timeZone) } : null,
     status(investment.status) ? { label: "Status", value: status(investment.status)! } : null,
     { label: "Atualizado pela instituição", value: date(investment.updatedAt, timeZone) },
@@ -1007,6 +1057,29 @@ function InvestmentDetails({
 
   return (
     <div className="border-t bg-[var(--muted)]/10 px-3 py-4 sm:px-5 sm:py-5">
+      {investment.connectedMetadata && (
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold">
+              {effectiveMetadata?.productName ?? investment.name}
+            </p>
+            {investment.connectedMetadata.overrideFields.length > 0 && (
+              <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+                Informações corrigidas manualmente para esta posição.
+              </p>
+            )}
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => onEditMetadata(investment.connectedMetadata!)}
+          >
+            <Pencil className="size-4" />
+            Editar informações
+          </Button>
+        </div>
+      )}
       <dl className="grid grid-cols-2 gap-x-4 gap-y-5 @4xl:grid-cols-3 @6xl:grid-cols-4 @4xl:gap-x-8">
         {details.map((detail) => (
           <div key={detail.label} className="min-w-0">
@@ -1018,6 +1091,12 @@ function InvestmentDetails({
 
       {investment.remuneration && <JsonDetails title="Remuneração informada" value={investment.remuneration} />}
       {investment.metadata && <JsonDetails title="Dados adicionais" value={investment.metadata} />}
+      {investment.connectedMetadata && (
+        <ProviderMetadataDetails
+          metadata={investment.connectedMetadata.providerMetadata}
+          timeZone={timeZone}
+        />
+      )}
 
       <div className="mt-6">
         <p className="mb-3 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
@@ -1082,6 +1161,50 @@ function InvestmentDetails({
         </div>
       </div>
     </div>
+  );
+}
+
+function ProviderMetadataDetails({
+  metadata,
+  timeZone,
+}: {
+  metadata: NonNullable<Investment["connectedMetadata"]>["providerMetadata"];
+  timeZone: string;
+}) {
+  const rawDetails = [
+    { label: "Produto", value: metadata.productName },
+    { label: "Emissor", value: metadata.issuer },
+    { label: "Tipo", value: metadata.type },
+    metadata.subtype ? { label: "Subtipo", value: metadata.subtype } : null,
+    metadata.rate !== null ? { label: "rate", value: metadata.rate } : null,
+    metadata.rateType ? { label: "rateType", value: metadata.rateType } : null,
+    metadata.fixedAnnualRate !== null
+      ? { label: "fixedAnnualRate", value: metadata.fixedAnnualRate }
+      : null,
+    metadata.annualRate !== null ? { label: "annualRate", value: metadata.annualRate } : null,
+    metadata.purchaseDate
+      ? { label: "Data de compra", value: shortDate(metadata.purchaseDate, timeZone) }
+      : null,
+    metadata.maturityDate
+      ? { label: "Vencimento", value: shortDate(metadata.maturityDate, timeZone) }
+      : null,
+    metadata.issuerCnpj ? { label: "CNPJ do emissor", value: metadata.issuerCnpj } : null,
+  ].filter((item): item is { label: string; value: string } => item !== null);
+
+  return (
+    <details className="mt-6 border-t pt-4">
+      <summary className="cursor-pointer text-[10px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
+        Dados originais da instituição
+      </summary>
+      <dl className="mt-3 grid gap-3 @3xl:grid-cols-2 @5xl:grid-cols-3">
+        {rawDetails.map((detail) => (
+          <div key={detail.label} className="text-xs">
+            <dt className="text-[var(--muted-foreground)]">{detail.label}</dt>
+            <dd className="break-words font-medium">{detail.value}</dd>
+          </div>
+        ))}
+      </dl>
+    </details>
   );
 }
 

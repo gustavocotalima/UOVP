@@ -1,4 +1,52 @@
 import type { FixedIncomeIndexationKey, InstrumentTypeKey, InvestmentClassKey, RateConventionKey } from "./constants";
+export type PluggyInvestmentMetadataOverrideField =
+  | "PRODUCT_NAME"
+  | "ISSUER"
+  | "PRODUCT_TYPE"
+  | "RATE_TERMS"
+  | "PURCHASE_DATE"
+  | "MATURITY_DATE";
+
+export type ConnectedInvestmentMetadataDto = {
+  linkId: string;
+  expectedUpdatedAt: string;
+  metadataOverrideUpdatedAt: string | null;
+  overrideFields: PluggyInvestmentMetadataOverrideField[];
+  instrumentType: InstrumentTypeKey;
+  fixedIncomeFamilyCode: string | null;
+  canEditMetadata: boolean;
+  effectiveMetadata: {
+    productName: string;
+    issuer: string;
+    catalogItemId: number | null;
+    customTypeName: string | null;
+    rateConvention: RateConventionKey | null;
+    benchmark: string | null;
+    rateValue: string | null;
+    purchaseDate: string | null;
+    maturityDate: string | null;
+  };
+  providerMetadata: {
+    productName: string;
+    issuer: string;
+    type: string;
+    subtype: string | null;
+    rate: string | null;
+    rateType: string | null;
+    fixedAnnualRate: string | null;
+    annualRate: string | null;
+    purchaseDate: string | null;
+    maturityDate: string | null;
+    issuerCnpj: string | null;
+  };
+};
+
+export type InvestmentMetadataCatalogItemDto = {
+  id: number;
+  name: string;
+  familyCode: string | null;
+};
+
 
 export type AssetHoldingDto = {
   id: string;
@@ -42,6 +90,7 @@ export type AssetHoldingDto = {
   providerStatus: string | null;
   providerAvailable: boolean;
   transactionCount: number;
+  connectedMetadata: ConnectedInvestmentMetadataDto | null;
   transactions: Array<{
     id: string;
     description: string | null;

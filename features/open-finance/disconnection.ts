@@ -173,6 +173,19 @@ async function resolvePluggyItemDisconnectionUnlocked(
           assetHoldingId: resolution === "KEEP_MANUAL" ? null : entry.holding.id,
           status: "EXCLUDED",
           classificationSource: "USER_OVERRIDE",
+          ...(resolution === "KEEP_MANUAL" ? {
+            metadataOverrideFields: { set: [] },
+            overrideProductName: null,
+            overrideIssuer: null,
+            overrideCatalogItemId: null,
+            overrideCustomTypeName: null,
+            overrideRateConvention: null,
+            overrideBenchmark: null,
+            overrideRateValue: null,
+            overridePurchaseDate: null,
+            overrideMaturityDate: null,
+            metadataOverrideUpdatedAt: null,
+          } : {}),
           reviewReason: userExcluded
             ? PLUGGY_DIAGRAM_EXCLUSION_REASON.USER
             : resolution === "KEEP_MANUAL"
