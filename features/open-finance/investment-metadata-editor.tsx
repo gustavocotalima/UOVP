@@ -140,11 +140,13 @@ export function InvestmentMetadataEditor({
   catalog,
   open,
   onOpenChange,
+  syncBusy = false,
 }: {
   metadata: ConnectedInvestmentMetadataDto | null;
   catalog: InvestmentMetadataCatalogItemDto[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  syncBusy?: boolean;
 }) {
   const router = useRouter();
   const [form, setForm] = useState<FormState | null>(metadata ? initialForm(metadata) : null);
@@ -159,6 +161,10 @@ export function InvestmentMetadataEditor({
   const customProductType = form.productType.catalogItemId === null;
 
   function save(nextForm: FormState, closeAfter = true) {
+    if (syncBusy) {
+      setMessage("Aguarde o fim da sincronização do Open Finance para salvar.");
+      return;
+    }
     setMessage(undefined);
     startTransition(async () => {
       try {
@@ -198,11 +204,11 @@ export function InvestmentMetadataEditor({
         footer={(
           <>
             {metadata.overrideFields.length > 0 && (
-              <Button type="button" variant="outline" onClick={() => setConfirmRestore(true)} disabled={pending}>
+              <Button type="button" variant="outline" onClick={() => setConfirmRestore(true)} disabled={pending || syncBusy}>
                 Restaurar tudo
               </Button>
             )}
-            <Button type="submit" form="investment-metadata-form" disabled={pending}>
+            <Button type="submit" form="investment-metadata-form" disabled={pending || syncBusy}>
               {pending ? "Salvando…" : "Salvar informações"}
             </Button>
           </>
@@ -216,6 +222,11 @@ export function InvestmentMetadataEditor({
             </p>
           </div>
 
+          {syncBusy && (
+            <p role="status" className="text-sm text-[var(--muted-foreground)]">
+              Sincronizando Open Finance. As alterações podem ser salvas ao terminar.
+            </p>
+          )}
           <div className="grid gap-5 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="metadata-product-name">Nome / descrição</Label>
@@ -285,7 +296,7 @@ export function InvestmentMetadataEditor({
         title="Restaurar informações da instituição?"
         description="Todas as correções manuais deste investimento serão removidas e os dados mais recentes da Pluggy voltarão a ser usados."
         confirmLabel="Restaurar tudo"
-        pending={pending}
+        pending={pending || syncBusy}
         onConfirm={restoreAll}
       />
     </>
