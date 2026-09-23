@@ -153,12 +153,52 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
     OpenFinanceData["items"][number] | null
   >(null);
   const [connectionDisplayName, setConnectionDisplayName] = useState("");
+  const [renameStatus, setRenameStatus] = useState<string | null>(null);
+  const [pluggySyncStatus, setPluggySyncStatus] = useState({ active: false, automatic: false });
   const [resolvedDisconnections, setResolvedDisconnections] = useState<Set<string>>(() => new Set());
   const keepManualFocusRef = useRef<HTMLSpanElement>(null);
   const pendingDisconnection = data.pendingDisconnections.find(
     (item) => !resolvedDisconnections.has(item.id),
   );
   const transactionPageSize = 25;
+  const actionsBusy = busy !== null || pluggySyncStatus.active;
+
+  useEffect(() => {
+    let cancelled = false;
+    let checking = false;
+    let wasActive = false;
+    const checkSyncStatus = async () => {
+      if (checking || document.visibilityState === "hidden") return;
+      checking = true;
+      try {
+        const response = await fetch("/api/pluggy/sync-status", {
+          credentials: "same-origin",
+          cache: "no-store",
+        });
+        if (!response.ok) return;
+        const status = await response.json() as { active?: unknown; automatic?: unknown };
+        if (cancelled || typeof status.active !== "boolean" || typeof status.automatic !== "boolean") return;
+        setPluggySyncStatus({ active: status.active, automatic: status.automatic });
+        if (wasActive && !status.active) router.refresh();
+        wasActive = status.active;
+      } catch {
+        // Keep the last known state until the next check.
+      } finally {
+        checking = false;
+      }
+    };
+    void checkSyncStatus();
+    const interval = window.setInterval(() => void checkSyncStatus(), 2_000);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") void checkSyncStatus();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [router]);
 
   useEffect(() => {
     if (tab !== "transactions") return;
@@ -381,6 +421,7 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
   function openRenameConnection(connection: OpenFinanceData["items"][number]) {
     setConnectionToRename(connection);
     setConnectionDisplayName(connection.displayName ?? connection.connectorName);
+    setRenameStatus(null);
   }
 
   async function saveConnectionDisplayName(displayName: string | null) {
@@ -388,11 +429,18 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
     if (!connection) return;
     setBusy(`rename:${connection.id}`);
     setNotice(null);
+    setRenameStatus(null);
     try {
-      await savePluggyConnectionDisplayNameAction({
+      const result = await savePluggyConnectionDisplayNameAction({
         itemId: connection.id,
         displayName,
       });
+      if (result.status === "BUSY") {
+        setRenameStatus(result.source === "AUTOMATIC"
+          ? "A sincronização automática está em andamento. Aguarde para salvar."
+          : "Uma sincronização está em andamento. Aguarde para salvar.");
+        return;
+      }
       setConnectionToRename(null);
       setNotice({
         type: "success",
@@ -400,10 +448,7 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
       });
       router.refresh();
     } catch (error) {
-      setNotice({
-        type: "error",
-        text: error instanceof Error ? error.message : "Não foi possível renomear a conexão.",
-      });
+      setRenameStatus(error instanceof Error ? error.message : "Não foi possível renomear a conexão.");
     } finally {
       setBusy(null);
     }
@@ -486,6 +531,14 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
         </div>
       )}
 
+      {pluggySyncStatus.active && (
+        <div role="status" className="flex items-center gap-3 rounded-2xl border border-[var(--primary)]/45 bg-[var(--primary)]/10 p-4 text-sm">
+          <LoaderCircle className="size-5 shrink-0 animate-spin text-[var(--primary)]" aria-hidden="true" />
+          <p>{pluggySyncStatus.automatic
+            ? "Sincronizando Open Finance automaticamente. As ações ficam disponíveis ao terminar."
+            : "Sincronizando Open Finance. As ações ficam disponíveis ao terminar."}</p>
+        </div>
+      )}
       <section className="grid gap-3 @2xl:grid-cols-2 @5xl:grid-cols-3 @5xl:gap-4">
         <SummaryCard
           icon={Landmark}
@@ -513,12 +566,12 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
           <Button
             variant="outline"
             onClick={() => sync()}
-            disabled={!data.items.some((item) => item.status !== "DELETED") || busy !== null}
+            disabled={!data.items.some((item) => item.status !== "DELETED") || actionsBusy}
           >
             {busy === "all" ? <LoaderCircle className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
             Sincronizar dados
           </Button>
-          <Button onClick={() => openPluggy()} disabled={!data.configured || !scriptReady || busy !== null}>
+          <Button onClick={() => openPluggy()} disabled={!data.configured || !scriptReady || actionsBusy}>
             {busy === "connect" ? <LoaderCircle className="size-4 animate-spin" /> : <Link2 className="size-4" />}
             Conectar instituição
           </Button>
@@ -559,11 +612,11 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
                   {!disconnected && (
                     <div className="space-y-2">
                       <div className="flex gap-2">
-                        <Button size="sm" variant="outline" className="flex-1" onClick={() => sync(item.pluggyItemId)} disabled={busy !== null}>
+                        <Button size="sm" variant="outline" className="flex-1" onClick={() => sync(item.pluggyItemId)} disabled={actionsBusy}>
                           {busy === item.pluggyItemId ? <LoaderCircle className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
                           Ler dados
                         </Button>
-                        <Button size="sm" variant="secondary" className="flex-1" onClick={() => openPluggy(item.pluggyItemId)} disabled={!scriptReady || busy !== null}>
+                        <Button size="sm" variant="secondary" className="flex-1" onClick={() => openPluggy(item.pluggyItemId)} disabled={!scriptReady || actionsBusy}>
                           Atualizar banco
                         </Button>
                       </div>
@@ -572,7 +625,7 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
                         variant="ghost"
                         className="w-full"
                         onClick={() => openRenameConnection(item)}
-                        disabled={busy !== null}
+                        disabled={actionsBusy}
                       >
                         <Pencil className="size-4" />
                         Renomear conexão
@@ -582,7 +635,7 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
                         variant="ghost"
                         className="w-full text-[var(--danger)] hover:bg-[var(--danger)]/10"
                         onClick={() => setConnectionToDelete(item)}
-                        disabled={busy !== null}
+                        disabled={actionsBusy}
                       >
                         <Unplug className="size-4" />
                         Desconectar instituição
@@ -696,6 +749,7 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
             loadingInvestmentId={investmentTransactionsLoading}
             onLoadMore={(id, page) => void loadInvestmentTransactions(id, page)}
             onEditMetadata={setMetadataEditor}
+            disabled={actionsBusy}
             timeZone={data.timeZone}
           />
         </section>
@@ -714,7 +768,7 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
             <Button
               variant="danger"
               onClick={() => void resolveDisconnection("REMOVE")}
-              disabled={busy !== null}
+              disabled={actionsBusy}
             >
               {busy?.startsWith("disconnect:") ? "Salvando…" : "Remover dos relatórios"}
             </Button>
@@ -722,7 +776,7 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
               <Button
                 className="w-full"
                 onClick={() => void resolveDisconnection("KEEP_MANUAL")}
-                disabled={busy !== null}
+                disabled={actionsBusy}
               >
                 {busy?.startsWith("disconnect:") ? "Salvando…" : "Manter como manuais"}
               </Button>
@@ -768,7 +822,7 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
         description="O consentimento será revogado na Pluggy. Em seguida, você poderá manter os dados já importados como manuais ou removê-los dos relatórios e do diagrama."
         confirmLabel="Desconectar"
         danger
-        pending={busy?.startsWith("delete:") ?? false}
+        pending={actionsBusy}
         onConfirm={() => void deleteConnection()}
       />
 
@@ -779,20 +833,21 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
         }}
         title="Renomear conexão"
         description="Esse nome será usado somente no UOVP e não altera os dados na Pluggy."
+        dismissible={!busy?.startsWith("rename:")}
         className="max-w-lg"
         footer={
           <>
             <Button
               type="button"
               variant="outline"
-              disabled={!connectionToRename?.displayName || busy?.startsWith("rename:")}
+              disabled={!connectionToRename?.displayName || actionsBusy}
               onClick={() => void saveConnectionDisplayName(null)}
             >
               Restaurar nome automático
             </Button>
             <Button
               type="button"
-              disabled={connectionDisplayName.trim().length < 2 || busy?.startsWith("rename:")}
+              disabled={connectionDisplayName.trim().length < 2 || actionsBusy}
               onClick={() => void saveConnectionDisplayName(connectionDisplayName.trim())}
             >
               {busy?.startsWith("rename:") ? "Salvando…" : "Salvar"}
@@ -808,6 +863,7 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
                 id="pluggy-connection-display-name"
                 className="mt-2"
                 value={connectionDisplayName}
+                disabled={actionsBusy}
                 maxLength={120}
                 autoComplete="off"
                 onChange={(event) => setConnectionDisplayName(event.target.value)}
@@ -816,6 +872,16 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
             <p className="text-xs text-[var(--muted-foreground)]">
               Nome identificado automaticamente: {connectionToRename.automaticName}
             </p>
+            {pluggySyncStatus.active && !renameStatus && (
+              <p role="status" className="text-xs text-[var(--muted-foreground)]">
+                Aguarde o fim da sincronização para renomear a conexão.
+              </p>
+            )}
+            {renameStatus && (
+              <p role="status" className="text-xs text-[var(--muted-foreground)]">
+                {renameStatus}
+              </p>
+            )}
           </div>
         )}
       </Dialog>
@@ -824,6 +890,7 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
         key={metadataEditor ? `${metadataEditor.linkId}:${metadataEditor.expectedUpdatedAt}` : "closed"}
         metadata={metadataEditor}
         catalog={data.investmentMetadataCatalog}
+        syncBusy={actionsBusy}
         open={metadataEditor !== null}
         onOpenChange={(open) => {
           if (!open) setMetadataEditor(null);
@@ -942,6 +1009,7 @@ function InvestmentPortfolio({
   loadingInvestmentId,
   onLoadMore,
   onEditMetadata,
+  disabled,
   timeZone,
 }: {
   investments: OpenFinanceData["investments"];
@@ -956,6 +1024,7 @@ function InvestmentPortfolio({
   loadingInvestmentId: string | null;
   onLoadMore: (id: string, page: number) => void;
   onEditMetadata: (metadata: NonNullable<Investment["connectedMetadata"]>) => void;
+  disabled: boolean;
   timeZone: string;
 }) {
   const groups = [...investments.reduce((map, investment) => {
@@ -986,7 +1055,7 @@ function InvestmentPortfolio({
         </div>
         <div className="flex flex-wrap items-center justify-between gap-3 @4xl:justify-end">
           {soldCount > 0 && (
-            <Button size="sm" variant="outline" onClick={onToggleSold}>
+            <Button size="sm" variant="outline" onClick={onToggleSold} disabled={disabled}>
               {showSold ? "Ocultar vendidos" : `Mostrar vendidos (${soldCount})`}
             </Button>
           )}
@@ -1072,6 +1141,7 @@ function InvestmentPortfolio({
                         (transactionPages[investment.id]?.page ?? 0) + 1,
                       )}
                       onEditMetadata={onEditMetadata}
+                      disabled={disabled}
                     />
                   )}
                 </div>
@@ -1091,6 +1161,7 @@ function InvestmentDetails({
   timeZone,
   onLoadMore,
   onEditMetadata,
+  disabled,
 }: {
   investment: Investment;
   loading?: boolean;
@@ -1098,6 +1169,7 @@ function InvestmentDetails({
   timeZone: string;
   onLoadMore: () => void;
   onEditMetadata: (metadata: NonNullable<Investment["connectedMetadata"]>) => void;
+  disabled: boolean;
 }) {
   const effectiveMetadata = investment.connectedMetadata?.effectiveMetadata;
   const sourceLabel = investment.source === "ACCOUNT_RESERVED_BALANCE"
@@ -1169,6 +1241,7 @@ function InvestmentDetails({
             variant="outline"
             size="sm"
             onClick={() => onEditMetadata(investment.connectedMetadata!)}
+            disabled={disabled}
           >
             <Pencil className="size-4" />
             Editar informações

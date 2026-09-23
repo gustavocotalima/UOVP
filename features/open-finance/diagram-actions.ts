@@ -5,7 +5,11 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireUserId } from "@/lib/current-user";
-import { assertUserOperationRateLimit, withUserOperationLease } from "@/lib/operation-security";
+import {
+  assertUserOperationRateLimit,
+  OperationInProgressError,
+  withUserOperationLease,
+} from "@/lib/operation-security";
 import {
   FIXED_INCOME_INDEXATIONS,
   INSTRUMENT_TYPES,
@@ -176,7 +180,22 @@ export async function savePluggyConnectionDisplayNameAction(
 
       return { displayName: parsed.displayName, effectiveName };
     }),
+  }).catch((error: unknown) => {
+    if (error instanceof OperationInProgressError) return null;
+    throw error;
   });
+  if (!result) {
+    const automaticLease = await prisma.userOperationLease.findUnique({
+      where: { userId_operation: { userId, operation: "pluggy-bootstrap" } },
+      select: { lockedUntil: true },
+    }).catch(() => null);
+    return {
+      status: "BUSY" as const,
+      source: automaticLease && automaticLease.lockedUntil.getTime() > Date.now()
+        ? "AUTOMATIC" as const
+        : "OTHER" as const,
+    };
+  }
 
   [
     "/open-finance",
@@ -187,7 +206,7 @@ export async function savePluggyConnectionDisplayNameAction(
     "/orcamento-domestico",
   ].forEach((path) => revalidatePath(path));
 
-  return result;
+  return { status: "SAVED" as const, ...result };
 }
 
 export async function reviewPluggyDiagramLinkAction(input: PluggyDiagramReviewInput) {
