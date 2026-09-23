@@ -825,6 +825,7 @@ model PluggyItem {
   connectorId           Int?
   connectorName         String
   institutionName       String?
+  displayName           String?
   connectorImageUrl     String?
   connectorPrimaryColor String?
   status                String

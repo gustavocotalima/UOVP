@@ -221,7 +221,13 @@ async function upsertAccount(
 async function upsertFinancialAccount(
   tx: Prisma.TransactionClient,
   userId: string,
-  item: { pluggyItemId: string; institutionName: string | null; connectorName: string; connectorImageUrl: string | null },
+  item: {
+    pluggyItemId: string;
+    institutionName: string | null;
+    displayName: string | null;
+    connectorName: string;
+    connectorImageUrl: string | null;
+  },
   account: PluggyAccountResponse,
   sortOrder: number,
   currentFx?: { rateToBrl: number; asOf: Date },
@@ -242,7 +248,7 @@ async function upsertFinancialAccount(
     type: type as "BANK_ACCOUNT" | "CREDIT_CARD",
     subtype: account.subtype ?? null,
     name: account.marketingName ?? account.name,
-    institutionName: item.institutionName || item.connectorName,
+    institutionName: item.displayName?.trim() || item.institutionName || item.connectorName,
     institutionImageUrl: item.connectorImageUrl,
     accountNumber: bankNumber.accountNumber,
     agency: bankNumber.agency,
