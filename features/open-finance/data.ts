@@ -117,6 +117,8 @@ export async function getOpenFinanceData(userId: string) {
       item.connectorName,
       bankCodesByItem.get(item.pluggyItemId) ?? [],
     );
+  const itemDisplayName = (item: (typeof items)[number]) =>
+    item.displayName?.trim() || itemInstitutionName(item);
   const visibleItems = items.filter(
     (item) =>
       item.status !== "DELETED"
@@ -128,7 +130,7 @@ export async function getOpenFinanceData(userId: string) {
       id: account.id,
       pluggyAccountId: account.pluggyAccountId,
       itemId: item.pluggyItemId,
-      institution: itemInstitutionName(item),
+      institution: itemDisplayName(item),
       institutionImageUrl: itemLogo(item),
       type: account.type,
       subtype: account.subtype,
@@ -261,7 +263,9 @@ export async function getOpenFinanceData(userId: string) {
     items: visibleItems.map((item) => ({
       id: item.id,
       pluggyItemId: item.pluggyItemId,
-      connectorName: itemInstitutionName(item),
+      connectorName: itemDisplayName(item),
+      automaticName: itemInstitutionName(item),
+      displayName: item.displayName,
       connectorImageUrl: itemLogo(item),
       connectorPrimaryColor: item.connectorPrimaryColor,
       status: item.status,
@@ -279,7 +283,7 @@ export async function getOpenFinanceData(userId: string) {
       .filter((item) => item.status === "DELETED" && item.disconnectionResolution === "PENDING")
       .map((item) => ({
         id: item.id,
-        connectorName: itemInstitutionName(item),
+        connectorName: itemDisplayName(item),
         connectorImageUrl: itemLogo(item),
         disconnectedAt: item.disconnectedAt?.toISOString() ?? item.updatedAt.toISOString(),
         accountCount: item.accounts.length,

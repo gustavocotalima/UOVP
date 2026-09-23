@@ -18,6 +18,7 @@ import { markPluggyItemDisconnected, resolvePluggyItemDisconnection } from "./di
 import { PLUGGY_DIAGRAM_EXCLUSION_REASON } from "./diagram-exclusion";
 import { deletePluggyItem, PluggyApiError } from "./pluggy";
 import { requirePluggyCredentials } from "./pluggy-credentials";
+import { resolvePluggyInstitutionName } from "./institution-logo";
 
 const reviewSchema = z.object({
   linkId: z.string().cuid(),
@@ -109,6 +110,85 @@ const metadataOverrideSchema = z.object({
 
 export type PluggyDiagramReviewInput = z.input<typeof reviewSchema>;
 export type PluggyInvestmentMetadataOverrideInput = z.input<typeof metadataOverrideSchema>;
+
+const connectionDisplayNameSchema = z.object({
+  itemId: z.string().cuid(),
+  displayName: z.string().trim().min(2).max(120).nullable(),
+});
+
+export type PluggyConnectionDisplayNameInput = z.input<typeof connectionDisplayNameSchema>;
+
+export async function savePluggyConnectionDisplayNameAction(
+  input: PluggyConnectionDisplayNameInput,
+) {
+  const userId = await requireUserId();
+  const parsed = connectionDisplayNameSchema.parse(input);
+  await assertUserOperationRateLimit({
+    userId,
+    operation: "pluggy-connection-display-name",
+    limit: 20,
+    windowMs: 60_000,
+  });
+
+  const result = await withUserOperationLease({
+    userId,
+    operation: "pluggy-sync",
+    leaseMs: 30_000,
+    action: async (lease) => lease.runFencedTransaction(async (tx) => {
+      const item = await tx.pluggyItem.findFirst({
+        where: { id: parsed.itemId, userId, status: { not: "DELETED" } },
+        select: {
+          id: true,
+          pluggyItemId: true,
+          connectorName: true,
+          institutionName: true,
+        },
+      });
+      if (!item) throw new Error("Conexão não encontrada.");
+
+      const accounts = await tx.financialAccount.findMany({
+        where: {
+          userId,
+          source: "PLUGGY",
+          providerItemId: item.pluggyItemId,
+        },
+        select: { bankCode: true },
+      });
+      const automaticName = resolvePluggyInstitutionName(
+        item.institutionName,
+        item.connectorName,
+        accounts.map((account) => account.bankCode),
+      );
+      const effectiveName = parsed.displayName ?? automaticName;
+
+      await tx.pluggyItem.update({
+        where: { id: item.id },
+        data: { displayName: parsed.displayName },
+      });
+      await tx.financialAccount.updateMany({
+        where: {
+          userId,
+          source: "PLUGGY",
+          providerItemId: item.pluggyItemId,
+        },
+        data: { institutionName: effectiveName },
+      });
+
+      return { displayName: parsed.displayName, effectiveName };
+    }),
+  });
+
+  [
+    "/open-finance",
+    "/contas",
+    "/transacoes",
+    "/faturas",
+    "/home",
+    "/orcamento-domestico",
+  ].forEach((path) => revalidatePath(path));
+
+  return result;
+}
 
 export async function reviewPluggyDiagramLinkAction(input: PluggyDiagramReviewInput) {
   const userId = await requireUserId();

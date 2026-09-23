@@ -25,6 +25,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { InstitutionLogo } from "@/components/ui/institution-logo";
 import { SegmentedTabs } from "@/components/ui/segmented-tabs";
 import { cn } from "@/lib/utils";
@@ -33,6 +34,7 @@ import { InvestmentMetadataEditor } from "./investment-metadata-editor";
 import {
   deletePluggyConnectionAction,
   resolvePluggyItemDisconnectionAction,
+  savePluggyConnectionDisplayNameAction,
   setShowSoldInvestmentsAction,
 } from "./diagram-actions";
 import { pluggyConnectErrorMessage } from "./pluggy-connect-error";
@@ -147,6 +149,10 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
   const [connectionToDelete, setConnectionToDelete] = useState<
     OpenFinanceData["items"][number] | null
   >(null);
+  const [connectionToRename, setConnectionToRename] = useState<
+    OpenFinanceData["items"][number] | null
+  >(null);
+  const [connectionDisplayName, setConnectionDisplayName] = useState("");
   const [resolvedDisconnections, setResolvedDisconnections] = useState<Set<string>>(() => new Set());
   const keepManualFocusRef = useRef<HTMLSpanElement>(null);
   const pendingDisconnection = data.pendingDisconnections.find(
@@ -372,6 +378,37 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
     }
   }
 
+  function openRenameConnection(connection: OpenFinanceData["items"][number]) {
+    setConnectionToRename(connection);
+    setConnectionDisplayName(connection.displayName ?? connection.connectorName);
+  }
+
+  async function saveConnectionDisplayName(displayName: string | null) {
+    const connection = connectionToRename;
+    if (!connection) return;
+    setBusy(`rename:${connection.id}`);
+    setNotice(null);
+    try {
+      await savePluggyConnectionDisplayNameAction({
+        itemId: connection.id,
+        displayName,
+      });
+      setConnectionToRename(null);
+      setNotice({
+        type: "success",
+        text: displayName ? "Nome da conexão atualizado." : "Nome automático restaurado.",
+      });
+      router.refresh();
+    } catch (error) {
+      setNotice({
+        type: "error",
+        text: error instanceof Error ? error.message : "Não foi possível renomear a conexão.",
+      });
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
     <>
       <Script
@@ -530,6 +567,16 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
                           Atualizar banco
                         </Button>
                       </div>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="w-full"
+                        onClick={() => openRenameConnection(item)}
+                        disabled={busy !== null}
+                      >
+                        <Pencil className="size-4" />
+                        Renomear conexão
+                      </Button>
                       <Button
                         size="sm"
                         variant="ghost"
@@ -724,6 +771,54 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
         pending={busy?.startsWith("delete:") ?? false}
         onConfirm={() => void deleteConnection()}
       />
+
+      <Dialog
+        open={Boolean(connectionToRename)}
+        onOpenChange={(open) => {
+          if (!open && !busy?.startsWith("rename:")) setConnectionToRename(null);
+        }}
+        title="Renomear conexão"
+        description="Esse nome será usado somente no UOVP e não altera os dados na Pluggy."
+        className="max-w-lg"
+        footer={
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={!connectionToRename?.displayName || busy?.startsWith("rename:")}
+              onClick={() => void saveConnectionDisplayName(null)}
+            >
+              Restaurar nome automático
+            </Button>
+            <Button
+              type="button"
+              disabled={connectionDisplayName.trim().length < 2 || busy?.startsWith("rename:")}
+              onClick={() => void saveConnectionDisplayName(connectionDisplayName.trim())}
+            >
+              {busy?.startsWith("rename:") ? "Salvando…" : "Salvar"}
+            </Button>
+          </>
+        }
+      >
+        {connectionToRename && (
+          <div className="space-y-4">
+            <label className="block text-sm font-medium" htmlFor="pluggy-connection-display-name">
+              Nome exibido
+              <Input
+                id="pluggy-connection-display-name"
+                className="mt-2"
+                value={connectionDisplayName}
+                maxLength={120}
+                autoComplete="off"
+                onChange={(event) => setConnectionDisplayName(event.target.value)}
+              />
+            </label>
+            <p className="text-xs text-[var(--muted-foreground)]">
+              Nome identificado automaticamente: {connectionToRename.automaticName}
+            </p>
+          </div>
+        )}
+      </Dialog>
 
       <InvestmentMetadataEditor
         key={metadataEditor ? `${metadataEditor.linkId}:${metadataEditor.expectedUpdatedAt}` : "closed"}
