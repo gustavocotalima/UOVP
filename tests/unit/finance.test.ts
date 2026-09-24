@@ -202,7 +202,7 @@ describe("calendário de saídas brutas", () => {
     expect(calendar.days[7].entries).toHaveLength(1);
   });
 
-  it("mantém saídas diárias brutas e distribui a compensação entre tags sem perder centavos", () => {
+  it("mantém saídas diárias brutas e divide entradas e saídas multitag sem perder centavos", () => {
     const food = { id: "food", systemKey: "FOOD", name: "Alimentação", color: "#ff0000" };
     const leisure = { ...food, id: "leisure", systemKey: "LEISURE", name: "Lazer" };
     const transactions = [
@@ -220,8 +220,8 @@ describe("calendário de saídas brutas", () => {
     expect(calendar.totalCents).toBe(3);
     expect(calendar.days.reduce((sum, day) => sum + day.totalCents, 0)).toBe(3);
     expect(tags.reduce((sum, tag) => sum + Math.round(tag.value * 100), 0)).toBe(3);
-    expect(tags.reduce((sum, tag) => sum + Math.round(tag.compensated * 100), 0)).toBe(1);
-    expect(tags.reduce((sum, tag) => sum + Math.round(tag.net * 100), 0)).toBe(2);
+    expect(tags.reduce((sum, tag) => sum + Math.round(tag.income * 100), 0)).toBe(1);
+    expect(tags.find((tag) => tag.id === "untagged")).toMatchObject({ value: 0, income: 0.01 });
     expect(calculatePeriod(transactions).spent).toBe(0.02);
   });
 
@@ -386,7 +386,7 @@ describe("finanças AUVP", () => {
     expect(freedom?.appliedIncomeOffsets).toBeCloseTo(26399.73);
   });
 
-  it("agrupa despesas por tag e conserva o total sem tags", () => {
+  it("mostra entradas e saídas reais por tag, sem inferir compensação", () => {
     const tags = [{ id: "food", systemKey: "FOOD", name: "Alimentação", color: "#ef4444" }];
     const result = calculateTagTotals(
       [
@@ -397,41 +397,43 @@ describe("finanças AUVP", () => {
       tags,
     );
     expect(result).toEqual([
-      { id: "food", name: "Alimentação", color: "#ef4444", value: 50, compensated: 0, net: 50 },
-      { id: "untagged", name: "Sem Tags", color: "#64748b", value: 25, compensated: 0, net: 25 },
+      { id: "food", name: "Alimentação", color: "#ef4444", value: 50, income: 100 },
+      { id: "untagged", name: "Sem Tags", color: "#64748b", value: 25, income: 0 },
     ]);
   });
 
-  it("mostra gastos brutos por tag e separa a parcela compensada sem duplicar multitag", () => {
+  it("divide entradas e saídas multitag em centavos sem duplicar valores", () => {
     const tags = [
       { id: "investments", systemKey: null, name: "Investimentos", color: "#16a34a" },
       { id: "goals", systemKey: null, name: "Metas", color: "#7c3aed" },
     ];
     const result = calculateTagTotals([
-      transaction({ id: "offset", kind: "INCOME", amount: "50", budgetCategory: "FINANCIAL_FREEDOM" }),
+      transaction({ id: "offset", kind: "INCOME", amount: "50", budgetCategory: "FINANCIAL_FREEDOM", tags }),
       transaction({ id: "tagged", amount: "-100", budgetCategory: "FINANCIAL_FREEDOM", tags }),
       transaction({ id: "untagged", amount: "-25", budgetCategory: null }),
     ], tags);
     expect(result).toEqual([
-      { id: "investments", name: "Investimentos", color: "#16a34a", value: 50, compensated: 25, net: 25 },
-      { id: "goals", name: "Metas", color: "#7c3aed", value: 50, compensated: 25, net: 25 },
-      { id: "untagged", name: "Sem Tags", color: "#64748b", value: 25, compensated: 0, net: 25 },
+      { id: "investments", name: "Investimentos", color: "#16a34a", value: 50, income: 25 },
+      { id: "goals", name: "Metas", color: "#7c3aed", value: 50, income: 25 },
+      { id: "untagged", name: "Sem Tags", color: "#64748b", value: 25, income: 0 },
     ]);
     expect(result.reduce((total, item) => total + item.value, 0)).toBe(125);
-    expect(result.reduce((total, item) => total + item.compensated, 0)).toBe(50);
-    expect(result.reduce((total, item) => total + item.net, 0)).toBe(75);
+    expect(result.reduce((total, item) => total + item.income, 0)).toBe(50);
   });
 
-  it("não aplica a compensação de outra meta ou mês ao segmento de uma tag", () => {
-    const food = { id: "food", systemKey: "FOOD", name: "Alimentação", color: "#ef4444" };
-    const result = calculateTagTotals([
-      transaction({ id: "expense", amount: "-10", budgetCategory: "COMFORT", tags: [food] }),
-      transaction({ id: "other-goal", kind: "INCOME", amount: "10", budgetCategory: "GOALS" }),
-      transaction({ id: "other-month", kind: "INCOME", amount: "10", budgetCategory: "COMFORT", referenceMonth: 8 }),
-    ], [food]);
-    expect(result).toEqual([
-      { id: "food", name: "Alimentação", color: "#ef4444", value: 10, compensated: 0, net: 10 },
+  it("não atribui uma entrada de Contas da Casa à saída de Assinaturas", () => {
+    const house = { id: "house", systemKey: null, name: "Contas da Casa", color: "#16a34a" };
+    const subscriptions = { id: "subscriptions", systemKey: null, name: "Assinaturas", color: "#7c3aed" };
+    const transactions = [
+      transaction({ id: "income", kind: "INCOME", amount: "50", budgetCategory: "FIXED_COSTS", tags: [house] }),
+      transaction({ id: "house-expense", amount: "-100", budgetCategory: "FIXED_COSTS", tags: [house] }),
+      transaction({ id: "subscription-expense", amount: "-30", budgetCategory: "FIXED_COSTS", tags: [subscriptions] }),
+    ];
+    expect(calculateTagTotals(transactions, [house, subscriptions])).toEqual([
+      { id: "house", name: "Contas da Casa", color: "#16a34a", value: 100, income: 50 },
+      { id: "subscriptions", name: "Assinaturas", color: "#7c3aed", value: 30, income: 0 },
     ]);
+    expect(calculatePeriod(transactions).compensatedExpenses).toBe(50);
   });
 
   it("calcula saldo bancário, dívida dos cartões e resultado", () => {

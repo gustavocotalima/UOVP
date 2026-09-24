@@ -24,7 +24,7 @@ function lighterTagColor(color: string) {
   if (!/^#[0-9a-fA-F]{6}$/.test(color)) return color;
   return `#${[0, 2, 4].map((start) => {
     const channel = Number.parseInt(hex.slice(start, start + 2), 16);
-    return Math.round(channel * 0.9 + 255 * 0.1).toString(16).padStart(2, "0");
+    return Math.round(channel * 0.8 + 255 * 0.2).toString(16).padStart(2, "0");
   }).join("")}`;
 }
 
@@ -45,8 +45,8 @@ export function FinanceDashboardClient({ data }: { data: FinanceData }) {
   );
   const tags = useMemo(() => calculateTagTotals(data.transactions, data.tags), [data.transactions, data.tags]);
   const tagSegments = useMemo(() => tags.flatMap((tag) => [
-    ...(tag.net > 0 ? [{ name: `${tag.name} · sem compensação`, color: tag.color, value: tag.net }] : []),
-    ...(tag.compensated > 0 ? [{ name: `${tag.name} · compensado`, color: lighterTagColor(tag.color), value: tag.compensated }] : []),
+    ...(tag.value > 0 ? [{ name: `${tag.name} · Saída`, color: tag.color, value: tag.value }] : []),
+    ...(tag.income > 0 ? [{ name: `${tag.name} · Entrada`, color: lighterTagColor(tag.color), value: tag.income }] : []),
   ]), [tags]);
   const categories = useMemo(
     () => calculateBudgetCategories(data.transactions, data.goals, period.budgetBaseIncome),
@@ -74,20 +74,14 @@ export function FinanceDashboardClient({ data }: { data: FinanceData }) {
         <Card className="@6xl:flex @6xl:flex-col" data-testid="expense-tags">
           <CardHeader>
             <CardTitle>Transações por Tags</CardTitle>
-            <p className="text-sm text-[var(--muted-foreground)]">Saídas brutas do mês; a parte clara mostra o valor compensado nas metas</p>
+            <p className="text-sm text-[var(--muted-foreground)]">Entradas e saídas brutas por tag; a parte clara mostra as entradas</p>
           </CardHeader>
           <CardContent className="@6xl:flex @6xl:flex-1 @6xl:flex-col">
             {tags.length ? (
               <>
                 <DonutChart
                   data={tagSegments}
-                  centerLabel="Saídas brutas"
-                  formatTooltip={(name, value) => {
-                    const tag = tags.find((item) => name === `${item.name} · sem compensação` || name === `${item.name} · compensado`);
-                    return tag
-                      ? `Bruto: ${formatMoney(tag.value)} · Compensado: ${formatMoney(tag.compensated)}`
-                      : formatMoney(value);
-                  }}
+                  centerLabel="Total movimentado"
                   className="@6xl:h-auto @6xl:min-h-64 @6xl:flex-1"
                 />
                 <div className="space-y-2 @6xl:shrink-0">
@@ -98,11 +92,11 @@ export function FinanceDashboardClient({ data }: { data: FinanceData }) {
                         <span className="truncate">{tag.name}</span>
                       </span>
                       <span className="shrink-0 text-right">
-                        <strong className="block">{formatMoney(tag.value)}</strong>
-                        {tag.compensated > 0 && (
+                        {tag.value > 0 && <strong className="block">Saída {formatMoney(tag.value)}</strong>}
+                        {tag.income > 0 && (
                           <small className="mt-0.5 flex items-center justify-end gap-1 text-[var(--muted-foreground)]">
                             <span className="size-2 rounded-full" style={{ background: lighterTagColor(tag.color) }} />
-                            {formatMoney(tag.compensated)} compensado
+                            Entrada {formatMoney(tag.income)}
                           </small>
                         )}
                       </span>
@@ -112,7 +106,7 @@ export function FinanceDashboardClient({ data }: { data: FinanceData }) {
               </>
             ) : (
               <div className="grid h-72 place-items-center text-center text-sm text-[var(--muted-foreground)]">
-                <div><Tags className="mx-auto mb-3 size-8 opacity-45" /><p>Nenhuma despesa categorizada por tag.</p></div>
+                <div><Tags className="mx-auto mb-3 size-8 opacity-45" /><p>Nenhuma transação para exibir por tag.</p></div>
               </div>
             )}
             <Button asChild variant="ghost" className="mt-4 w-full @6xl:shrink-0">
