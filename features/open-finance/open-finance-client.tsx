@@ -598,9 +598,23 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
                       <CardDescription>{item.accountCount} conta(s) · {item.investmentCount} investimento(s)</CardDescription>
                     </div>
                   </div>
-                  <span className={cn("rounded-full px-2.5 py-1 text-[11px] font-semibold", healthy ? "bg-[var(--success)]/15 text-[var(--success)]" : "bg-[var(--primary)]/15 text-[var(--primary)]")}>
-                    {statusLabel(item.status, item.executionStatus)}
-                  </span>
+                  <div className="flex shrink-0 items-center gap-1">
+                    {!disconnected && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label={`Renomear conexão ${item.connectorName}`}
+                        title="Renomear conexão"
+                        onClick={() => openRenameConnection(item)}
+                        disabled={actionsBusy}
+                      >
+                        <Pencil className="size-4" />
+                      </Button>
+                    )}
+                    <span className={cn("whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-semibold", healthy ? "bg-[var(--success)]/15 text-[var(--success)]" : "bg-[var(--primary)]/15 text-[var(--primary)]")}>
+                      {statusLabel(item.status, item.executionStatus)}
+                    </span>
+                  </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="space-y-1 text-xs text-[var(--muted-foreground)]">
@@ -620,16 +634,6 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
                           Atualizar banco
                         </Button>
                       </div>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="w-full"
-                        onClick={() => openRenameConnection(item)}
-                        disabled={actionsBusy}
-                      >
-                        <Pencil className="size-4" />
-                        Renomear conexão
-                      </Button>
                       <Button
                         size="sm"
                         variant="ghost"
