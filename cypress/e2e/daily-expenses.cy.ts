@@ -38,8 +38,10 @@ describe("calendário de saídas do painel", () => {
     cy.focused().should("have.attr", "data-date", "2026-09-08");
 
     cy.get('[data-testid="expense-tags"] [role="img"]')
-      .should("have.attr", "aria-label").and("contain", "R$ 1.220,00");
-    cy.get('[data-testid="expense-tags"]').should("contain.text", "R$ 540,60 compensado");
+      .should("have.attr", "aria-label").and("contain", "R$ 1.781,06");
+    cy.get('[data-testid="expense-tags"]').should("contain.text", "Saída R$ 1.220,00")
+      .and("contain.text", "Entrada R$ 561,06")
+      .and("not.contain.text", "compensado");
 
     cy.contains("button", "Ver lançamentos fora do mês").click();
     cy.get('[role="dialog"]').should("contain.text", "Parcela fora do mês")

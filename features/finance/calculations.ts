@@ -202,14 +202,8 @@ type TagAmountCents = {
   id: string;
   name: string;
   color: string;
-  grossCents: number;
-  compensatedCents: number;
-};
-
-type TagOffsetBucket = {
-  incomeCents: number;
   expenseCents: number;
-  grossByTag: Map<string, number>;
+  incomeCents: number;
 };
 
 export function calculateTagTotals(transactions: FinanceTransactionDto[], tags: FinanceTagDto[]) {
@@ -217,89 +211,44 @@ export function calculateTagTotals(transactions: FinanceTransactionDto[], tags: 
     id: tag.id,
     name: tag.name,
     color: tag.color,
-    grossCents: 0,
-    compensatedCents: 0,
+    expenseCents: 0,
+    incomeCents: 0,
   }]));
   const untaggedId = "untagged";
   totals.set(untaggedId, {
     id: untaggedId,
     name: "Sem Tags",
     color: "#64748b",
-    grossCents: 0,
-    compensatedCents: 0,
+    expenseCents: 0,
+    incomeCents: 0,
   });
-  const buckets = new Map<string, TagOffsetBucket>();
 
   for (const transaction of transactions) {
     const value = reportingValue(transaction);
     if (value === null || value === 0) continue;
-    const bucketKey = transaction.budgetCategory === null
-      ? null
-      : offsetBucketKey(transaction);
-    let bucket = bucketKey ? buckets.get(bucketKey) : undefined;
-    if (bucketKey && !bucket) {
-      bucket = { incomeCents: 0, expenseCents: 0, grossByTag: new Map() };
-      buckets.set(bucketKey, bucket);
-    }
-    if (value > 0) {
-      if (bucket) bucket.incomeCents += toCents(value);
-      continue;
-    }
-
-    const grossCents = toCents(Math.abs(value));
+    const amountCents = toCents(Math.abs(value));
     const tagIds = [...new Set(transaction.tags.map((tag) => tag.id))]
       .filter((tagId) => totals.has(tagId) && tagId !== untaggedId)
       .sort();
     if (!tagIds.length) tagIds.push(untaggedId);
-    const share = Math.floor(grossCents / tagIds.length);
-    const remainder = grossCents % tagIds.length;
+    const share = Math.floor(amountCents / tagIds.length);
+    const remainder = amountCents % tagIds.length;
     tagIds.forEach((tagId, index) => {
       const cents = share + (index < remainder ? 1 : 0);
       const total = totals.get(tagId)!;
-      total.grossCents += cents;
-      if (bucket) {
-        bucket.expenseCents += cents;
-        bucket.grossByTag.set(tagId, (bucket.grossByTag.get(tagId) ?? 0) + cents);
-      }
+      if (value > 0) total.incomeCents += cents;
+      else total.expenseCents += cents;
     });
-  }
-
-  for (const bucket of buckets.values()) {
-    const offsetCents = Math.min(bucket.incomeCents, bucket.expenseCents);
-    if (offsetCents === 0) continue;
-    const denominator = BigInt(bucket.expenseCents);
-    const allocations = [...bucket.grossByTag.entries()].map(([tagId, grossCents]) => {
-      const numerator = BigInt(grossCents) * BigInt(offsetCents);
-      return {
-        tagId,
-        cents: Number(numerator / denominator),
-        remainder: numerator % denominator,
-      };
-    });
-    let remaining = offsetCents - allocations.reduce((sum, allocation) => sum + allocation.cents, 0);
-    allocations.sort((left, right) => {
-      if (left.remainder !== right.remainder) return left.remainder > right.remainder ? -1 : 1;
-      return left.tagId.localeCompare(right.tagId);
-    });
-    for (const allocation of allocations) {
-      if (remaining === 0) break;
-      allocation.cents += 1;
-      remaining -= 1;
-    }
-    for (const allocation of allocations) {
-      totals.get(allocation.tagId)!.compensatedCents += allocation.cents;
-    }
   }
 
   return [...totals.values()]
-    .filter((item) => item.grossCents > 0)
-    .map(({ grossCents, compensatedCents, ...item }) => ({
+    .filter((item) => item.expenseCents > 0 || item.incomeCents > 0)
+    .map(({ expenseCents, incomeCents, ...item }) => ({
       ...item,
-      value: fromCents(grossCents),
-      compensated: fromCents(compensatedCents),
-      net: fromCents(grossCents - compensatedCents),
+      value: fromCents(expenseCents),
+      income: fromCents(incomeCents),
     }))
-    .sort((left, right) => right.value - left.value);
+    .sort((left, right) => (right.value + right.income) - (left.value + left.income));
 }
 
 export function calculateHistory(
