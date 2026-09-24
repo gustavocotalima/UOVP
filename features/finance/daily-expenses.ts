@@ -1,8 +1,8 @@
 import { calendarParts } from "@/lib/calendar";
-import { calculateNetExpenses } from "./calculations";
+import { reportingValue } from "./calculations";
 import type { FinanceTransactionDto } from "./types";
 
-export type DailyExpenseEntry = ReturnType<typeof calculateNetExpenses>[number];
+export type DailyExpenseEntry = { transaction: FinanceTransactionDto; grossCents: number };
 
 export type DailyExpenseDay = {
   day: number;
@@ -26,11 +26,15 @@ export function calculateDailyExpenses(
     entries: [],
   }));
   const outsideEntries: DailyExpenseEntry[] = [];
-  // Compensate within the financial month before grouping by transaction date.
   // An installment may belong to this report even when purchased in another month.
-  const expenses = calculateNetExpenses(transactions.filter(
-    (transaction) => transaction.referenceYear === year && transaction.referenceMonth === month,
-  ));
+  // Show the full outflow on its transaction date; compensation belongs to summaries.
+  const expenses = transactions.flatMap((transaction) => {
+    if (transaction.referenceYear !== year || transaction.referenceMonth !== month) return [];
+    const value = reportingValue(transaction);
+    return value !== null && value < 0
+      ? [{ transaction, grossCents: Math.round(Math.abs(value) * 100) }]
+      : [];
+  });
   for (const entry of expenses) {
     const date = new Date(entry.transaction.date);
     const parts = Number.isNaN(date.getTime())
@@ -42,15 +46,14 @@ export function calculateDailyExpenses(
     }
     const day = days[parts.day - 1];
     day.entries.push(entry);
-    day.totalCents += entry.netCents;
+    day.totalCents += entry.grossCents;
   }
   for (const day of days) {
-    day.entries.sort((left, right) => right.netCents - left.netCents
-      || right.grossCents - left.grossCents
+    day.entries.sort((left, right) => right.grossCents - left.grossCents
       || left.transaction.id.localeCompare(right.transaction.id));
   }
   const inCalendarCents = days.reduce((total, day) => total + day.totalCents, 0);
-  const outsideCents = outsideEntries.reduce((total, entry) => total + entry.netCents, 0);
+  const outsideCents = outsideEntries.reduce((total, entry) => total + entry.grossCents, 0);
   const daysWithExpenses = days.filter((day) => day.totalCents > 0).length;
   const peakDay = days.reduce<DailyExpenseDay | null>(
     (peak, day) => day.totalCents > (peak?.totalCents ?? 0) ? day : peak,

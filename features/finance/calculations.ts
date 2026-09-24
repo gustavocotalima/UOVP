@@ -198,87 +198,108 @@ export function calculateBudgetCategories(
   });
 }
 
-/** The same per-expense allocation feeds both tags and the daily calendar. */
-export function calculateNetExpenses(transactions: FinanceTransactionDto[]) {
-  const reportable = transactions.filter(isReportable);
-  const amounts = reportable.flatMap((transaction) => {
-    const value = reportingValue(transaction);
-    return value === null ? [] : [{
-      kind: transaction.kind,
-      budgetCategory: transaction.budgetCategory,
-      referenceYear: transaction.referenceYear,
-      referenceMonth: transaction.referenceMonth,
-      value,
-    }];
-  });
-  const buckets = calculateOffsetBuckets(amounts);
-  const remainingByBucket = new Map(
-    [...buckets.entries()].map(([key, bucket]) => {
-      const grossCents = toCents(bucket.expenses);
-      return [key, {
-        grossCents,
-        netCents: Math.max(0, grossCents - Math.min(toCents(bucket.income), grossCents)),
-      }];
-    }),
-  );
-  const expenses: { transaction: FinanceTransactionDto; grossCents: number; netCents: number }[] = [];
+type TagAmountCents = {
+  id: string;
+  name: string;
+  color: string;
+  grossCents: number;
+  compensatedCents: number;
+};
 
-  for (const transaction of reportable) {
-    const value = reportingValue(transaction);
-    if (value === null || value >= 0) continue;
-    const grossCents = toCents(Math.abs(value));
-    const bucketKey = transaction.budgetCategory === null
-      ? null
-      : offsetBucketKey(transaction);
-    const bucket = bucketKey ? buckets.get(bucketKey) : null;
-    const remaining = bucketKey ? remainingByBucket.get(bucketKey) : null;
-    let netCents = grossCents;
-    if (bucket && remaining && bucket.expenses > 0) {
-      netCents = grossCents >= remaining.grossCents
-        ? remaining.netCents
-        : Math.min(
-            remaining.netCents,
-            Math.round(grossCents * Math.max(0, bucket.expenses - Math.min(bucket.income, bucket.expenses)) / bucket.expenses),
-          );
-      remaining.grossCents -= grossCents;
-      remaining.netCents -= netCents;
-    }
-    expenses.push({ transaction, grossCents, netCents });
-  }
-  return expenses;
-}
+type TagOffsetBucket = {
+  incomeCents: number;
+  expenseCents: number;
+  grossByTag: Map<string, number>;
+};
 
 export function calculateTagTotals(transactions: FinanceTransactionDto[], tags: FinanceTagDto[]) {
-  const totals = new Map(tags.map((tag) => [tag.id, {
+  const totals = new Map<string, TagAmountCents>(tags.map((tag) => [tag.id, {
     id: tag.id,
     name: tag.name,
     color: tag.color,
-    valueCents: 0,
+    grossCents: 0,
+    compensatedCents: 0,
   }]));
-  let untaggedCents = 0;
+  const untaggedId = "untagged";
+  totals.set(untaggedId, {
+    id: untaggedId,
+    name: "Sem Tags",
+    color: "#64748b",
+    grossCents: 0,
+    compensatedCents: 0,
+  });
+  const buckets = new Map<string, TagOffsetBucket>();
 
-  for (const { transaction, netCents } of calculateNetExpenses(transactions)) {
-    const tagIds = [...new Set(transaction.tags.map((tag) => tag.id))]
-      .filter((tagId) => totals.has(tagId));
-    if (!tagIds.length) {
-      untaggedCents += netCents;
+  for (const transaction of transactions) {
+    const value = reportingValue(transaction);
+    if (value === null || value === 0) continue;
+    const bucketKey = transaction.budgetCategory === null
+      ? null
+      : offsetBucketKey(transaction);
+    let bucket = bucketKey ? buckets.get(bucketKey) : undefined;
+    if (bucketKey && !bucket) {
+      bucket = { incomeCents: 0, expenseCents: 0, grossByTag: new Map() };
+      buckets.set(bucketKey, bucket);
+    }
+    if (value > 0) {
+      if (bucket) bucket.incomeCents += toCents(value);
       continue;
     }
-    const share = Math.floor(netCents / tagIds.length);
-    const remainder = netCents % tagIds.length;
+
+    const grossCents = toCents(Math.abs(value));
+    const tagIds = [...new Set(transaction.tags.map((tag) => tag.id))]
+      .filter((tagId) => totals.has(tagId) && tagId !== untaggedId)
+      .sort();
+    if (!tagIds.length) tagIds.push(untaggedId);
+    const share = Math.floor(grossCents / tagIds.length);
+    const remainder = grossCents % tagIds.length;
     tagIds.forEach((tagId, index) => {
-      const total = totals.get(tagId);
-      if (total) total.valueCents += share + (index < remainder ? 1 : 0);
+      const cents = share + (index < remainder ? 1 : 0);
+      const total = totals.get(tagId)!;
+      total.grossCents += cents;
+      if (bucket) {
+        bucket.expenseCents += cents;
+        bucket.grossByTag.set(tagId, (bucket.grossByTag.get(tagId) ?? 0) + cents);
+      }
     });
   }
 
-  const result = [...totals.values()]
-    .filter((item) => item.valueCents > 0)
-    .map(({ valueCents, ...item }) => ({ ...item, value: fromCents(valueCents) }));
-  if (untaggedCents > 0) {
-    result.push({ id: "untagged", name: "Sem Tags", color: "#64748b", value: fromCents(untaggedCents) });
+  for (const bucket of buckets.values()) {
+    const offsetCents = Math.min(bucket.incomeCents, bucket.expenseCents);
+    if (offsetCents === 0) continue;
+    const denominator = BigInt(bucket.expenseCents);
+    const allocations = [...bucket.grossByTag.entries()].map(([tagId, grossCents]) => {
+      const numerator = BigInt(grossCents) * BigInt(offsetCents);
+      return {
+        tagId,
+        cents: Number(numerator / denominator),
+        remainder: numerator % denominator,
+      };
+    });
+    let remaining = offsetCents - allocations.reduce((sum, allocation) => sum + allocation.cents, 0);
+    allocations.sort((left, right) => {
+      if (left.remainder !== right.remainder) return left.remainder > right.remainder ? -1 : 1;
+      return left.tagId.localeCompare(right.tagId);
+    });
+    for (const allocation of allocations) {
+      if (remaining === 0) break;
+      allocation.cents += 1;
+      remaining -= 1;
+    }
+    for (const allocation of allocations) {
+      totals.get(allocation.tagId)!.compensatedCents += allocation.cents;
+    }
   }
-  return result.sort((left, right) => right.value - left.value);
+
+  return [...totals.values()]
+    .filter((item) => item.grossCents > 0)
+    .map(({ grossCents, compensatedCents, ...item }) => ({
+      ...item,
+      value: fromCents(grossCents),
+      compensated: fromCents(compensatedCents),
+      net: fromCents(grossCents - compensatedCents),
+    }))
+    .sort((left, right) => right.value - left.value);
 }
 
 export function calculateHistory(

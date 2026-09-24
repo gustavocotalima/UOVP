@@ -44,7 +44,7 @@ export function DailyExpensesCard({ data }: { data: FinanceData }) {
     <Card className="@container flex flex-col" data-testid="daily-expenses">
       <CardHeader>
         <CardTitle>Saídas por dia</CardTitle>
-        <p className="text-sm text-[var(--muted-foreground)]">{monthLabel} · despesas líquidas por data da transação</p>
+        <p className="text-sm text-[var(--muted-foreground)]">{monthLabel} · saídas brutas por data da transação</p>
         <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1">
           <p className="text-2xl font-semibold tabular-nums" data-testid="daily-expenses-total">{formatMoney(calendar.totalCents / 100)}</p>
           <span className="text-xs text-[var(--muted-foreground)]">
@@ -62,7 +62,7 @@ export function DailyExpensesCard({ data }: { data: FinanceData }) {
           {calendar.days.map((day) => {
             const intensity = calendar.peakDay ? day.totalCents / calendar.peakDay.totalCents : 0;
             const dateLabel = formatDateOnly(day.date, { day: "numeric", month: "long", year: "numeric" });
-            const label = `${dateLabel}: ${formatMoney(day.totalCents / 100)} em despesas líquidas, ${day.entries.length} ${day.entries.length === 1 ? "transação" : "transações"}`;
+            const label = `${dateLabel}: ${formatMoney(day.totalCents / 100)} em saídas brutas, ${day.entries.length} ${day.entries.length === 1 ? "transação" : "transações"}`;
             return (
               <button
                 key={day.date}
@@ -97,7 +97,7 @@ export function DailyExpensesCard({ data }: { data: FinanceData }) {
           <Statistic label="Dias sem saída" value={String(calendar.daysWithoutExpenses)} />
         </div>
         <p className="mt-3 text-xs leading-relaxed text-[var(--muted-foreground)]">
-          A média considera todos os dias do mês. Entradas na mesma meta compensam as saídas, como no resumo do painel.
+          A média considera todos os dias do mês. O calendário mostra cada saída integralmente; compensações aparecem somente nos resumos e nas metas.
         </p>
         {calendar.outsideEntries.length > 0 && (
           <div className="mt-3 rounded-xl border bg-[var(--muted)]/30 p-3 text-xs leading-relaxed" data-testid="daily-expenses-outside">
@@ -121,7 +121,7 @@ export function DailyExpensesCard({ data }: { data: FinanceData }) {
         className="max-w-xl"
         footer={
           <div className="flex w-full flex-wrap items-center justify-between gap-2">
-            <span className="text-xs text-[var(--muted-foreground)]">{countLabel} · total líquido</span>
+            <span className="text-xs text-[var(--muted-foreground)]">{countLabel} · total bruto</span>
             <strong className="whitespace-nowrap text-[var(--danger)] tabular-nums">{formatMoney(selectedTotal > 0 ? -selectedTotal / 100 : 0)}</strong>
           </div>
         }
@@ -145,12 +145,11 @@ function Statistic({ label, value }: { label: string; value: string }) {
   );
 }
 
-function ExpenseRow({ entry: { transaction, grossCents, netCents }, showDate, timeZone }: {
+function ExpenseRow({ entry: { transaction, grossCents }, showDate, timeZone }: {
   entry: DailyExpenseEntry;
   showDate: boolean;
   timeZone: string;
 }) {
-  const compensated = grossCents !== netCents;
   return (
     <li className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 py-4 first:pt-0 last:pb-0">
       <div className="min-w-0 flex-1 basis-40">
@@ -163,11 +162,10 @@ function ExpenseRow({ entry: { transaction, grossCents, netCents }, showDate, ti
         {transaction.tags.length > 0 && <p className="mt-1 break-words text-xs text-[var(--muted-foreground)]">{transaction.tags.map((tag) => tag.name).join(" · ")}</p>}
       </div>
       <div className="max-w-full text-right">
-        <p className="whitespace-nowrap text-sm font-semibold text-[var(--danger)] tabular-nums">{formatMoney(netCents > 0 ? -netCents / 100 : 0)}</p>
-        {(compensated || transaction.currencyCode !== "BRL") && (
+        <p className="whitespace-nowrap text-sm font-semibold text-[var(--danger)] tabular-nums">{formatMoney(grossCents > 0 ? -grossCents / 100 : 0)}</p>
+        {transaction.currencyCode !== "BRL" && (
           <p className="mt-1 text-xs text-[var(--muted-foreground)]">Original: {formatCurrency(transaction.amount, transaction.currencyCode)}</p>
         )}
-        {compensated && <p className="mt-1 text-xs text-[var(--muted-foreground)]">Compensado: {formatMoney((grossCents - netCents) / 100)}</p>}
       </div>
     </li>
   );

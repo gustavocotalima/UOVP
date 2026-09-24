@@ -19,6 +19,15 @@ import {
 import type { FinanceData } from "./types";
 import { DailyExpensesCard } from "./daily-expenses-card";
 
+function lighterTagColor(color: string) {
+  const hex = color.slice(1);
+  if (!/^#[0-9a-fA-F]{6}$/.test(color)) return color;
+  return `#${[0, 2, 4].map((start) => {
+    const channel = Number.parseInt(hex.slice(start, start + 2), 16);
+    return Math.round(channel * 0.9 + 255 * 0.1).toString(16).padStart(2, "0");
+  }).join("")}`;
+}
+
 export function FinanceDashboardClient({ data }: { data: FinanceData }) {
   const [range, setRange] = useState<3 | 6 | 12>(6);
   const period = useMemo(() => calculatePeriod(data.transactions), [data.transactions]);
@@ -35,6 +44,10 @@ export function FinanceDashboardClient({ data }: { data: FinanceData }) {
     [data.history, range],
   );
   const tags = useMemo(() => calculateTagTotals(data.transactions, data.tags), [data.transactions, data.tags]);
+  const tagSegments = useMemo(() => tags.flatMap((tag) => [
+    ...(tag.net > 0 ? [{ name: `${tag.name} · sem compensação`, color: tag.color, value: tag.net }] : []),
+    ...(tag.compensated > 0 ? [{ name: `${tag.name} · compensado`, color: lighterTagColor(tag.color), value: tag.compensated }] : []),
+  ]), [tags]);
   const categories = useMemo(
     () => calculateBudgetCategories(data.transactions, data.goals, period.budgetBaseIncome),
     [data.transactions, data.goals, period.budgetBaseIncome],
@@ -61,14 +74,20 @@ export function FinanceDashboardClient({ data }: { data: FinanceData }) {
         <Card className="@6xl:flex @6xl:flex-col" data-testid="expense-tags">
           <CardHeader>
             <CardTitle>Transações por Tags</CardTitle>
-            <p className="text-sm text-[var(--muted-foreground)]">Distribuição das despesas líquidas do mês</p>
+            <p className="text-sm text-[var(--muted-foreground)]">Saídas brutas do mês; a parte clara mostra o valor compensado nas metas</p>
           </CardHeader>
           <CardContent className="@6xl:flex @6xl:flex-1 @6xl:flex-col">
             {tags.length ? (
               <>
                 <DonutChart
-                  data={tags.map((tag) => ({ name: tag.name, color: tag.color, value: tag.value }))}
-                  centerLabel="Despesas líquidas"
+                  data={tagSegments}
+                  centerLabel="Saídas brutas"
+                  formatTooltip={(name, value) => {
+                    const tag = tags.find((item) => name === `${item.name} · sem compensação` || name === `${item.name} · compensado`);
+                    return tag
+                      ? `Bruto: ${formatMoney(tag.value)} · Compensado: ${formatMoney(tag.compensated)}`
+                      : formatMoney(value);
+                  }}
                   className="@6xl:h-auto @6xl:min-h-64 @6xl:flex-1"
                 />
                 <div className="space-y-2 @6xl:shrink-0">
@@ -78,7 +97,15 @@ export function FinanceDashboardClient({ data }: { data: FinanceData }) {
                         <span className="size-2.5 shrink-0 rounded-full" style={{ background: tag.color }} />
                         <span className="truncate">{tag.name}</span>
                       </span>
-                      <strong>{formatMoney(tag.value)}</strong>
+                      <span className="shrink-0 text-right">
+                        <strong className="block">{formatMoney(tag.value)}</strong>
+                        {tag.compensated > 0 && (
+                          <small className="mt-0.5 flex items-center justify-end gap-1 text-[var(--muted-foreground)]">
+                            <span className="size-2 rounded-full" style={{ background: lighterTagColor(tag.color) }} />
+                            {formatMoney(tag.compensated)} compensado
+                          </small>
+                        )}
+                      </span>
                     </div>
                   ))}
                 </div>

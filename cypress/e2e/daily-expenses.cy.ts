@@ -12,29 +12,34 @@ describe("calendário de saídas do painel", () => {
     cy.waitForHydration();
   });
 
-  it("reconcilia os valores líquidos e mostra os lançamentos ao selecionar um dia", () => {
-    cy.get('[data-testid="daily-expenses-total"]').should("contain.text", "679,40");
+  it("mostra saídas brutas no calendário e conserva resumos líquidos", () => {
+    cy.get('[data-testid="daily-expenses-total"]').should("contain.text", "1.220,00");
     cy.contains("p", "Despesas líquidas").parent().should("contain.text", "679,40");
     cy.get('[data-testid="daily-expenses"] button[data-date]').should("have.length", 30);
     cy.get('button[data-date="2026-09-08"]')
-      .should("have.attr", "aria-label").and("contain", "635,15");
+      .should("have.attr", "aria-label").and("contain", "1.175,75");
     cy.get('button[data-date="2026-09-08"]').focus().type("{enter}");
     cy.get('[role="dialog"]').should("be.visible").within(() => {
       cy.contains("8 de setembro de 2026").should("be.visible");
       cy.contains("Despesa do dia").should("be.visible");
       cy.contains("Reinvestimento").should("be.visible");
-      cy.contains("Compensado: R$ 540,60").should("be.visible");
-      cy.contains("Original: -R$ 540,60").should("be.visible");
+      cy.contains("Compensado:").should("not.exist");
+      cy.contains("Original: -R$ 540,60").should("not.exist");
+      cy.contains("-R$ 540,60").should("be.visible");
       cy.contains("Oculta do relatório").should("not.exist");
       cy.contains("Transferência interna").should("not.exist");
       cy.contains("Entrada disponível").should("not.exist");
-      cy.get("footer").should("contain.text", "635,15");
+      cy.get("footer").should("contain.text", "1.175,75");
       cy.get('button[aria-label="Fechar"]').focus().trigger("keydown", { key: "Tab", shiftKey: true });
       cy.focused().should("have.attr", "aria-label", "Fechar");
     });
     cy.focused().type("{esc}");
     cy.get('[role="dialog"]').should("not.exist");
     cy.focused().should("have.attr", "data-date", "2026-09-08");
+
+    cy.get('[data-testid="expense-tags"] [role="img"]')
+      .should("have.attr", "aria-label").and("contain", "R$ 1.220,00");
+    cy.get('[data-testid="expense-tags"]').should("contain.text", "R$ 540,60 compensado");
 
     cy.contains("button", "Ver lançamentos fora do mês").click();
     cy.get('[role="dialog"]').should("contain.text", "Parcela fora do mês")
@@ -58,7 +63,7 @@ describe("calendário de saídas do painel", () => {
         expect(rectangle.height).to.be.at.least(44);
         expect($button[0].scrollWidth).to.be.at.most(rectangle.width + 1);
       }).click();
-      cy.get('[role="dialog"]').should("be.visible").and("contain.text", "635,15");
+      cy.get('[role="dialog"]').should("be.visible").and("contain.text", "1.175,75");
       expectNoHorizontalOverflow();
       cy.get('[role="dialog"] button[aria-label="Fechar"]').click();
     }
