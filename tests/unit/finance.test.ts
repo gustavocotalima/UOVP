@@ -118,7 +118,7 @@ function transaction(overrides: Partial<FinanceTransactionDto> = {}): FinanceTra
   return result;
 }
 
-describe("calendário de saídas líquidas", () => {
+describe("calendário de saídas brutas", () => {
   function september(overrides: Partial<FinanceTransactionDto> = {}) {
     return transaction({
       date: "2026-09-08T12:00:00.000Z",
@@ -129,7 +129,7 @@ describe("calendário de saídas líquidas", () => {
     });
   }
 
-  it("compensa o reinvestimento e concilia a grade com os lançamentos fora do mês", () => {
+  it("mostra o reinvestimento integral e concilia a grade com os lançamentos fora do mês", () => {
     const transactions = [
       september({ id: "income", kind: "INCOME", amount: "20.46" }),
       september({ id: "dividend", kind: "INCOME", amount: "540.60", budgetCategory: "FINANCIAL_FREEDOM" }),
@@ -138,15 +138,17 @@ describe("calendário de saídas líquidas", () => {
       september({ id: "installment", amount: "-44.25", date: "2026-08-15T12:00:00Z", accountType: "CREDIT_CARD" }),
     ];
     const calendar = calculateDailyExpenses(transactions, 2026, 9, "America/Sao_Paulo");
-    expect(calendar.totalCents).toBe(67940);
-    expect(calendar.totalCents / 100).toBe(calculatePeriod(transactions).spent);
-    expect(calendar.inCalendarCents).toBe(63515);
+    expect(calendar.totalCents).toBe(122000);
+    expect(calendar.totalCents / 100).toBe(calculatePeriod(transactions).grossExpenses);
+    expect(calculatePeriod(transactions).spent).toBe(679.40);
+    expect(calendar.inCalendarCents).toBe(117575);
     expect(calendar.outsideCents).toBe(4425);
     expect(calendar.outsideEntries.map((entry) => entry.transaction.id)).toEqual(["installment"]);
-    expect(calendar.days[8].entries[0]).toMatchObject({ grossCents: 54060, netCents: 0 });
-    expect(calendar.daysWithExpenses).toBe(1);
-    expect(calendar.daysWithoutExpenses).toBe(29);
-    expect(calendar.averageCents).toBe(2117);
+    expect(calendar.days[8].entries[0]).toMatchObject({ grossCents: 54060 });
+    expect(calendar.days[8].totalCents).toBe(54060);
+    expect(calendar.daysWithExpenses).toBe(2);
+    expect(calendar.daysWithoutExpenses).toBe(28);
+    expect(calendar.averageCents).toBe(3919);
     expect(calendar.peakDay?.day).toBe(8);
   });
 
@@ -162,12 +164,16 @@ describe("calendário de saídas líquidas", () => {
     expect(calendar.days[7].entries.map((entry) => entry.transaction.id)).toEqual(["valid"]);
   });
 
-  it("consolida USD pelo valor histórico BRL e preserva o original no detalhe", () => {
-    const calendar = calculateDailyExpenses([
-      september({ id: "usd", amount: "-50", currencyCode: "USD", reportingAmountBrl: "-250.25" }),
-    ], 2026, 9, "America/Sao_Paulo");
-    expect(calendar.totalCents).toBe(25025);
-    expect(calendar.days[7].entries[0].transaction.amount).toBe("-50");
+  it("mostra o valor BRL integral de uma saída USD mesmo com compensação na meta", () => {
+    const transactions = [
+      september({ id: "bolt", description: "BOLT", amount: "-1.74", currencyCode: "USD", reportingAmountBrl: "-9.03", budgetCategory: "FIXED_COSTS" }),
+      september({ id: "offset", kind: "INCOME", amount: "1.60", budgetCategory: "FIXED_COSTS" }),
+    ];
+    const calendar = calculateDailyExpenses(transactions, 2026, 9, "America/Sao_Paulo");
+    expect(calendar.totalCents).toBe(903);
+    expect(calendar.days[7].entries[0]).toMatchObject({ grossCents: 903 });
+    expect(calendar.days[7].entries[0].transaction.amount).toBe("-1.74");
+    expect(calculatePeriod(transactions).spent).toBe(7.43);
   });
 
   it("usa o fuso do usuário e preserva datas sem horário", () => {
@@ -196,7 +202,7 @@ describe("calendário de saídas líquidas", () => {
     expect(calendar.days[7].entries).toHaveLength(1);
   });
 
-  it("distribui a compensação entre dias sem perder centavos nem duplicar tags", () => {
+  it("mantém saídas diárias brutas e distribui a compensação entre tags sem perder centavos", () => {
     const food = { id: "food", systemKey: "FOOD", name: "Alimentação", color: "#ff0000" };
     const leisure = { ...food, id: "leisure", systemKey: "LEISURE", name: "Lazer" };
     const transactions = [
@@ -211,9 +217,11 @@ describe("calendário de saídas líquidas", () => {
     ];
     const calendar = calculateDailyExpenses(transactions, 2026, 9, "UTC");
     const tags = calculateTagTotals(transactions, [food, leisure]);
-    expect(calendar.totalCents).toBe(2);
-    expect(calendar.days.reduce((sum, day) => sum + day.totalCents, 0)).toBe(2);
-    expect(tags.reduce((sum, tag) => sum + Math.round(tag.value * 100), 0)).toBe(2);
+    expect(calendar.totalCents).toBe(3);
+    expect(calendar.days.reduce((sum, day) => sum + day.totalCents, 0)).toBe(3);
+    expect(tags.reduce((sum, tag) => sum + Math.round(tag.value * 100), 0)).toBe(3);
+    expect(tags.reduce((sum, tag) => sum + Math.round(tag.compensated * 100), 0)).toBe(1);
+    expect(tags.reduce((sum, tag) => sum + Math.round(tag.net * 100), 0)).toBe(2);
     expect(calculatePeriod(transactions).spent).toBe(0.02);
   });
 
@@ -389,12 +397,12 @@ describe("finanças AUVP", () => {
       tags,
     );
     expect(result).toEqual([
-      { id: "food", name: "Alimentação", color: "#ef4444", value: 50 },
-      { id: "untagged", name: "Sem Tags", color: "#64748b", value: 25 },
+      { id: "food", name: "Alimentação", color: "#ef4444", value: 50, compensated: 0, net: 50 },
+      { id: "untagged", name: "Sem Tags", color: "#64748b", value: 25, compensated: 0, net: 25 },
     ]);
   });
 
-  it("distribui despesas líquidas entre tags sem duplicar transações multitag", () => {
+  it("mostra gastos brutos por tag e separa a parcela compensada sem duplicar multitag", () => {
     const tags = [
       { id: "investments", systemKey: null, name: "Investimentos", color: "#16a34a" },
       { id: "goals", systemKey: null, name: "Metas", color: "#7c3aed" },
@@ -405,11 +413,25 @@ describe("finanças AUVP", () => {
       transaction({ id: "untagged", amount: "-25", budgetCategory: null }),
     ], tags);
     expect(result).toEqual([
-      { id: "investments", name: "Investimentos", color: "#16a34a", value: 25 },
-      { id: "goals", name: "Metas", color: "#7c3aed", value: 25 },
-      { id: "untagged", name: "Sem Tags", color: "#64748b", value: 25 },
+      { id: "investments", name: "Investimentos", color: "#16a34a", value: 50, compensated: 25, net: 25 },
+      { id: "goals", name: "Metas", color: "#7c3aed", value: 50, compensated: 25, net: 25 },
+      { id: "untagged", name: "Sem Tags", color: "#64748b", value: 25, compensated: 0, net: 25 },
     ]);
-    expect(result.reduce((total, item) => total + item.value, 0)).toBe(75);
+    expect(result.reduce((total, item) => total + item.value, 0)).toBe(125);
+    expect(result.reduce((total, item) => total + item.compensated, 0)).toBe(50);
+    expect(result.reduce((total, item) => total + item.net, 0)).toBe(75);
+  });
+
+  it("não aplica a compensação de outra meta ou mês ao segmento de uma tag", () => {
+    const food = { id: "food", systemKey: "FOOD", name: "Alimentação", color: "#ef4444" };
+    const result = calculateTagTotals([
+      transaction({ id: "expense", amount: "-10", budgetCategory: "COMFORT", tags: [food] }),
+      transaction({ id: "other-goal", kind: "INCOME", amount: "10", budgetCategory: "GOALS" }),
+      transaction({ id: "other-month", kind: "INCOME", amount: "10", budgetCategory: "COMFORT", referenceMonth: 8 }),
+    ], [food]);
+    expect(result).toEqual([
+      { id: "food", name: "Alimentação", color: "#ef4444", value: 10, compensated: 0, net: 10 },
+    ]);
   });
 
   it("calcula saldo bancário, dívida dos cartões e resultado", () => {

@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 
 export type DonutDatum = { name: string; value: number; color: string };
 
-export function DonutChart({ data, centerLabel, className }: { data: DonutDatum[]; centerLabel?: string; className?: string }) {
+export function DonutChart({ data, centerLabel, className, formatTooltip }: { data: DonutDatum[]; centerLabel?: string; className?: string; formatTooltip?: (name: string, value: number) => string }) {
   const total = data.reduce((sum, item) => sum + item.value, 0);
   return (
     <div className={cn("relative h-56 w-full sm:h-64", className)} aria-label={`Gráfico de distribuição. Total ${formatMoney(total)}`} role="img">
@@ -17,7 +17,7 @@ export function DonutChart({ data, centerLabel, className }: { data: DonutDatum[
               {data.map((item) => <Cell key={item.name} fill={item.color} />)}
             </Pie>
             <Tooltip
-              formatter={(value) => formatMoney(Number(value))}
+              formatter={(value, name) => formatTooltip?.(String(name), Number(value)) ?? formatMoney(Number(value))}
               contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12 }}
               wrapperStyle={{ zIndex: 20 }}
             />
