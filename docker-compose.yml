@@ -20,7 +20,7 @@ services:
     image: redis:8-alpine
     restart: unless-stopped
     environment:
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-uovp-local-redis-change-me}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Configure REDIS_PASSWORD}
     command:
       - sh
       - -c
