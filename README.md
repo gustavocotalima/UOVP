@@ -123,6 +123,8 @@ Use an HMAC key with reading enabled. Read-only keys and server-IP restrictions 
 
 After the authenticated shell renders, a coordinator calls `POST /api/bootstrap-refresh`. It checks again when the app returns after at least 15 minutes in the background. Session storage throttles checks; server-side operation leases coordinate concurrent work.
 
+Pluggy and Binance wallet synchronization run in parallel. The market-price check waits for both to finish, including partial failures, so it uses the synchronized positions and leaves market quotes as the final pricing step. Manual USD account FX runs independently. Pluggy reconciliation preserves the newest usable market quote; provider snapshot timestamps alone do not mark market prices as fresh.
+
 | Integration | Automatic trigger | Scope |
 | --- | --- | --- |
 | Market prices | Any effective quote is missing or at least 12 hours old after checking shared cache and persisted data. | All eligible market holdings of that user. |

@@ -20,6 +20,7 @@ import {
 import { shouldReconcileExcludedPluggyPosition } from "./diagram-exclusion";
 import { canReconcileChangedProviderSnapshot } from "./contribution-reconciliation";
 import { resolvePluggyInvestmentIssuer } from "./institution-logo";
+import { selectLatestPluggyMarketQuote } from "./market-quote";
 
 type InvestmentWithItem = Prisma.PluggyInvestmentGetPayload<{
   include: {
@@ -173,7 +174,10 @@ function linkedHoldingData(
     purchaseDate: investment.purchaseDate,
     maturityDate: investment.dueDate,
     logoUrl: market ? quoteHolding?.logoUrl ?? null : null,
-    priceUpdatedAt: quoteHolding?.priceUpdatedAt ?? investment.quotaDate ?? investment.providerUpdatedAt,
+    // A provider snapshot is not evidence of a fresh market quote.
+    priceUpdatedAt: market
+      ? quoteHolding?.priceUpdatedAt ?? null
+      : investment.quotaDate ?? investment.providerUpdatedAt,
   };
 }
 
@@ -772,9 +776,6 @@ export async function reconcilePluggyInvestmentsForUser(
         ? await tx.assetHolding.findUnique({ where: { id: existingLink.holding.id } })
         : null;
       const marketInstrument = isMarketInstrument(classification.instrumentType);
-      const localQuoteHolding = marketInstrument
-        ? asset.holdings.find((candidate) => candidate.positionSource === "MANUAL") ?? null
-        : null;
       if (!holding && classification.instrumentType === "FIXED_INCOME") {
         holding = asset.holdings.find((candidate) =>
           candidate.positionSource === "MANUAL"
@@ -784,7 +785,12 @@ export async function reconcilePluggyInvestmentsForUser(
           && sameDate(candidate.maturityDate, investment.dueDate),
         ) ?? null;
       }
-      const quoteHolding = localQuoteHolding ?? existingLink?.holding;
+      const quoteHolding = marketInstrument
+        ? selectLatestPluggyMarketQuote([
+            holding,
+            ...asset.holdings.filter((candidate) => candidate.positionSource === "MANUAL"),
+          ])
+        : holding;
       const holdingCurrency = (
         marketInstrument
           ? quoteHolding?.currency ?? investment.currencyCode ?? "BRL"
