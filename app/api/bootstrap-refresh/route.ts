@@ -34,12 +34,16 @@ export async function POST(request: Request) {
   if (!user) return NextResponse.json({ error: "Sessão expirada." }, { status: 401 });
 
   const startedAt = Date.now();
-  const [marketSettled, accountsSettled, pluggySettled, binanceSettled] = await Promise.allSettled([
-    refreshStaleMarketPricesAction(),
-    refreshStaleFinancialAccountFx(user.id),
+  const providerSyncs = Promise.allSettled([
     syncStalePluggyItemsForUser(user.id),
     syncStaleBinanceWalletForUser(user.id),
   ]);
+  const [marketSettled, accountsSettled] = await Promise.allSettled([
+    // Refresh prices only after provider-controlled quantities have settled.
+    providerSyncs.then(() => refreshStaleMarketPricesAction()),
+    refreshStaleFinancialAccountFx(user.id),
+  ]);
+  const [pluggySettled, binanceSettled] = await providerSyncs;
   const market = marketSettled.status === "fulfilled"
     ? {
         status: marketSettled.value.status,

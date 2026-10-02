@@ -123,6 +123,8 @@ Use uma chave HMAC com leitura habilitada. São recomendadas chaves somente leit
 
 Após renderizar a área autenticada, um coordenador chama `POST /api/bootstrap-refresh`. Ele verifica novamente quando o app retorna após pelo menos 15 minutos em segundo plano. O session storage limita verificações repetidas; bloqueios temporários no servidor coordenam operações concorrentes.
 
+A sincronização da Pluggy e da carteira Binance ocorre em paralelo. A verificação das cotações aguarda ambas terminarem, inclusive com falhas parciais, para usar as posições sincronizadas e deixar os preços de mercado como última etapa de precificação. O câmbio das contas USD manuais roda de forma independente. A reconciliação da Pluggy preserva a cotação de mercado utilizável mais recente; a data do snapshot do provedor, por si só, não torna a cotação de mercado recente.
+
 | Integração | Gatilho automático | Escopo |
 | --- | --- | --- |
 | Cotações | Alguma cotação efetiva está ausente ou tem pelo menos 12 horas, após verificar o cache compartilhado e os dados persistidos. | Todos os ativos de mercado elegíveis daquele usuário. |
