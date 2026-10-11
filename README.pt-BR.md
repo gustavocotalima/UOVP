@@ -156,7 +156,7 @@ O manifesto inclui ícones normais/maskable e inicia em `/home?source=pwa`. A in
 - Prisma 6 com PostgreSQL; Redis opcional.
 - Autenticação por credenciais com Auth.js, Lucide, Recharts, Leaflet e React Leaflet.
 - Vitest para testes unitários/de integração e Cypress para testes de navegador.
-- Node.js **20.9 ou mais recente**, **pnpm 10.13.1** e PostgreSQL 16 ou compatível.
+- Node.js **22 ou mais recente**, **pnpm 10.13.1** e PostgreSQL 16 ou compatível.
 - Docker Compose opcional para os serviços incluídos de PostgreSQL 16 e Redis 8.
 
 ## Configuração local
@@ -267,6 +267,10 @@ Configure a instalação com `pnpm install --frozen-lockfile`, o build com `pnpm
 | `lib` | Autenticação, autorização, bloqueios de operação, criptografia e cache compartilhado. |
 | `prisma`, `scripts` | Schema, migrations, catálogos e utilitários de manutenção. |
 | `tests`, `cypress` | Cobertura unitária, de integração e de navegador. |
+
+## Análise com agentes de IA via MCP
+
+Em **Configurações → Agentes de IA / MCP**, habilite voluntariamente análises financeiras somente para leitura no ChatGPT, Codex ou clientes MCP remotos compatíveis. Cada cliente exige autorização OAuth separada e pode ser revogado; o MCP não altera dados financeiros nem sincroniza provedores. Consulte o [guia de conexão e deploy MCP](./docs/mcp.pt-BR.md) para permissões, configuração, privacidade e publicação.
 
 ## Modelo de segurança
 

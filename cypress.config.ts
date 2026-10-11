@@ -274,7 +274,7 @@ export default defineConfig({
                 quantity: 1,
                 unitPrice: 80,
                 investedValue: 80,
-                logoUrl: "https://icons.brapi.dev/icons/EMBJ3.svg",
+                logoUrl: "https://icons.brapi.dev/icons/uovp-cypress-invalid-EMBJ3.svg",
               },
             });
             await prisma.marketAssetMetadata.deleteMany({

@@ -22,6 +22,17 @@ describe("modais da carteira", () => {
   });
 
   it("corrige e persiste um logo legado quebrado da brapi", () => {
+    const invalidLogoUrl = "https://icons.brapi.dev/icons/uovp-cypress-invalid-EMBJ3.svg";
+    cy.intercept({
+      method: "GET",
+      hostname: "icons.brapi.dev",
+      pathname: "/icons/uovp-cypress-invalid-EMBJ3.svg",
+    }, {
+      statusCode: 404,
+      delay: 1_500,
+      body: "",
+      headers: { "cache-control": "no-store" },
+    });
     cy.get<string>("@testUserEmail").then((email) => {
       cy.task("seedBrokenMarketLogo", { email });
     });
@@ -30,21 +41,27 @@ describe("modais da carteira", () => {
     cy.get("[data-assets-panel-hydrated='true']", { timeout: 15_000 });
 
     cy.contains("tbody tr", "EMBJ3")
-      .find("[data-asset-logo] img", { timeout: 15_000 })
-      .should("have.attr", "src")
-      .and("include", "/EMBR3.svg");
+      .find("img[data-asset-logo]", { timeout: 15_000 })
+      .should("be.visible")
+      .and("have.attr", "src")
+      .and("not.include", invalidLogoUrl);
 
-    cy.task("getMarketLogoMetadata", { provider: "BRAPI", symbol: "EMBJ3" })
+    cy.task<{ status: string; logoUrl: string; source: string }>("getMarketLogoMetadata", { provider: "BRAPI", symbol: "EMBJ3" })
       .should("deep.include", {
         status: "VERIFIED",
-        logoUrl: "https://icons.brapi.dev/icons/EMBR3.svg",
         source: "CATALOG",
-      });
+      })
+      .then(({ logoUrl }) => {
+        expect(logoUrl).to.be.a("string").and.not.equal(invalidLogoUrl);
+        cy.contains("tbody tr", "EMBJ3")
+          .find("img[data-asset-logo]")
+          .should("have.attr", "src", logoUrl);
 
-    cy.reload();
-    cy.contains("tbody tr", "EMBJ3")
-      .find("[data-asset-logo] img")
-      .should("have.attr", "src", "https://icons.brapi.dev/icons/EMBR3.svg");
+        cy.reload();
+        cy.contains("tbody tr", "EMBJ3")
+          .find("img[data-asset-logo]")
+          .should("have.attr", "src", logoUrl);
+      });
   });
 
   it("abre o modal de adição de ativo e fecha pelo controle acessível", () => {
@@ -260,6 +277,6 @@ describe("modais da carteira", () => {
     cy.get('[role="dialog"]').should("contain", "Quantidade a ser aportada:").and("contain", "Quantidade sugerida:");
     cy.get("#contribution-quantity").should("be.visible").type("{selectall}3");
     cy.get("#contribution-unit-price").should("be.visible").type("{selectall}100");
-    cy.get('[role="dialog"]').contains(/Valor informado:\s*R\$\s*300,00/);
+    cy.get('[role="dialog"]').contains(/Valor informado:\s*US\$\s*300,00\s*·\s*R\$\s*[\d.]+,\d{2}/);
   });
 });

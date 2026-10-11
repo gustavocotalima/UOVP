@@ -21,6 +21,10 @@ The interface is in Brazilian Portuguese. Frontend and backend run in the same N
 
 The layout supports desktop and mobile, with mobile navigation and safe-area spacing.
 
+## AI analysis through MCP
+
+In **Configurações → Agentes de IA / MCP**, opt in to read-only financial analysis from ChatGPT, Codex, or compatible remote MCP clients. Each client requires separate OAuth consent and can be revoked; MCP does not edit financial data or trigger provider synchronization. See the [MCP connection and deployment guide](./docs/mcp.en.md) for permissions, client setup, privacy, and server configuration.
+
 ## Financial behavior
 
 ### Summaries, transactions, and tags
@@ -156,7 +160,7 @@ The manifest includes standard/maskable icons and starts at `/home?source=pwa`. 
 - Prisma 6 with PostgreSQL; optional Redis.
 - Auth.js credentials authentication, Lucide, Recharts, Leaflet, and React Leaflet.
 - Vitest for unit/integration tests and Cypress for browser tests.
-- Node.js **20.9 or newer**, **pnpm 10.13.1**, and PostgreSQL 16 or compatible.
+- Node.js **22 or newer**, **pnpm 10.13.1**, and PostgreSQL 16 or compatible.
 - Optional Docker Compose for the included PostgreSQL 16 and Redis 8 services.
 
 ## Local setup
