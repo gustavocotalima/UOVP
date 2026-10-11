@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { decodeJwt, decodeProtectedHeader, SignJWT } from "jose";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
 import type { McpScope } from "@/features/mcp/types";
 
@@ -11,8 +11,8 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/auth-security", () => ({ consumeAuthRateLimit: async () => ({ allowed: true }) }));
 
 import { authenticateMcpRequest } from "@/features/mcp/auth";
-import { createMcpAuthorization, exchangeMcpToken, revokeMcpToken, tokenHash } from "@/features/mcp/oauth";
-import { revokeMcpGrantAction, setMcpEnabledAction } from "@/features/mcp/actions";
+import { createMcpAuthorization, exchangeMcpToken, getMcpAuthorizationRequest, revokeMcpToken, tokenHash } from "@/features/mcp/oauth";
+import { registerMcpClientAction, revokeMcpGrantAction, setMcpEnabledAction } from "@/features/mcp/actions";
 import { mcpResource } from "@/features/mcp/config";
 
 const suite = process.env.DATABASE_URL ? describe : describe.skip;
@@ -22,6 +22,7 @@ const originalKeyConfiguration = `integration:${testSigningKey.toString("base64u
 
 suite("MCP OAuth authorization, PKCE, rotation and revocation", () => {
   const suffix = `${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+  const codexClientId = `https://chatgpt.com/oauth/codex/mcp-integration-${suffix}/client.json`;
   let userId = "";
   let otherUserId = "";
   let clientId = "";
@@ -95,10 +96,51 @@ suite("MCP OAuth authorization, PKCE, rotation and revocation", () => {
     await prisma.user.updateMany({ where: { id: { in: [userId, otherUserId] } }, data: { mcpEnabled: true } });
   });
 
+  afterEach(() => vi.unstubAllGlobals());
+
   afterAll(async () => {
     if (userId || otherUserId) await prisma.user.deleteMany({ where: { id: { in: [userId, otherUserId].filter(Boolean) } } });
+    await prisma.mcpOAuthClient.deleteMany({ where: { id: codexClientId } });
     vi.unstubAllEnvs();
     await prisma.$disconnect();
+  });
+
+  it("authorizes the real mixed Codex callbacks with variable native ports without accepting unsupported or unregistered callbacks", async () => {
+    // Isolated allowlisted CIMD ID; the callback list matches the Codex document.
+    const fetchMetadata = vi.fn().mockResolvedValue(Response.json({
+      client_id: codexClientId, client_name: "Codex",
+      redirect_uris: ["http://127.0.0.1/callback", "http://localhost/callback"],
+      grant_types: ["authorization_code", "refresh_token"], token_endpoint_auth_method: "none",
+    }));
+    vi.stubGlobal("fetch", fetchMetadata);
+    const input = request(["finance:read"], randomBytes(32).toString("base64url"), codexClientId);
+    for (const port of [49152, 54321]) {
+      const nativeCallback = `http://127.0.0.1:${port}/callback`;
+      await expect(getMcpAuthorizationRequest({ ...input.query, redirect_uri: nativeCallback })).resolves.toMatchObject({
+        clientId: codexClientId, clientName: "Codex", redirectUri: nativeCallback, scopes: ["finance:read"],
+      });
+    }
+    const stored = await prisma.mcpOAuthClient.findUniqueOrThrow({ where: { id: codexClientId } });
+    expect(stored.redirectUris).toEqual(["http://127.0.0.1/callback"]);
+    expect(stored.metadataUrl).toBe(codexClientId);
+    expect(stored.ownerId).toBeNull();
+    for (const unsupported of [
+      "http://localhost:49152/callback", "http://127.0.0.2:49152/callback",
+      "http://127.0.0.1:49152/other", "http://127.0.0.1:49152/callback?other=1",
+      "https://127.0.0.1:49152/callback", "https://agent.example/callback",
+    ]) {
+      await expect(getMcpAuthorizationRequest({ ...input.query, redirect_uri: unsupported })).rejects.toMatchObject({ code: "invalid_request" });
+    }
+    expect(fetchMetadata).toHaveBeenCalledOnce();
+    expect((await prisma.mcpOAuthClient.findUniqueOrThrow({ where: { id: codexClientId } })).redirectUris).toEqual(["http://127.0.0.1/callback"]);
+  });
+
+  it("still rejects a mixed manual callback registration without persisting its supported subset", async () => {
+    const before = await prisma.mcpOAuthClient.count({ where: { ownerId: userId } });
+    await expect(registerMcpClientAction({
+      name: "Manually registered Codex", redirectUris: ["http://127.0.0.1/callback", "http://localhost/callback"],
+    })).rejects.toMatchObject({ code: "invalid_request" });
+    expect(await prisma.mcpOAuthClient.count({ where: { ownerId: userId } })).toBe(before);
   });
 
   it("exchanges a real PKCE code for a usable resource-bound bearer", async () => {
