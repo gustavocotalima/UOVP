@@ -40,6 +40,8 @@ export const authorizationQuerySchema = z.object({
   redirect_uri: z.string().min(1).max(2048), scope: z.string().min(1).max(300),
   state: z.string().min(1).max(1024), resource: z.string().max(2048),
   code_challenge: z.string().regex(/^[A-Za-z0-9_-]{43}$/), code_challenge_method: z.literal("S256"),
+  // ChatGPT sends this presentation hint; it never influences authorization.
+  ui_locales: z.string().max(200).optional(),
 }).strict();
 
 export async function getMcpAuthorizationRequest(query: Record<string, string>) {
