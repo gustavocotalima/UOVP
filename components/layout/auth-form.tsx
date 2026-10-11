@@ -14,17 +14,20 @@ export function AuthForm({
   inviteToken,
   invitedEmail,
   registrationAvailable = false,
+  callbackUrl,
 }: {
   mode: "login" | "register";
   action: (state: AuthFormState, formData: FormData) => Promise<AuthFormState>;
   inviteToken?: string;
   invitedEmail?: string;
   registrationAvailable?: boolean;
+  callbackUrl?: string;
 }) {
   const [state, formAction, pending] = useActionState(action, {});
   const registering = mode === "register";
   return (
     <form action={formAction} className="space-y-4">
+      {!registering && callbackUrl && <input type="hidden" name="callbackUrl" value={callbackUrl} />}
       {registering && inviteToken && <input type="hidden" name="inviteToken" value={inviteToken} />}
       {registering && (
         <div className="space-y-2">

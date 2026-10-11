@@ -3,15 +3,18 @@ import { AuthForm } from "@/components/layout/auth-form";
 import { loginAction } from "@/features/auth/actions";
 import { getActiveUser } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
+import { safeLoginCallback } from "@/lib/auth-callback";
 
 export const metadata = { title: "Entrar" };
 
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ registration?: string }>;
+  searchParams: Promise<{ registration?: string; callbackUrl?: string }>;
 }) {
-  if (await getActiveUser()) redirect("/home");
+  const params = await searchParams;
+  const callbackUrl = safeLoginCallback(params.callbackUrl);
+  if (await getActiveUser()) redirect(callbackUrl);
   const registrationAvailable = !await prisma.user.findFirst({ select: { id: true } });
   const registrationAccepted = (await searchParams).registration === "accepted";
   return (
@@ -26,6 +29,7 @@ export default async function LoginPage({
       <AuthForm
         mode="login"
         action={loginAction}
+        callbackUrl={callbackUrl}
         registrationAvailable={registrationAvailable}
       />
     </>

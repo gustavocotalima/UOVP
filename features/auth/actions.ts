@@ -15,6 +15,7 @@ import { DEFAULT_QUESTIONS, defaultQuestionTemplateKey } from "@/features/portfo
 import { AUVP_FINANCE_GOALS, AUVP_FINANCE_TAGS } from "@/features/finance/data";
 import { BUDGET_CATEGORIES } from "@/features/budget/constants";
 import { consumeRegistrationInviteInTransaction } from "./invitations";
+import { safeLoginCallback } from "@/lib/auth-callback";
 
 export type AuthFormState = { error?: string };
 
@@ -130,7 +131,7 @@ export async function loginAction(_: AuthFormState, formData: FormData): Promise
     await signIn("credentials", {
       email: parsed.data.email,
       password: parsed.data.password,
-      redirectTo: "/home",
+      redirectTo: safeLoginCallback(formData.get("callbackUrl")),
     });
   } catch (error) {
     if (error instanceof AuthError) return { error: "E-mail ou senha inválidos." };

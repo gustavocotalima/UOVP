@@ -149,6 +149,8 @@ describe("gestor financeiro inspirado no AUVP", () => {
     }
 
     cy.contains("a", "Contas").filter(":visible").click();
-    cy.contains("p", "Saldo disponível").parent().should("contain.text", "R$ 548,15");
+    cy.contains("p", "Saldo disponível").parent().should(($card) => {
+      expect($card.text().replace(/\s+/g, " ")).to.contain("R$ 548,15");
+    });
   });
 });

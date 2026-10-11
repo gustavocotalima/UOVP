@@ -7,6 +7,8 @@ import { SettingsClient } from "@/features/settings/settings-client";
 import { requireUser } from "@/lib/current-user";
 import { listRegistrationInvites } from "@/features/auth/invite-actions";
 import { getUserTimeZone } from "@/lib/user-timezone";
+import { McpSettingsCard } from "@/features/mcp/settings-card";
+import { getMcpSettings } from "@/features/mcp/settings";
 
 export const metadata = { title: "Configurações" };
 
@@ -25,12 +27,13 @@ function pluggyWebhookUrl(): string | null {
 export default async function SettingsPage() {
   const user = await requireUser();
   const userId = user.id;
-  const [credential, pluggyCredential, binanceStatus, invites, timeZone] = await Promise.all([
+  const [credential, pluggyCredential, binanceStatus, invites, timeZone, mcpSettings] = await Promise.all([
     getBrapiCredentialStatus(userId),
     getPluggyCredentialStatus(userId),
     getBinanceConnectionStatus(userId),
     user.isAdmin ? listRegistrationInvites() : Promise.resolve(null),
     getUserTimeZone(userId),
+    getMcpSettings(userId),
   ]);
   return (
     <div className="space-y-5 sm:space-y-7">
@@ -53,6 +56,7 @@ export default async function SettingsPage() {
         })) ?? null}
       />
       <BinanceWalletCard initialStatus={binanceStatus} />
+      <McpSettingsCard initialSettings={mcpSettings} />
     </div>
   );
 }

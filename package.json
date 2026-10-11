@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "engines": {
-    "node": ">=20.9.0"
+    "node": ">=22"
   },
   "packageManager": "pnpm@10.13.1",
   "scripts": {
@@ -28,6 +28,8 @@
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.10.0",
+    "@jmondi/oauth2-server": "5.0.0",
+    "@modelcontextprotocol/sdk": "1.32.1",
     "@prisma/client": "^6.13.0",
     "@radix-ui/react-slot": "^1.2.3",
     "bcryptjs": "^3.0.2",
@@ -35,6 +37,7 @@
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
     "decimal.js": "^10.6.0",
+    "jose": "6.1.3",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.536.0",
     "next": "^16.2.11",
