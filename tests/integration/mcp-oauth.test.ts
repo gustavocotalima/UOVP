@@ -12,8 +12,9 @@ vi.mock("@/lib/auth-security", () => ({ consumeAuthRateLimit: async () => ({ all
 
 import { authenticateMcpRequest } from "@/features/mcp/auth";
 import { createMcpAuthorization, exchangeMcpToken, getMcpAuthorizationRequest, revokeMcpToken, tokenHash } from "@/features/mcp/oauth";
-import { registerMcpClientAction, revokeMcpGrantAction, setMcpEnabledAction } from "@/features/mcp/actions";
+import { authorizeMcpClientAction, registerMcpClientAction, revokeMcpGrantAction, setMcpEnabledAction } from "@/features/mcp/actions";
 import { mcpResource } from "@/features/mcp/config";
+import { MCP_SCOPES } from "@/features/mcp/types";
 
 const suite = process.env.DATABASE_URL ? describe : describe.skip;
 const redirectUri = "http://127.0.0.1:4444/callback";
@@ -23,6 +24,8 @@ const originalKeyConfiguration = `integration:${testSigningKey.toString("base64u
 suite("MCP OAuth authorization, PKCE, rotation and revocation", () => {
   const suffix = `${Date.now()}-${Math.floor(Math.random() * 10000)}`;
   const codexClientId = `https://chatgpt.com/oauth/codex/mcp-integration-${suffix}/client.json`;
+  const chatgptClientId = `https://chatgpt.com/oauth/mcp-web-integration-${suffix}/client.json`;
+  const chatgptCallback = "https://chatgpt.com/connector_platform_oauth_redirect";
   let userId = "";
   let otherUserId = "";
   let clientId = "";
@@ -37,6 +40,21 @@ suite("MCP OAuth authorization, PKCE, rotation and revocation", () => {
       code_challenge: challenge(verifier), code_challenge_method: "S256",
     },
   });
+
+  function chatgptRequest() {
+    const input = request([...MCP_SCOPES], randomBytes(32).toString("base64url"), chatgptClientId);
+    return { ...input, query: { ...input.query, redirect_uri: chatgptCallback, ui_locales: "pt-BR" } };
+  }
+
+  function mockChatgptMetadata() {
+    const fetchMetadata = vi.fn().mockResolvedValue(Response.json({
+      client_id: chatgptClientId, client_name: "ChatGPT", redirect_uris: [chatgptCallback],
+      grant_types: ["authorization_code", "refresh_token"],
+      token_endpoint_auth_methods_supported: ["none", "private_key_jwt"],
+    }));
+    vi.stubGlobal("fetch", fetchMetadata);
+    return fetchMetadata;
+  }
 
   async function authorization(scopes: McpScope[] = ["finance:read", "accounts:read"], approvedScopes = scopes) {
     const input = request(scopes);
@@ -100,7 +118,7 @@ suite("MCP OAuth authorization, PKCE, rotation and revocation", () => {
 
   afterAll(async () => {
     if (userId || otherUserId) await prisma.user.deleteMany({ where: { id: { in: [userId, otherUserId].filter(Boolean) } } });
-    await prisma.mcpOAuthClient.deleteMany({ where: { id: codexClientId } });
+    await prisma.mcpOAuthClient.deleteMany({ where: { id: { in: [codexClientId, chatgptClientId] } } });
     vi.unstubAllEnvs();
     await prisma.$disconnect();
   });
@@ -133,6 +151,76 @@ suite("MCP OAuth authorization, PKCE, rotation and revocation", () => {
     }
     expect(fetchMetadata).toHaveBeenCalledOnce();
     expect((await prisma.mcpOAuthClient.findUniqueOrThrow({ where: { id: codexClientId } })).redirectUris).toEqual(["http://127.0.0.1/callback"]);
+  });
+
+  it("completes ChatGPT web consent and PKCE exchange with the pt-BR locale hint", async () => {
+    const fetchMetadata = mockChatgptMetadata();
+    const input = chatgptRequest();
+    await expect(getMcpAuthorizationRequest(input.query)).resolves.toMatchObject({
+      clientId: chatgptClientId, clientName: "ChatGPT", redirectUri: chatgptCallback, scopes: [...MCP_SCOPES],
+    });
+    expect(fetchMetadata).toHaveBeenCalledOnce();
+    expect(fetchMetadata).toHaveBeenCalledWith(chatgptClientId, expect.objectContaining({ redirect: "error", cache: "no-store" }));
+    const stored = await prisma.mcpOAuthClient.findUniqueOrThrow({ where: { id: chatgptClientId } });
+    expect(stored).toMatchObject({ ownerId: null, metadataUrl: chatgptClientId, redirectUris: [chatgptCallback] });
+
+    const result = await authorizeMcpClientAction({ request: input.query, approvedScopes: [...MCP_SCOPES], approved: true });
+    const callback = new URL(result.redirectUrl);
+    expect(`${callback.origin}${callback.pathname}`).toBe(chatgptCallback);
+    expect(callback.searchParams.get("state")).toBe(input.query.state);
+    expect(callback.searchParams.get("iss")).toBe("https://uovp.test");
+    expect(callback.searchParams.has("ui_locales")).toBe(false);
+    const code = callback.searchParams.get("code");
+    expect(code).toBeTruthy();
+    const exchanged = await exchangeMcpToken({
+      grant_type: "authorization_code", client_id: chatgptClientId, redirect_uri: chatgptCallback,
+      code: code!, code_verifier: input.verifier, resource: mcpResource(),
+    });
+    expect(exchanged.replay).toBe(false);
+    expect(exchanged.status).toBe(200);
+    const body = exchanged.body as { access_token: string; scope: string; token_type: string };
+    expect(body.token_type.toLowerCase()).toBe("bearer");
+    expect(body.scope.split(" ")).toEqual([...MCP_SCOPES]);
+    expect(await authenticateMcpRequest(bearer(body.access_token))).toMatchObject({ userId, clientId: chatgptClientId, scopes: [...MCP_SCOPES] });
+    expect(fetchMetadata).toHaveBeenCalledOnce();
+  });
+
+  it("preserves ChatGPT web denial with a locale hint without creating a grant", async () => {
+    mockChatgptMetadata();
+    const input = chatgptRequest();
+    const before = await prisma.mcpOAuthGrant.count({ where: { userId, clientId: chatgptClientId } });
+    const result = await authorizeMcpClientAction({ request: input.query, approvedScopes: [], approved: false });
+    const callback = new URL(result.redirectUrl);
+    expect(`${callback.origin}${callback.pathname}`).toBe(chatgptCallback);
+    expect(callback.searchParams.get("error")).toBe("access_denied");
+    expect(callback.searchParams.get("state")).toBe(input.query.state);
+    expect(callback.searchParams.get("iss")).toBe("https://uovp.test");
+    expect(callback.searchParams.has("code")).toBe(false);
+    expect(callback.searchParams.has("ui_locales")).toBe(false);
+    expect(await prisma.mcpOAuthGrant.count({ where: { userId, clientId: chatgptClientId } })).toBe(before);
+  });
+
+  it("revalidates locale hints and security parameters in the ChatGPT consent action", async () => {
+    mockChatgptMetadata();
+    const input = chatgptRequest();
+    await getMcpAuthorizationRequest(input.query);
+    const before = await prisma.mcpOAuthGrant.count({ where: { userId, clientId: chatgptClientId } });
+    const invalidParameters: Record<string, string>[] = [
+      { ui_locales: "x".repeat(201) },
+      { ui_locales: "pt-BR", unrecognized_parameter: "value" },
+      { ui_locales: "pt-BR", code_challenge_method: "plain" },
+      { ui_locales: "pt-BR", state: "" },
+      { ui_locales: "pt-BR", redirect_uri: `${chatgptCallback}?other=1` },
+    ];
+    for (const changes of invalidParameters) {
+      const tampered = { ...input.query, ...changes };
+      await expect(getMcpAuthorizationRequest(tampered)).rejects.toMatchObject({ code: "invalid_request" });
+      await expect(authorizeMcpClientAction({ request: tampered, approvedScopes: [...MCP_SCOPES], approved: true })).rejects.toMatchObject({ code: "invalid_request" });
+    }
+    await expect(authorizeMcpClientAction({
+      request: { ...input.query, ui_locales: ["pt-BR"] } as unknown as Record<string, string>, approvedScopes: [...MCP_SCOPES], approved: true,
+    })).rejects.toThrow();
+    expect(await prisma.mcpOAuthGrant.count({ where: { userId, clientId: chatgptClientId } })).toBe(before);
   });
 
   it("still rejects a mixed manual callback registration without persisting its supported subset", async () => {
