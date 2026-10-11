@@ -7,6 +7,9 @@ import { resolveMcpClient } from "@/features/mcp/clients";
 
 const clientId = "https://chatgpt.com/oauth/client.json";
 const callback = "https://chatgpt.com/connector_platform_oauth_redirect";
+const codexClientId = "https://chatgpt.com/oauth/codex/client.json";
+const codexCallback = "http://127.0.0.1/callback";
+const codexLocalhostCallback = "http://localhost/callback";
 
 function metadata(overrides: Record<string, unknown> = {}) {
   return {
@@ -59,6 +62,37 @@ describe("MCP OAuth client metadata compatibility and transport safeguards", () 
     expect(mocks.fetch).toHaveBeenCalledOnce();
   });
 
+  it("accepts the mixed Codex callback list and persists only the supported native callback", async () => {
+    respond(metadata({ client_id: codexClientId, client_name: "Codex", redirect_uris: [codexCallback, codexLocalhostCallback] }));
+    expect(await resolveMcpClient(codexClientId)).toMatchObject({ id: codexClientId, name: "Codex", redirectUris: [codexCallback] });
+    expect(mocks.upsert).toHaveBeenCalledWith({
+      where: { id: codexClientId },
+      create: { id: codexClientId, name: "Codex", redirectUris: [codexCallback], metadataUrl: codexClientId },
+      update: { name: "Codex", redirectUris: [codexCallback] },
+    });
+  });
+
+  it("filters unsupported metadata callbacks and deduplicates supported normalized callbacks", async () => {
+    respond(metadata({ redirect_uris: [
+      "not-a-url", codexLocalhostCallback, "http://agent.example/callback",
+      "https://*.agent.example/callback", "https://user:secret@agent.example/callback",
+      "https://agent.example/callback#fragment", codexCallback, codexCallback,
+      "https://agent.example:443/callback", "https://agent.example/callback",
+    ] }));
+    const redirectUris = [codexCallback, "https://agent.example/callback"];
+    expect(await resolveMcpClient(clientId)).toMatchObject({ redirectUris });
+    expect(mocks.upsert.mock.calls[0][0]).toMatchObject({ create: { redirectUris }, update: { redirectUris } });
+  });
+
+  it.each([
+    { redirectUris: [codexLocalhostCallback] },
+    { redirectUris: ["http://agent.example/callback", "https://*.agent.example/callback", "not-a-url"] },
+  ])("rejects metadata with no supported callback and persists nothing: $redirectUris", async ({ redirectUris }) => {
+    respond(metadata({ redirect_uris: redirectUris }));
+    await expect(resolveMcpClient(clientId)).rejects.toMatchObject({ code: "invalid_client" });
+    expect(mocks.upsert).not.toHaveBeenCalled();
+  });
+
   it("rejects a private-only legacy client when no supported-methods list permits none", async () => {
     respond(metadata({ token_endpoint_auth_method: "private_key_jwt" }));
     await expect(resolveMcpClient(clientId)).rejects.toMatchObject({ code: "invalid_client" });
@@ -94,6 +128,27 @@ describe("MCP OAuth client metadata compatibility and transport safeguards", () 
     respond(metadata({ client_name: "ChatGPT refreshed" }));
     expect(await resolveMcpClient(clientId)).toMatchObject({ name: "ChatGPT refreshed" });
     expect(mocks.fetch).toHaveBeenCalledOnce();
+  });
+
+  it("filters stale Codex metadata again and reuses the refreshed supported-only cache", async () => {
+    const stale = { id: codexClientId, name: "Codex", redirectUris: [codexCallback], metadataUrl: codexClientId, updatedAt: new Date(Date.now() - 61 * 60_000) };
+    mocks.findUnique.mockResolvedValue(stale);
+    respond(metadata({ client_id: codexClientId, client_name: "Codex refreshed", redirect_uris: [codexCallback, codexLocalhostCallback] }));
+    const refreshed = await resolveMcpClient(codexClientId);
+    expect(refreshed).toMatchObject({ name: "Codex refreshed", redirectUris: [codexCallback] });
+    expect(mocks.upsert.mock.calls[0][0].update.redirectUris).toEqual([codexCallback]);
+    mocks.findUnique.mockResolvedValue(refreshed);
+    expect(await resolveMcpClient(codexClientId)).toBe(refreshed);
+    expect(mocks.fetch).toHaveBeenCalledOnce();
+    expect(mocks.upsert).toHaveBeenCalledOnce();
+  });
+
+  it("does not update or fall back to stale callbacks when refreshed metadata has none supported", async () => {
+    mocks.findUnique.mockResolvedValue({ id: codexClientId, name: "Codex", redirectUris: [codexCallback], metadataUrl: codexClientId, updatedAt: new Date(Date.now() - 61 * 60_000) });
+    respond(metadata({ client_id: codexClientId, redirect_uris: [codexLocalhostCallback] }));
+    await expect(resolveMcpClient(codexClientId)).rejects.toMatchObject({ code: "invalid_client" });
+    expect(mocks.fetch).toHaveBeenCalledOnce();
+    expect(mocks.upsert).not.toHaveBeenCalled();
   });
 
   it.each([

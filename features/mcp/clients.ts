@@ -48,7 +48,18 @@ export async function resolveMcpClient(clientId: string) {
   // singular preference (e.g. private_key_jwt) must not hide supported `none`.
   const methods = metadata.data.token_endpoint_auth_methods_supported ?? [metadata.data.token_endpoint_auth_method ?? "none"];
   if (!methods.includes("none")) throw new McpError("invalid_client", "This client must support public-client PKCE authentication.");
-  const redirectUris = metadata.data.redirect_uris.map(validateRedirectUri);
+  // A public client can advertise callbacks for multiple hosts/platforms. Keep
+  // only callbacks our existing policy supports, without broadening that policy
+  // or rejecting a valid loopback callback because an unused one is unsupported.
+  const redirectUris = [...new Set(metadata.data.redirect_uris.flatMap((uri) => {
+    try {
+      return [validateRedirectUri(uri)];
+    } catch (error) {
+      if (error instanceof McpError && error.code === "invalid_request") return [];
+      throw error;
+    }
+  }))];
+  if (!redirectUris.length) throw new McpError("invalid_client", "Client metadata has no supported callback URL.");
   return prisma.mcpOAuthClient.upsert({
     where: { id: clientId },
     create: { id: clientId, name: metadata.data.client_name, redirectUris, metadataUrl: clientId },
