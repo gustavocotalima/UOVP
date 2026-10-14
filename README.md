@@ -58,7 +58,7 @@ Manual bank accounts and credit cards support BRL and USD.
 
 ## Investment portfolio
 
-- Allocation classes: international stocks, Brazilian stocks, FIIs, REITs, cryptoassets, Brazilian fixed income, international fixed income, and **Reserva de valor**.
+- Allocation classes: international stocks, Brazilian stocks, FIIs, REITs, cryptoassets, Brazilian fixed income, international fixed income, and Store of value.
 - Instrument type is separate from allocation class. ETFs can represent different exposures; store-of-value assets support domestic/international classification.
 - Fixed-income groups organize individual positions by family and indexation. Positions expose issuer, product, rates, dates, values, and operations when available.
 - User scores, classifications, and groups survive provider synchronization. Scoring questions can be customized.
