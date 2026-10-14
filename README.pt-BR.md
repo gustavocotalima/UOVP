@@ -54,7 +54,7 @@ Contas bancárias e cartões de crédito manuais aceitam BRL e USD.
 
 ## Carteira de investimentos
 
-- Classes de alocação: ações internacionais, ações nacionais, FIIs, REITs, criptoativos, renda fixa nacional, renda fixa internacional e **Reserva de valor**.
+- Classes de alocação: ações internacionais, ações nacionais, FIIs, REITs, criptoativos, renda fixa nacional, renda fixa internacional e Reserva de valor.
 - Tipo do instrumento e classe de alocação são separados. ETFs podem representar exposições diferentes; ativos de reserva de valor permitem classificação nacional ou internacional.
 - Grupos de renda fixa organizam aplicações por família e indexação. As posições exibem emissor, produto, taxas, datas, valores e operações quando disponíveis.
 - Notas, classificações e grupos definidos pelo usuário sobrevivem à sincronização. As perguntas de pontuação podem ser personalizadas.
