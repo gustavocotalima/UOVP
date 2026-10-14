@@ -543,6 +543,125 @@ export default defineConfig({
             await prisma.$disconnect();
           }
         },
+        async seedPluggyQuantityOverride({ email }: { email: string }) {
+          if (!/^cypress-[^@]+@example\.com$/.test(email)) throw new Error("Only Cypress users may be seeded");
+          const prisma = new PrismaClient();
+          try {
+            const user = await prisma.user.findUniqueOrThrow({ where: { email } });
+            const portfolio = await prisma.portfolio.upsert({
+              where: { userId: user.id },
+              update: {},
+              create: { userId: user.id },
+            });
+            const suffix = `${Date.now()}-${Math.floor(Math.random() * 10_000)}`;
+            const now = new Date();
+            const item = await prisma.pluggyItem.create({
+              data: {
+                userId: user.id,
+                pluggyItemId: `cypress-quantity-item-${suffix}`,
+                connectorName: "Banco Inter",
+                institutionName: "Inter",
+                status: "UPDATED",
+                syncPending: false,
+                lastSyncAt: now,
+              },
+            });
+            const investment = await prisma.pluggyInvestment.create({
+              data: {
+                pluggyItemDbId: item.id,
+                pluggyInvestmentId: `cypress-quantity-investment-${suffix}`,
+                name: "ITUB3",
+                code: "ITUB3",
+                issuer: "ITAU UNIBANCO HOLDING S.A.",
+                type: "EQUITY",
+                subtype: "STOCK",
+                quantity: 0,
+                balance: 0,
+                value: 0,
+                currencyCode: "BRL",
+                status: "TOTAL_WITHDRAWAL",
+                providerAvailable: true,
+                providerUpdatedAt: now,
+              },
+            });
+            const asset = await prisma.asset.create({
+              data: {
+                portfolioId: portfolio.id,
+                ticker: "ITUB3",
+                name: "Itaú Unibanco",
+                investmentClass: "BRAZILIAN_STOCKS",
+                instrumentType: "STOCK",
+                score: 9,
+              },
+            });
+            const holding = await prisma.assetHolding.create({
+              data: {
+                assetId: asset.id,
+                ticker: "ITUB3",
+                productName: "ITUB3",
+                issuer: "ITAU UNIBANCO HOLDING S.A.",
+                positionSource: "PLUGGY",
+                pricingSource: "BRAPI",
+                currency: "BRL",
+                quantity: 0,
+                unitPrice: 50,
+                providerCurrentValue: 0,
+                includedInTotals: false,
+                fractional: false,
+                priceUpdatedAt: now,
+              },
+            });
+            await prisma.pluggyInvestmentDiagramLink.create({
+              data: {
+                userId: user.id,
+                pluggyInvestmentDbId: investment.id,
+                assetHoldingId: holding.id,
+                status: "MAPPED",
+                classificationSource: "USER_OVERRIDE",
+                suggestedInstrumentType: "STOCK",
+                suggestedInvestmentClass: "BRAZILIAN_STOCKS",
+                lastReconciledAt: now,
+              },
+            });
+            await prisma.pluggyInvestmentTransaction.create({
+              data: {
+                pluggyInvestmentDbId: investment.id,
+                pluggyInvestmentTransactionId: `cypress-quantity-buy-${suffix}`,
+                type: "BUY",
+                quantity: 110,
+                value: 40,
+                amount: 4_400,
+                date: new Date("2026-07-01T12:00:00.000Z"),
+              },
+            });
+            return null;
+          } finally {
+            await prisma.$disconnect();
+          }
+        },
+        async getPluggyQuantityOverrideState({ email }: { email: string }) {
+          if (!/^cypress-[^@]+@example\.com$/.test(email)) throw new Error("Only Cypress users may be inspected");
+          const prisma = new PrismaClient();
+          try {
+            const user = await prisma.user.findUniqueOrThrow({ where: { email } });
+            const link = await prisma.pluggyInvestmentDiagramLink.findFirstOrThrow({
+              where: { userId: user.id, investment: { code: "ITUB3" } },
+              include: { holding: true, investment: { include: { transactions: true } } },
+            });
+            return {
+              overrideFields: link.metadataOverrideFields,
+              overrideQuantity: link.overrideQuantity?.toString() ?? null,
+              quantity: link.holding?.quantity.toString() ?? null,
+              includedInTotals: link.holding?.includedInTotals ?? false,
+              providerQuantity: link.investment.quantity?.toString() ?? null,
+              providerStatus: link.investment.status,
+              operationCount: link.investment.transactions.length,
+              operationQuantity: link.investment.transactions[0]?.quantity?.toString() ?? null,
+            };
+          } finally {
+            await prisma.$disconnect();
+          }
+        },
         async getMarketLogoMetadata({
           provider,
           symbol,

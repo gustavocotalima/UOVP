@@ -2013,9 +2013,6 @@ export async function executeContributionAction(
         const value = externalSuggestion.asset.instrumentType === "FIXED_INCOME"
           ? parsedQuantity === undefined ? externalSuggestion.value : quantity
           : quantity.mul(paidUnitPriceBrl!);
-        const baselineQuantity = externalSuggestion.asset.holdings
-          .filter((holding) => holding.positionSource !== "MANUAL" && holding.includedInTotals)
-          .reduce((total, holding) => total.add(holding.quantity), new Prisma.Decimal(0));
         const baselineValue = externalSuggestion.asset.holdings
           .filter((holding) => holding.positionSource !== "MANUAL" && holding.includedInTotals)
           .reduce(
@@ -2038,6 +2035,7 @@ export async function executeContributionAction(
             assetHoldingId: true,
             investment: {
               select: {
+                quantity: true,
                 transactions: {
                   orderBy: { date: "desc" },
                   take: 1,
@@ -2054,6 +2052,19 @@ export async function executeContributionAction(
               : [],
           ),
         );
+        const providerQuantityByHolding = new Map(
+          linkedHoldings.flatMap((link) => link.assetHoldingId
+            ? [[link.assetHoldingId, link.investment.quantity ?? new Prisma.Decimal(0)] as const]
+            : []),
+        );
+        // A temporary display quantity is not evidence of a provider-side purchase.
+        const observedQuantity = (holding: (typeof externalSuggestion.asset.holdings)[number]) =>
+          holding.positionSource === "PLUGGY"
+            ? providerQuantityByHolding.get(holding.id) ?? new Prisma.Decimal(0)
+            : holding.quantity;
+        const baselineQuantity = externalSuggestion.asset.holdings
+          .filter((holding) => holding.positionSource !== "MANUAL" && holding.includedInTotals)
+          .reduce((total, holding) => total.add(observedQuantity(holding)), new Prisma.Decimal(0));
         await tx.contributionSuggestion.update({
           where: { id: externalSuggestion.id },
           data: {
@@ -2074,7 +2085,7 @@ export async function executeContributionAction(
                 .filter((holding) => holding.positionSource !== "MANUAL" && holding.includedInTotals)
                 .map((holding) => ({
                   holdingId: holding.id,
-                  quantity: holding.quantity,
+                  quantity: observedQuantity(holding),
                   providerValue: holding.providerCurrentValue ?? holding.currentValue,
                   currency: holding.currency,
                   fxRateToBrl: holding.currency === "BRL"

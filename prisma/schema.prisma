@@ -83,6 +83,7 @@ enum PluggyInvestmentMetadataOverrideField {
   RATE_TERMS
   PURCHASE_DATE
   MATURITY_DATE
+  QUANTITY
 }
 
 enum PluggyDiagramMappingStatus {
@@ -1107,6 +1108,7 @@ model PluggyInvestmentDiagramLink {
   overrideRateValue        Decimal?                   @db.Decimal(12, 6)
   overridePurchaseDate     DateTime?
   overrideMaturityDate     DateTime?
+  overrideQuantity         Decimal?                   @db.Decimal(30, 10)
   metadataOverrideUpdatedAt DateTime?
   lastReconciledAt         DateTime?
   createdAt                DateTime                   @default(now())

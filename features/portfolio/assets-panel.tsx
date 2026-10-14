@@ -124,6 +124,20 @@ type HoldingTransactionsState = {
   error?: string;
 };
 
+function TemporaryQuantityBadge({ metadata }: { metadata: AssetHoldingDto["connectedMetadata"] }) {
+  if (!metadata?.overrideFields.includes("QUANTITY")) return null;
+  return <span className="text-[10px] font-semibold text-[var(--primary)]">Quantidade temporária</span>;
+}
+
+function ProviderQuantity({ metadata }: { metadata: AssetHoldingDto["connectedMetadata"] }) {
+  if (!metadata?.overrideFields.includes("QUANTITY")) return null;
+  return (
+    <span className="mt-1 block text-[10px] text-[var(--muted-foreground)]">
+      Instituição: {metadata.providerMetadata.quantity === null ? "não informada" : Number(metadata.providerMetadata.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 10 })}
+    </span>
+  );
+}
+
 const emptyAsset: FormAsset = {
   instrumentType: "STOCK",
   ticker: "",
@@ -223,7 +237,7 @@ function reviewMoney(value: string, currency: string) {
 }
 
 function reviewDecimal(value: string) {
-  return Number(value).toLocaleString("pt-BR", { maximumFractionDigits: 8 });
+  return Number(value).toLocaleString("pt-BR", { maximumFractionDigits: 10 });
 }
 
 function MoneyWithNative({
@@ -1384,7 +1398,7 @@ export function AssetsPanel({
                         <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Valor atual</dt><dd className="mt-1"><MoneyWithNative brl={asset.currentValue} native={asset.nativeCurrentValue} currency={asset.nativeCurrency} strong /></dd></div>
                         <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">% da carteira</dt><dd className="mt-1 font-semibold">{formatPercent(total ? currentValue(asset) / total * 100 : 0)}</dd></div>
                         <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Nota</dt><dd className="mt-1 flex items-center gap-2 font-semibold">{asset.score}{asset.needsScore && <span className="text-[10px] font-normal text-[var(--primary)]">Revisar</span>}</dd></div>
-                        <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">{showsApplicationCount ? "Aplicações" : "Quantidade"}</dt><dd className="mt-1 font-semibold">{showsApplicationCount ? asset.holdings.length : Number(asset.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 8 })}</dd></div>
+                        <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">{showsApplicationCount ? "Aplicações" : "Quantidade"}</dt><dd className="mt-1 font-semibold">{showsApplicationCount ? asset.holdings.length : Number(asset.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 10 })}</dd></div>
                         <div className="col-span-2"><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Atualizado</dt><dd className="mt-1 text-xs">{reviewDate(asset.priceUpdatedAt ?? asset.updatedAt, timeZone)}</dd></div>
                       </dl>
                     </div>
@@ -1427,7 +1441,8 @@ export function AssetsPanel({
                                 {holding.positionSource !== "MANUAL"
                                   ? <div className="flex shrink-0 flex-col items-end gap-1">
                                       <span className="rounded-full bg-[var(--primary)]/12 px-2 py-1 text-[10px] font-semibold text-[var(--primary)]">{holding.positionSource === "BINANCE" ? "Binance" : pluggyInvestmentSourceLabel(holding.providerInvestmentSource)}</span>
-                                      {holding.connectedMetadata?.overrideFields.length ? <span className="text-[10px] font-semibold text-[var(--primary)]">Editado manualmente</span> : null}
+                                      <TemporaryQuantityBadge metadata={holding.connectedMetadata} />
+                                      {holding.connectedMetadata?.overrideFields.some((field) => field !== "QUANTITY") ? <span className="text-[10px] font-semibold text-[var(--primary)]">Editado manualmente</span> : null}
                                       {holding.connectedMetadata && (
                                         <Button variant="ghost" size="sm" onClick={() => setMetadataEditor(holding.connectedMetadata)}>
                                           <Pencil className="size-3.5" /> Informações
@@ -1441,7 +1456,7 @@ export function AssetsPanel({
                                 {holding.institution && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Instituição</dt><dd className="mt-1">{holding.institution}</dd></div>}
                                 <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Atual</dt><dd className="mt-1"><MoneyWithNative brl={holding.currentValue} native={holding.nativeCurrentValue} currency={holding.currency} strong /></dd></div>
                                 {holding.investedValue !== null && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Investido</dt><dd className="mt-1">{formatMoney(holding.investedValue)}</dd></div>}
-                                {["STOCK", "ETF", "REAL_ESTATE_FUND", "REIT", "CRYPTO"].includes(asset.instrumentType) && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Quantidade atual</dt><dd className="mt-1">{Number(holding.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 8 })}</dd></div>}
+                                {["STOCK", "ETF", "REAL_ESTATE_FUND", "REIT", "CRYPTO"].includes(asset.instrumentType) && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Quantidade atual</dt><dd className="mt-1">{Number(holding.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 10 })}<ProviderQuantity metadata={holding.connectedMetadata} /></dd></div>}
                                 {displayedAveragePrice !== null && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Preço médio</dt><dd className="mt-1">{formatMoney(displayedAveragePrice)}{displayedAveragePriceCoverage < 0.999 && <span className="block text-[9px] text-[var(--primary)]">Histórico parcial</span>}</dd></div>}
                                 {holdingProfitability(holding) && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Rentabilidade</dt><dd className="mt-1">{holdingProfitability(holding)}</dd></div>}
                                 {holding.purchaseDate && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Compra</dt><dd className="mt-1">{reviewDate(holding.purchaseDate, timeZone)}</dd></div>}
@@ -1565,7 +1580,7 @@ export function AssetsPanel({
                             <span className="grid size-8 place-items-center rounded-full bg-[var(--muted)] font-semibold">{asset.score}</span>
                             {asset.needsScore && <span className="mt-1 block text-[10px] text-[var(--primary)]">Revisar nota</span>}
                           </td>
-                          <td className="whitespace-nowrap px-3">{showsApplicationCount ? `${asset.holdings.length} aplic.` : Number(asset.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 8 })}</td>
+                          <td className="whitespace-nowrap px-3">{showsApplicationCount ? `${asset.holdings.length} aplic.` : Number(asset.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 10 })}</td>
                           <td className="whitespace-nowrap px-3 text-xs text-[var(--muted-foreground)]">
                             <span className="block">{reviewDate(asset.priceUpdatedAt ?? asset.updatedAt, timeZone)}</span>
                             {asset.awaitingSyncContribution && (
@@ -1650,7 +1665,7 @@ export function AssetsPanel({
                                               </span>
                                             )}
                                           </td>
-                                          {holdingColumns.quantity && <td className="whitespace-nowrap px-3 py-3">{Number(holding.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 8 })}</td>}
+                                          {holdingColumns.quantity && <td className="whitespace-nowrap px-3 py-3">{Number(holding.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 10 })}<ProviderQuantity metadata={holding.connectedMetadata} /></td>}
                                           {holdingColumns.averagePrice && (
                                             <td className="whitespace-nowrap px-3 py-3">
                                               {displayedAveragePrice === null
@@ -1676,7 +1691,8 @@ export function AssetsPanel({
                                           <td className="px-3 py-3">
                                             {holding.positionSource !== "MANUAL"
                                               ? <div className="flex flex-col items-end gap-1 text-right"><span className="rounded-full bg-[var(--primary)]/12 px-2 py-1 text-[10px] font-semibold text-[var(--primary)]">{holding.positionSource === "BINANCE" ? "Binance" : "Pluggy"}</span>{holding.institution && <span className="block text-[10px] font-medium">{holding.institution}</span>}<span className="block text-[10px] text-[var(--muted-foreground)]">{holding.providerStatus ?? "Sincronizado"}</span>
-                                                  {holding.connectedMetadata?.overrideFields.length ? <span className="text-[10px] font-semibold text-[var(--primary)]">Editado manualmente</span> : null}
+                                                  <TemporaryQuantityBadge metadata={holding.connectedMetadata} />
+                                                  {holding.connectedMetadata?.overrideFields.some((field) => field !== "QUANTITY") ? <span className="text-[10px] font-semibold text-[var(--primary)]">Editado manualmente</span> : null}
                                                   {holding.connectedMetadata && (
                                                     <Button variant="ghost" size="sm" onClick={() => setMetadataEditor(holding.connectedMetadata)}>
                                                       <Pencil className="size-3.5" /> Informações

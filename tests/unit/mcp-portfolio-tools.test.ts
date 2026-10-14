@@ -123,6 +123,36 @@ describe("read-only MCP portfolio valuation", () => {
 });
 
 describe("MCP portfolio ownership and DTO safety", () => {
+  it("identifies temporary quantities without replacing the original provider snapshot", async () => {
+    database.assetHolding.findFirst.mockResolvedValue({
+      ...holding({
+        positionSource: "PLUGGY", quantity: amount(110), providerCurrentValue: amount(0),
+        pluggyDiagramLink: {
+          id: "link-1", status: "MAPPED", metadataOverrideFields: ["QUANTITY"],
+          overrideQuantity: amount(110), metadataOverrideUpdatedAt: date,
+          investment: {
+            name: "VIVA3", type: "EQUITY", subtype: "STOCK", issuer: null, institutionName: "Inter",
+            source: "INVESTMENTS_API", status: "TOTAL_WITHDRAWAL", providerAvailable: true,
+            currencyCode: "BRL", balance: amount(0), quantity: amount(0), amountOriginal: null,
+            rate: null, rateType: null, fixedAnnualRate: null, annualRate: null,
+            purchaseDate: null, dueDate: null, providerUpdatedAt: date, updatedAt: date,
+            item: { institutionName: "Inter", connectorName: "MeuPluggy", displayName: null, lastSyncAt: date, syncPending: false },
+            _count: { transactions: 2 },
+          },
+        },
+      }), asset: asset(),
+    });
+
+    const result = await run("get_holding_details", { holdingId: "holding-1" });
+    expect(result.holding).toMatchObject({
+      quantity: "110", currentValueBrl: "1100", includedInTotals: true,
+      quantityOverride: {
+        quantity: "110", providerQuantity: "0", source: "USER_OVERRIDE", restoresAutomatically: false,
+      },
+      providerMetadata: { quantity: "0", balanceNative: "0", status: "TOTAL_WITHDRAWAL" },
+    });
+  });
+
   it("rejects unavailable positions without returning another user's record", async () => {
     database.assetHolding.findFirst.mockResolvedValue(null);
     await expect(run("get_holding_details", { holdingId: "foreign-holding" })).rejects.toMatchObject({ code: "NOT_FOUND", status: 404 });

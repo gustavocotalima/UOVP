@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { type UserOperationLeaseContext, withUserOperationLease } from "@/lib/operation-security";
 import { prisma } from "@/lib/prisma";
 import { PLUGGY_DIAGRAM_EXCLUSION_REASON } from "./diagram-exclusion";
+import { hasPluggyQuantityOverride } from "./investment-quantity-override";
 
 async function invalidatePortfolioAfterDisconnection(
   tx: Prisma.TransactionClient,
@@ -73,6 +74,7 @@ async function markPluggyItemDisconnectedUnlocked(
       investment.status === "ACTIVE"
       && investment.diagramLink?.status === "MAPPED"
       && investment.diagramLink.holding
+      && !hasPluggyQuantityOverride(investment.diagramLink)
         ? [investment.diagramLink.holding.id]
         : [],
     );
@@ -162,7 +164,11 @@ async function resolvePluggyItemDisconnectionUnlocked(
             pricingSource: entry.holding.pricingSource === "PLUGGY" ? "MANUAL" : entry.holding.pricingSource,
             currentValue: entry.holding.pricingSource === "PLUGGY" ? providerValue : entry.holding.currentValue,
             providerCurrentValue: null,
-            includedInTotals: !userExcluded && entry.investment.status === "ACTIVE",
+            includedInTotals: !userExcluded && (
+              hasPluggyQuantityOverride(entry.link)
+                ? entry.holding.includedInTotals
+                : entry.investment.status === "ACTIVE"
+            ),
             supersededAt: null,
           },
         });
@@ -184,6 +190,7 @@ async function resolvePluggyItemDisconnectionUnlocked(
             overrideRateValue: null,
             overridePurchaseDate: null,
             overrideMaturityDate: null,
+            overrideQuantity: null,
             metadataOverrideUpdatedAt: null,
           } : {}),
           reviewReason: userExcluded

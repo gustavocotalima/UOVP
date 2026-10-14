@@ -5,7 +5,8 @@ export type PluggyInvestmentMetadataOverrideField =
   | "PRODUCT_TYPE"
   | "RATE_TERMS"
   | "PURCHASE_DATE"
-  | "MATURITY_DATE";
+  | "MATURITY_DATE"
+  | "QUANTITY";
 
 export type ConnectedInvestmentMetadataDto = {
   linkId: string;
@@ -15,7 +16,10 @@ export type ConnectedInvestmentMetadataDto = {
   instrumentType: InstrumentTypeKey;
   fixedIncomeFamilyCode: string | null;
   canEditMetadata: boolean;
+  canEditQuantity: boolean;
+  quantityStep: number;
   effectiveMetadata: {
+    quantity: string;
     productName: string;
     issuer: string;
     catalogItemId: number | null;
@@ -27,6 +31,7 @@ export type ConnectedInvestmentMetadataDto = {
     maturityDate: string | null;
   };
   providerMetadata: {
+    quantity: string | null;
     productName: string;
     issuer: string;
     type: string;

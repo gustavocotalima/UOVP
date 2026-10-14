@@ -35,6 +35,7 @@ type FormState = {
   };
   purchaseDate: { mode: Mode; value: string };
   maturityDate: { mode: Mode; value: string };
+  quantity: { mode: Mode; value: string };
 };
 
 function has(fields: PluggyInvestmentMetadataOverrideField[], field: PluggyInvestmentMetadataOverrideField) {
@@ -47,6 +48,10 @@ function dateInput(value: string | null) {
 
 function initialForm(metadata: ConnectedInvestmentMetadataDto): FormState {
   return {
+    quantity: {
+      mode: has(metadata.overrideFields, "QUANTITY") ? "CUSTOM" : "PROVIDER",
+      value: metadata.effectiveMetadata.quantity,
+    },
     productName: {
       mode: has(metadata.overrideFields, "PRODUCT_NAME") ? "CUSTOM" : "PROVIDER",
       value: metadata.effectiveMetadata.productName,
@@ -110,21 +115,30 @@ function toPayload(
     },
     purchaseDate: { mode: form.purchaseDate.mode, value: form.purchaseDate.value || null },
     maturityDate: { mode: form.maturityDate.mode, value: form.maturityDate.value || null },
+    ...(metadata.canEditQuantity || (has(metadata.overrideFields, "QUANTITY") && form.quantity.mode === "PROVIDER") ? {
+      quantity: {
+        mode: form.quantity.mode,
+        value: form.quantity.value === "" ? null : Number(form.quantity.value),
+      },
+    } : {}),
   };
 }
 
 function FieldMode({
   checked,
   onChange,
+  disabled = false,
 }: {
   checked: boolean;
   onChange: (checked: boolean) => void;
+  disabled?: boolean;
 }) {
   return (
     <label className="flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
       <input
         type="checkbox"
         checked={checked}
+        disabled={disabled}
         onChange={(event) => onChange(event.target.checked)}
         className="size-4 accent-[var(--primary)]"
       />
@@ -179,6 +193,16 @@ export function InvestmentMetadataEditor({
 
   function submit(event: FormEvent) {
     event.preventDefault();
+    if (metadata!.canEditQuantity && form!.quantity.mode === "CUSTOM") {
+      const quantity = Number(form!.quantity.value);
+      if (form!.quantity.value.trim() === "" || !Number.isFinite(quantity) || quantity < 0
+        || (metadata!.quantityStep === 1 && !Number.isInteger(quantity))) {
+        setMessage(metadata!.quantityStep === 1
+          ? "Informe uma quantidade inteira maior ou igual a zero."
+          : "Informe uma quantidade válida maior ou igual a zero.");
+        return;
+      }
+    }
     save(form!);
   }
 
@@ -188,6 +212,7 @@ export function InvestmentMetadataEditor({
     providerForm.issuer.value = metadata!.providerMetadata.issuer;
     providerForm.purchaseDate.value = dateInput(metadata!.providerMetadata.purchaseDate);
     providerForm.maturityDate.value = dateInput(metadata!.providerMetadata.maturityDate);
+    providerForm.quantity.value = metadata!.providerMetadata.quantity ?? "0";
     setConfirmRestore(false);
     save(providerForm);
   }
@@ -218,7 +243,9 @@ export function InvestmentMetadataEditor({
           <div className="rounded-xl border bg-[var(--muted)]/25 p-4 text-sm">
             <strong>{metadata.effectiveMetadata.productName}</strong>
             <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-              Os valores financeiros e as movimentações continuam controlados pela instituição.
+              {metadata.canEditQuantity || has(metadata.overrideFields, "QUANTITY")
+                ? "O saldo e as movimentações originais da instituição são preservados. Uma quantidade temporária altera somente a posição usada na Carteira."
+                : "Os valores financeiros e as movimentações continuam controlados pela instituição."}
             </p>
           </div>
 
@@ -228,6 +255,41 @@ export function InvestmentMetadataEditor({
             </p>
           )}
           <div className="grid gap-5 sm:grid-cols-2">
+            {(metadata.canEditQuantity || has(metadata.overrideFields, "QUANTITY")) && (
+              <div className="space-y-2 rounded-xl border border-[var(--primary)]/30 p-4 sm:col-span-2">
+                <Label htmlFor="metadata-quantity">Quantidade temporária</Label>
+                <Input
+                  id="metadata-quantity"
+                  type="number"
+                  min="0"
+                  step={metadata.quantityStep}
+                  value={form.quantity.value}
+                  disabled={!metadata.canEditQuantity || form.quantity.mode === "PROVIDER"}
+                  required={form.quantity.mode === "CUSTOM"}
+                  onChange={(event) => setForm({ ...form, quantity: { ...form.quantity, value: event.target.value } })}
+                  aria-describedby="metadata-quantity-help"
+                />
+                <p className="text-xs text-[var(--muted-foreground)]">
+                  Quantidade informada pela instituição: {metadata.providerMetadata.quantity === null ? "Não informada" : Number(metadata.providerMetadata.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 10 })}
+                </p>
+                <FieldMode
+                  checked={form.quantity.mode === "CUSTOM"}
+                  disabled={!metadata.canEditQuantity && form.quantity.mode === "PROVIDER"}
+                  onChange={(checked) => setForm({ ...form, quantity: {
+                    mode: checked ? "CUSTOM" : "PROVIDER",
+                    value: checked ? form.quantity.value : metadata.providerMetadata.quantity ?? "0",
+                  } })}
+                />
+                {!metadata.canEditQuantity && (
+                  <p className="text-xs text-[var(--muted-foreground)]">
+                    Esta posição não aceita uma nova quantidade temporária. Você pode restaurar a quantidade da instituição.
+                  </p>
+                )}
+                <p id="metadata-quantity-help" className="text-xs text-[var(--muted-foreground)]">
+                  A Carteira e o diagrama usarão esta quantidade com a cotação de mercado. Ela será mantida nas próximas sincronizações até você restaurar o valor da instituição. Zero retira a posição dos totais. Os dados da Pluggy não serão alterados. Nenhuma movimentação será criada ou alterada, e esta correção não confirma aportes aguardando sincronização.
+                </p>
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="metadata-product-name">Nome / descrição</Label>
               <Input id="metadata-product-name" value={form.productName.value} disabled={form.productName.mode === "PROVIDER"} onChange={(event) => setForm({ ...form, productName: { ...form.productName, value: event.target.value } })} />

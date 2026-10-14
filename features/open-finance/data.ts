@@ -218,7 +218,7 @@ export async function getOpenFinanceData(userId: string) {
       transactionCount: investment._count.transactions,
       connectedMetadata: connectedInvestmentMetadataDto({
         link: investment.diagramLink,
-        investment,
+        investment: { ...investment, item },
         holding: investment.diagramLink?.holding ?? null,
         providerIssuer: investment.source === "INVESTMENTS_API"
           ? resolvePluggyInvestmentIssuer(
