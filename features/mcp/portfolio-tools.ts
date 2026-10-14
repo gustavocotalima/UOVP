@@ -57,6 +57,7 @@ const holdingSelect = {
   catalogItem: { select: { name: true } },
   pluggyDiagramLink: { select: {
     id: true, status: true, metadataOverrideFields: true, metadataOverrideUpdatedAt: true,
+    overrideQuantity: true,
     investment: { select: providerSelect },
   } },
   binanceWalletAsset: { select: {
@@ -197,6 +198,12 @@ function holdingDto(holding: Holding) {
       updatedAt: iso(provider.providerUpdatedAt ?? provider.updatedAt),
     } : null,
     overrideFields: link?.metadataOverrideFields ?? [],
+    quantityOverride: link?.metadataOverrideFields.includes("QUANTITY") ? {
+      quantity: link.overrideQuantity?.toString() ?? null,
+      providerQuantity: provider?.quantity?.toString() ?? null,
+      source: "USER_OVERRIDE",
+      restoresAutomatically: false,
+    } : null,
     metadataOverrideUpdatedAt: iso(link?.metadataOverrideUpdatedAt),
     importedOperationCount: provider?._count.transactions ?? 0,
     operationHistoryWarning: historyWarning,

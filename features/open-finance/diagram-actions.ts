@@ -17,12 +17,20 @@ import {
   RATE_CONVENTIONS,
 } from "@/features/portfolio/constants";
 import { bumpPortfolioAndInvalidateDrafts } from "@/features/portfolio/invalidation";
+import { allowsFractionalUnits } from "@/features/portfolio/fractional-assets";
 import { reconcilePluggyInvestmentsForUser } from "./diagram-sync";
 import { markPluggyItemDisconnected, resolvePluggyItemDisconnection } from "./disconnection";
 import { PLUGGY_DIAGRAM_EXCLUSION_REASON } from "./diagram-exclusion";
 import { deletePluggyItem, PluggyApiError } from "./pluggy";
 import { requirePluggyCredentials } from "./pluggy-credentials";
 import { resolvePluggyInstitutionName } from "./institution-logo";
+import { canEditPluggyInvestmentQuantity } from "./investment-quantity-override";
+import {
+  hasPluggyQuantityQuoteFx,
+  resolvePluggyQuantityQuote,
+  storedPluggyQuantityQuote,
+  type PluggyQuantityQuote,
+} from "./investment-quantity-quote";
 
 const reviewSchema = z.object({
   linkId: z.string().cuid(),
@@ -81,7 +89,17 @@ const metadataOverrideSchema = z.object({
   }),
   purchaseDate: overrideDateSchema,
   maturityDate: overrideDateSchema,
+  quantity: z.object({
+    mode: overrideModeSchema,
+    value: z.number().finite().min(0).max(1e15).refine(
+      (value) => new Prisma.Decimal(value).decimalPlaces() <= 10,
+      "Informe uma quantidade com no máximo 10 casas decimais.",
+    ).nullable(),
+  }).optional(),
 }).superRefine((value, context) => {
+  if (value.quantity?.mode === "CUSTOM" && value.quantity.value === null) {
+    context.addIssue({ code: "custom", path: ["quantity", "value"], message: "Informe a quantidade temporária." });
+  }
   if (value.productName.mode === "CUSTOM" && (!value.productName.value || value.productName.value.length < 2)) {
     context.addIssue({ code: "custom", path: ["productName", "value"], message: "Informe o nome do produto." });
   }
@@ -114,6 +132,52 @@ const metadataOverrideSchema = z.object({
 
 export type PluggyDiagramReviewInput = z.input<typeof reviewSchema>;
 export type PluggyInvestmentMetadataOverrideInput = z.input<typeof metadataOverrideSchema>;
+
+const metadataLinkInclude = {
+  investment: {
+    include: { item: { select: { userId: true, status: true, disconnectedAt: true } } },
+  },
+  holding: {
+    include: {
+      asset: { include: { portfolio: { select: { userId: true } }, holdings: true } },
+    },
+  },
+} satisfies Prisma.PluggyInvestmentDiagramLinkInclude;
+
+async function readOwnedMetadataLink(
+  client: Pick<Prisma.TransactionClient, "pluggyInvestmentDiagramLink">,
+  userId: string,
+  parsed: z.output<typeof metadataOverrideSchema>,
+) {
+  const link = await client.pluggyInvestmentDiagramLink.findFirst({
+    where: { id: parsed.linkId, userId },
+    include: metadataLinkInclude,
+  });
+  if (!link?.holding
+    || link.userId !== userId
+    || link.investment.item.userId !== userId
+    || link.holding.asset.portfolio.userId !== userId) {
+    throw new Error("Investimento conectado não encontrado na carteira.");
+  }
+  if (link.updatedAt.getTime() !== parsed.expectedUpdatedAt.getTime()) {
+    throw new Error("Os dados deste investimento mudaram. Reabra a edição e tente novamente.");
+  }
+  return { ...link, holding: link.holding };
+}
+
+function assertCustomQuantityAllowed(link: Awaited<ReturnType<typeof readOwnedMetadataLink>>, value: number) {
+  if (!canEditPluggyInvestmentQuantity({ link, investment: link.investment, holding: link.holding })) {
+    throw new Error("A quantidade temporária está disponível apenas para posições de mercado vinculadas a uma conexão ativa.");
+  }
+  if (!allowsFractionalUnits({
+    instrumentType: link.holding.asset.instrumentType,
+    investmentClass: link.holding.asset.investmentClass,
+    pricingSource: link.holding.pricingSource,
+    fallback: link.holding.fractional,
+  }) && !new Prisma.Decimal(value).isInteger()) {
+    throw new Error("Este investimento aceita apenas quantidades inteiras.");
+  }
+}
 
 const connectionDisplayNameSchema = z.object({
   itemId: z.string().cuid(),
@@ -282,30 +346,77 @@ export async function savePluggyInvestmentMetadataOverridesAction(
     operation: "pluggy-sync",
     leaseMs: 60_000,
     action: async (lease) => {
+      let recoveredQuote: { quote: PluggyQuantityQuote; assetId: string; ticker: string } | null = null;
+      if (parsed.quantity?.mode === "CUSTOM" && parsed.quantity.value! > 0) {
+        // Validate before any public quote access, and keep network work outside SQL.
+        const ownedLink = await readOwnedMetadataLink(prisma, userId, parsed);
+        assertCustomQuantityAllowed(ownedLink, parsed.quantity.value!);
+        recoveredQuote = {
+          assetId: ownedLink.holding.assetId,
+          ticker: ownedLink.holding.asset.ticker,
+          quote: await resolvePluggyQuantityQuote({
+            userId,
+            ticker: ownedLink.holding.asset.ticker,
+            holding: ownedLink.holding,
+            manualHoldings: ownedLink.holding.asset.holdings.filter((candidate) => candidate.positionSource === "MANUAL"),
+            signal: lease.signal,
+          }),
+        };
+      }
       await lease.runFencedTransaction(async (tx) => {
-        const link = await tx.pluggyInvestmentDiagramLink.findFirst({
-          where: { id: parsed.linkId, userId },
-          include: {
-            investment: {
-              include: {
-                item: { select: { userId: true } },
+        // Re-read ownership, eligibility and the optimistic version after recovery.
+        const link = await readOwnedMetadataLink(tx, userId, parsed);
+
+        if (parsed.quantity) {
+          const canEditQuantity = canEditPluggyInvestmentQuantity({
+            link,
+            investment: link.investment,
+            holding: link.holding,
+          });
+          if (parsed.quantity.mode === "CUSTOM") assertCustomQuantityAllowed(link, parsed.quantity.value!);
+          if (parsed.quantity.mode === "PROVIDER"
+            && link.metadataOverrideFields.includes("QUANTITY")
+            && !canEditQuantity) {
+            // Clearing a correction must stay possible after removal or exclusion;
+            // it must not make that position active again.
+            await tx.assetHolding.update({
+              where: { id: link.holding.id },
+              data: {
+                quantity: link.investment.quantity ?? new Prisma.Decimal(0),
+                includedInTotals: false,
               },
-            },
-            holding: {
-              include: {
-                asset: {
-                  include: { portfolio: { select: { userId: true } } },
+            });
+            await bumpPortfolioAndInvalidateDrafts(tx, link.holding.asset.portfolioId, userId);
+          }
+          if (parsed.quantity.mode === "CUSTOM") {
+            const quantity = new Prisma.Decimal(parsed.quantity.value!);
+            if (quantity.gt(0)) {
+              if (!recoveredQuote
+                || recoveredQuote.assetId !== link.holding.assetId
+                || recoveredQuote.ticker !== link.holding.asset.ticker) {
+                throw new Error("Os dados deste investimento mudaram. Reabra a edição e tente novamente.");
+              }
+              const stored = storedPluggyQuantityQuote([
+                link.holding,
+                ...link.holding.asset.holdings.filter((candidate) => candidate.positionSource === "MANUAL"),
+              ]);
+              const quote = stored && hasPluggyQuantityQuoteFx(stored)
+                && stored.priceUpdatedAt!.getTime() >= recoveredQuote.quote.priceUpdatedAt!.getTime()
+                ? stored
+                : recoveredQuote.quote;
+              await tx.assetHolding.update({
+                where: { id: link.holding.id },
+                data: {
+                  pricingSource: quote.pricingSource,
+                  unitPrice: quote.unitPrice,
+                  currency: quote.currency,
+                  fxRateToBrl: quote.fxRateToBrl,
+                  fxUpdatedAt: quote.fxUpdatedAt,
+                  priceUpdatedAt: quote.priceUpdatedAt,
                 },
-              },
-            },
-          },
-        });
-        if (!link?.holding) throw new Error("Investimento conectado não encontrado na carteira.");
-        if (link.investment.item.userId !== userId || link.holding.asset.portfolio.userId !== userId) {
-          throw new Error("Investimento conectado não encontrado na carteira.");
-        }
-        if (link.updatedAt.getTime() !== parsed.expectedUpdatedAt.getTime()) {
-          throw new Error("Os dados deste investimento mudaram. Reabra a edição e tente novamente.");
+              });
+            }
+          }
         }
 
         const fixedIncome = link.holding.asset.instrumentType === "FIXED_INCOME";
@@ -344,6 +455,10 @@ export async function savePluggyInvestmentMetadataOverridesAction(
         if (parsed.rateTerms.mode === "CUSTOM") fields.push("RATE_TERMS");
         if (parsed.purchaseDate.mode === "CUSTOM") fields.push("PURCHASE_DATE");
         if (parsed.maturityDate.mode === "CUSTOM") fields.push("MATURITY_DATE");
+        if (parsed.quantity?.mode === "CUSTOM"
+          || (!parsed.quantity && link.metadataOverrideFields.includes("QUANTITY"))) {
+          fields.push("QUANTITY");
+        }
         const now = new Date();
 
         if (link.metadataOverrideFields.includes("RATE_TERMS") && parsed.rateTerms.mode === "PROVIDER") {
@@ -370,6 +485,11 @@ export async function savePluggyInvestmentMetadataOverridesAction(
               : null,
             overridePurchaseDate: parsed.purchaseDate.mode === "CUSTOM" ? parsed.purchaseDate.value : null,
             overrideMaturityDate: parsed.maturityDate.mode === "CUSTOM" ? parsed.maturityDate.value : null,
+            ...(parsed.quantity ? {
+              overrideQuantity: parsed.quantity.mode === "CUSTOM"
+                ? new Prisma.Decimal(parsed.quantity.value!)
+                : null,
+            } : {}),
             metadataOverrideUpdatedAt: fields.length ? now : null,
           },
         });

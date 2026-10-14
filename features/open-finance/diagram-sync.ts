@@ -21,10 +21,15 @@ import { shouldReconcileExcludedPluggyPosition } from "./diagram-exclusion";
 import { canReconcileChangedProviderSnapshot } from "./contribution-reconciliation";
 import { resolvePluggyInvestmentIssuer } from "./institution-logo";
 import { selectLatestPluggyMarketQuote } from "./market-quote";
+import {
+  canEditPluggyInvestmentQuantity,
+  effectivePluggyQuantity,
+  hasPluggyQuantityOverride,
+} from "./investment-quantity-override";
 
 type InvestmentWithItem = Prisma.PluggyInvestmentGetPayload<{
   include: {
-    item: { select: { connectorName: true; institutionName: true } };
+    item: { select: { connectorName: true; institutionName: true; status: true; disconnectedAt: true } };
     diagramLink: { include: { holding: { include: { asset: true } } } };
   };
 }>;
@@ -235,6 +240,17 @@ function applyMetadataOverrides(
   if (fields.has("MATURITY_DATE")) {
     data.maturityDate = link.overrideMaturityDate;
   }
+  if (hasPluggyQuantityOverride(link) && canEditPluggyInvestmentQuantity({
+    link,
+    investment,
+    holding: link.holding,
+  })) {
+    data.quantity = effectivePluggyQuantity(investment.quantity, link);
+    data.includedInTotals = data.quantity.gt(0)
+      && data.unitPrice.isFinite()
+      && data.unitPrice.gt(0)
+      && (data.currency === "BRL" || (data.fxRateToBrl?.isFinite() === true && data.fxRateToBrl.gt(0)));
+  }
 
   return data;
 }
@@ -276,12 +292,15 @@ async function confirmAwaitingSuggestions(
     const pluggyHoldings = suggestion.asset.holdings.filter((holding) => holding.positionSource === "PLUGGY");
     const holdingById = new Map(pluggyHoldings.map((holding) => [holding.id, holding]));
     const detailedBaselines = suggestion.externalBaselines;
-    const currentQuantity = pluggyHoldings.reduce((total, holding) => total.add(holding.quantity), new Prisma.Decimal(0));
+    // User corrections are not evidence of a provider-confirmed contribution.
+    const providerQuantity = (holding: typeof pluggyHoldings[number]) =>
+      holding.pluggyDiagramLink?.investment.quantity ?? new Prisma.Decimal(0);
+    const currentQuantity = pluggyHoldings.reduce((total, holding) => total.add(providerQuantity(holding)), new Prisma.Decimal(0));
     const quantityIncrease = detailedBaselines.length
       ? detailedBaselines.reduce((total, baseline) => {
           const holding = holdingById.get(baseline.holdingId);
           return holding
-            ? total.add(Prisma.Decimal.max(0, holding.quantity.sub(baseline.quantity)))
+            ? total.add(Prisma.Decimal.max(0, providerQuantity(holding).sub(baseline.quantity)))
             : total;
         }, new Prisma.Decimal(0))
       : suggestion.baselineQuantity != null
@@ -401,13 +420,20 @@ export async function reconcilePluggyInvestmentsForUser(
   const investments = await prisma.pluggyInvestment.findMany({
     where: { item: { userId } },
     include: {
-      item: { select: { connectorName: true, institutionName: true } },
+      item: { select: { connectorName: true, institutionName: true, status: true, disconnectedAt: true } },
       diagramLink: { include: { holding: { include: { asset: true } } } },
     },
     orderBy: [{ type: "asc" }, { name: "asc" }],
   });
   const foreignCurrencies = [...new Set(investments.flatMap((investment) => {
-    if (!isPluggyPositionActive(investment)) return [];
+    const quantityOverride = hasPluggyQuantityOverride(investment.diagramLink)
+      && canEditPluggyInvestmentQuantity({
+        link: investment.diagramLink,
+        investment,
+        holding: investment.diagramLink?.holding ?? null,
+      });
+    if (!isPluggyPositionActive(investment) && !quantityOverride) return [];
+    if (quantityOverride && !effectivePluggyQuantity(investment.quantity, investment.diagramLink).gt(0)) return [];
     let classification = classifyPluggyInvestment(investment);
     if (investment.diagramLink?.classificationSource === "USER_OVERRIDE") {
       classification = {
@@ -485,9 +511,22 @@ export async function reconcilePluggyInvestmentsForUser(
           },
         },
       });
-      const active = isPluggyPositionActive(investment);
+      // A pending disconnection keeps its last effective position until the
+      // user chooses manual conversion or removal. Never recreate it here.
+      if (investment.item.status === "DELETED" || investment.item.disconnectedAt != null) continue;
+      const quantityOverride = hasPluggyQuantityOverride(existingLink)
+        && canEditPluggyInvestmentQuantity({
+          link: existingLink,
+          investment,
+          holding: existingLink?.holding ?? null,
+        });
+      const active = isPluggyPositionActive(investment) || quantityOverride;
       if (!active) {
-        if (existingLink?.holding?.includedInTotals) {
+        if (existingLink?.holding && (
+          existingLink.holding.includedInTotals
+          || !sameDecimal(existingLink.holding.quantity, decimal(investment.quantity))
+          || !sameDecimal(existingLink.holding.providerCurrentValue, investment.balance)
+        )) {
           await tx.assetHolding.update({
             where: { id: existingLink.holding.id },
             data: {
@@ -809,6 +848,7 @@ export async function reconcilePluggyInvestmentsForUser(
           : undefined);
       if (
         holdingCurrency !== "BRL"
+        && (!marketInstrument || effectivePluggyQuantity(investment.quantity, quantityOverride ? existingLink : null).gt(0))
         && !quoteHolding?.fxRateToBrl?.gt(0)
         && !resolvedFx
       ) {

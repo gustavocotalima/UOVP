@@ -64,6 +64,8 @@ export async function getPortfolioData(userId: string) {
                       select: {
                         institutionName: true,
                         connectorName: true,
+                        status: true,
+                        disconnectedAt: true,
                       },
                     },
                     _count: { select: { transactions: true } },
@@ -323,6 +325,7 @@ export async function getPortfolioData(userId: string) {
                   asset: {
                     instrumentType: asset.instrumentType,
                     fixedIncomeFamilyCode: asset.fixedIncomeFamilyCode,
+                    investmentClass: asset.investmentClass,
                   },
                 },
                 providerIssuer: resolvePluggyInvestmentIssuer(

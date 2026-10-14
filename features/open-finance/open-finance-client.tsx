@@ -740,6 +740,7 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
           <InvestmentPortfolio
             investments={data.investments.filter((investment) =>
               (investment.status === "ACTIVE" && investment.providerAvailable)
+              || hasActiveTemporaryQuantity(investment)
               || (showSoldInvestments && investment.status === "TOTAL_WITHDRAWAL"),
             )}
             total={data.totals.investments}
@@ -955,7 +956,7 @@ function investmentSubtype(value: string | null, type: string) {
   return labels[normalized] ?? normalized.replaceAll("_", " ");
 }
 
-function decimal(value: string | null, maximumFractionDigits = 8) {
+function decimal(value: string | null, maximumFractionDigits = 10) {
   if (value === null) return "—";
   return Number(value).toLocaleString("pt-BR", { maximumFractionDigits });
 }
@@ -984,6 +985,16 @@ function rate(investment: Investment) {
   }
   if (investment.annualRate !== null) return `${percentage(investment.annualRate)} a.a.`;
   return "N/A";
+}
+
+function hasTemporaryQuantity(investment: Investment) {
+  return investment.connectedMetadata?.overrideFields.includes("QUANTITY") ?? false;
+}
+
+function hasActiveTemporaryQuantity(investment: Investment) {
+  return investment.connectedMetadata?.canEditQuantity
+    && hasTemporaryQuantity(investment)
+    && Number(investment.connectedMetadata.effectiveMetadata.quantity) > 0;
 }
 
 function effectiveRate(metadata: NonNullable<Investment["connectedMetadata"]>["effectiveMetadata"]) {
@@ -1032,7 +1043,7 @@ function InvestmentPortfolio({
   timeZone: string;
 }) {
   const groups = [...investments.reduce((map, investment) => {
-    const sold = investment.status === "TOTAL_WITHDRAWAL";
+    const sold = investment.status === "TOTAL_WITHDRAWAL" && !hasActiveTemporaryQuantity(investment);
     const label = `${sold ? "Vendidos · " : ""}${investmentGroup(investment.type)}`;
     map.set(label, [...(map.get(label) ?? []), investment]);
     return map;
@@ -1053,8 +1064,11 @@ function InvestmentPortfolio({
         <div className="flex items-center gap-3">
           <BriefcaseBusiness className="size-5 text-[var(--primary)]" />
           <div>
-            <CardTitle>Carteira ({investments.filter((investment) => investment.status === "ACTIVE" && investment.providerAvailable).length} ativos)</CardTitle>
-            <CardDescription>Posições e movimentações informadas diretamente pelas instituições.</CardDescription>
+            <CardTitle>Carteira ({investments.filter((investment) => (investment.status === "ACTIVE" && investment.providerAvailable) || hasActiveTemporaryQuantity(investment)).length} ativos)</CardTitle>
+            <CardDescription>
+              Posições e movimentações informadas diretamente pelas instituições.
+              {investments.some(hasTemporaryQuantity) && " Os totais abaixo mantêm os saldos da instituição; quantidades temporárias são usadas somente na Carteira e no diagrama."}
+            </CardDescription>
           </div>
         </div>
         <div className="flex flex-wrap items-center justify-between gap-3 @4xl:justify-end">
@@ -1098,12 +1112,15 @@ function InvestmentPortfolio({
                         <TrendingUp className="size-4 text-[var(--muted-foreground)]" />
                       </span>
                       <span className="min-w-0">
-                        <span className="flex min-w-0 items-center gap-2">
+                        <span className="flex min-w-0 flex-wrap items-center gap-2">
                           <strong className="block truncate text-sm">
                             {investment.connectedMetadata?.effectiveMetadata.productName ?? investment.name}
                           </strong>
-                          {sold && <span className="shrink-0 rounded-full bg-[var(--muted)] px-2 py-0.5 text-[10px] text-[var(--muted-foreground)]">Vendido</span>}
-                          {Boolean(investment.connectedMetadata?.overrideFields.length) && (
+                          {sold && <span className="shrink-0 rounded-full bg-[var(--muted)] px-2 py-0.5 text-[10px] text-[var(--muted-foreground)]">{hasActiveTemporaryQuantity(investment) ? "Resgate total na instituição" : "Vendido"}</span>}
+                          {hasTemporaryQuantity(investment) && (
+                            <span className="shrink-0 rounded-full bg-[var(--primary)]/12 px-2 py-0.5 text-[10px] text-[var(--primary)]">Quantidade temporária</span>
+                          )}
+                          {Boolean(investment.connectedMetadata?.overrideFields.some((field) => field !== "QUANTITY")) && (
                             <span className="shrink-0 rounded-full bg-[var(--primary)]/12 px-2 py-0.5 text-[10px] text-[var(--primary)]">Editado manualmente</span>
                           )}
                         </span>
@@ -1196,7 +1213,10 @@ function InvestmentDetails({
     investment.amountWithdrawal !== null ? { label: "Disponível para resgate", value: money(investment.amountWithdrawal, investment.currencyCode) } : null,
     investment.code ? { label: "Código / ticker", value: investment.code } : null,
     investment.isin ? { label: "ISIN", value: investment.isin } : null,
-    investment.quantity !== null ? { label: "Quantidade", value: decimal(investment.quantity) } : null,
+    investment.quantity !== null ? { label: hasTemporaryQuantity(investment) ? "Quantidade da instituição" : "Quantidade", value: decimal(investment.quantity) } : null,
+    hasTemporaryQuantity(investment) && effectiveMetadata
+      ? { label: "Quantidade usada na Carteira", value: decimal(effectiveMetadata.quantity) }
+      : null,
     investment.value !== null ? { label: "Valor unitário", value: money(investment.value, investment.currencyCode) } : null,
     investment.lastMonthRate !== null ? { label: "Rentabilidade no mês", value: percentage(investment.lastMonthRate) } : null,
     investment.lastTwelveMonthsRate !== null ? { label: "Rentabilidade em 12 meses", value: percentage(investment.lastTwelveMonthsRate) } : null,
@@ -1236,7 +1256,9 @@ function InvestmentDetails({
             </p>
             {investment.connectedMetadata.overrideFields.length > 0 && (
               <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-                Informações corrigidas manualmente para esta posição.
+                {hasTemporaryQuantity(investment)
+                  ? "A quantidade temporária é usada somente na Carteira e no diagrama. Saldos, status e movimentações abaixo continuam sendo os dados originais da instituição."
+                  : "Informações corrigidas manualmente para esta posição."}
               </p>
             )}
           </div>
@@ -1347,6 +1369,7 @@ function ProviderMetadataDetails({
     { label: "Produto", value: metadata.productName },
     { label: "Emissor", value: metadata.issuer },
     { label: "Tipo", value: metadata.type },
+    metadata.quantity !== null ? { label: "Quantidade", value: decimal(metadata.quantity) } : null,
     metadata.subtype ? { label: "Subtipo", value: metadata.subtype } : null,
     metadata.rate !== null ? { label: "rate", value: metadata.rate } : null,
     metadata.rateType ? { label: "rateType", value: metadata.rateType } : null,
