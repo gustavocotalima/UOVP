@@ -191,6 +191,8 @@ async function resolvePluggyItemDisconnectionUnlocked(
             overridePurchaseDate: null,
             overrideMaturityDate: null,
             overrideQuantity: null,
+            overrideQuantityProviderQuantity: null,
+            overrideQuantityAcknowledgedAt: null,
             metadataOverrideUpdatedAt: null,
           } : {}),
           reviewReason: userExcluded

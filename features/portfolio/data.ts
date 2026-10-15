@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import Decimal from "decimal.js";
 import { resolvePluggyInvestmentIssuer } from "@/features/open-finance/institution-logo";
 import { connectedInvestmentMetadataDto } from "@/features/open-finance/investment-metadata-dto";
+import { pluggyQuantityChangeDto } from "@/features/open-finance/investment-quantity-change-dto";
 import { INVESTMENT_CLASSES, type InvestmentClassKey } from "./constants";
 import { aggregateHoldingValue, holdingCurrentValue, holdingCurrentValueNative, holdingUnitPriceBrl } from "./asset-groups";
 import { aggregateAveragePrices, calculateHoldingAveragePrice } from "./average-price";
@@ -64,6 +65,7 @@ export async function getPortfolioData(userId: string) {
                       select: {
                         institutionName: true,
                         connectorName: true,
+                        displayName: true,
                         status: true,
                         disconnectedAt: true,
                       },
@@ -155,6 +157,14 @@ export async function getPortfolioData(userId: string) {
     version: portfolio.version,
     timeZone: preference?.timeZone ?? "America/Sao_Paulo",
     targets,
+    quantityChanges: assets.flatMap((asset) => asset.holdings.flatMap((holding) => {
+      const link = holding.pluggyDiagramLink;
+      if (!link) return [];
+      const change = pluggyQuantityChangeDto({
+        link, investment: link.investment, holding: { ...holding, asset },
+      });
+      return change ? [change] : [];
+    })),
     assets: assets.filter((asset) => {
       const activeHoldings = asset.holdings.filter((holding) => holding.includedInTotals);
       return activeHoldings.length > 0

@@ -26,6 +26,10 @@ import {
 } from "./asset-groups";
 import { bumpPortfolioAndInvalidateDrafts } from "./invalidation";
 import {
+  applyAssetQuantityEdits, assetQuantityEditSchema, prepareAssetQuantityEdits,
+  validateAssetQuantityEdits, type PreparedAssetQuantityEdits,
+} from "@/features/open-finance/asset-quantity-edits";
+import {
   assetCanReceiveContribution,
   isContributionScopeValid,
   type ContributionScopeKey,
@@ -83,6 +87,7 @@ const assetSchema = z.object({
   indexation: z.enum(FIXED_INCOME_INDEXATIONS).nullable().optional(),
   marketRegion: marketRegionSchema.nullable().optional(),
   yahooReitConfirmed: z.boolean().default(false),
+  quantityEdits: z.array(assetQuantityEditSchema).max(50).optional(),
 });
 
 export type AssetInput = z.input<typeof assetSchema>;
@@ -204,6 +209,7 @@ export async function saveAssetAction(input: AssetInput) {
     windowMs: 10 * 60_000,
   });
   const parsed = assetSchema.parse(input);
+  if (parsed.quantityEdits?.length && !parsed.id) throw new Error("Selecione um ativo existente para corrigir quantidades conectadas.");
   const portfolio = await ensurePortfolio(userId);
   const instrumentType = (parsed.instrumentType ?? inferInstrumentType(parsed.investmentClass)) as InstrumentType;
   if (instrumentType === "FIXED_INCOME") {
@@ -380,7 +386,8 @@ export async function saveAssetAction(input: AssetInput) {
     priceUpdatedAt: brapiQuote?.asOf ?? yahooQuote?.asOf ?? binanceQuote?.asOf ?? existingHolding?.priceUpdatedAt ?? new Date(),
   };
 
-  await prisma.$transaction(async (tx) => {
+  const persist = async (tx: Prisma.TransactionClient, prepared?: PreparedAssetQuantityEdits) => {
+    const quantityLinks = prepared ? await validateAssetQuantityEdits(tx, userId, prepared) : null;
     let parent;
     if (parsed.id) {
       const owned = await tx.asset.findFirst({ where: { id: parsed.id, portfolio: { userId } }, select: { id: true } });
@@ -461,8 +468,24 @@ export async function saveAssetAction(input: AssetInput) {
       if (existingHolding) await tx.assetHolding.update({ where: { id: existingHolding.id }, data: holdingData });
       else await tx.assetHolding.create({ data: { ...holdingData, assetId: parent.id } });
     }
+    if (prepared && quantityLinks) await applyAssetQuantityEdits(tx, prepared, quantityLinks);
     await bumpPortfolioAndInvalidateDrafts(tx, portfolio.id, userId);
-  });
+  };
+  if (parsed.quantityEdits?.length) {
+    await withUserOperationLease({
+      userId, operation: "pluggy-sync", leaseMs: 60_000,
+      action: async (lease) => {
+        const prepared = await prepareAssetQuantityEdits(userId, {
+          id: parsed.id!, ticker, instrumentType, investmentClass: parsed.investmentClass,
+          marketRegion: classifiesAsStoreOfValue ? parsed.marketRegion ?? null : null,
+        }, parsed.quantityEdits!, lease.signal);
+        await lease.runFencedTransaction((tx) => persist(tx, prepared));
+      },
+    });
+    revalidatePath("/open-finance");
+  } else {
+    await prisma.$transaction((tx) => persist(tx));
+  }
   revalidatePath("/carteira");
   revalidatePath("/home");
 }

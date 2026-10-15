@@ -1109,6 +1109,8 @@ model PluggyInvestmentDiagramLink {
   overridePurchaseDate     DateTime?
   overrideMaturityDate     DateTime?
   overrideQuantity         Decimal?                   @db.Decimal(30, 10)
+  overrideQuantityProviderQuantity Decimal?           @db.Decimal(30, 10)
+  overrideQuantityAcknowledgedAt DateTime?
   metadataOverrideUpdatedAt DateTime?
   lastReconciledAt         DateTime?
   createdAt                DateTime                   @default(now())

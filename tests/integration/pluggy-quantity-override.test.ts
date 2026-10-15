@@ -1,10 +1,18 @@
 import { randomUUID } from "node:crypto";
 import { Prisma, PrismaClient } from "@prisma/client";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import { reconcilePluggyInvestmentsForUser } from "@/features/open-finance/diagram-sync";
 import { PLUGGY_DIAGRAM_EXCLUSION_REASON } from "@/features/open-finance/diagram-exclusion";
 import { markPluggyItemDisconnected, resolvePluggyItemDisconnection } from "@/features/open-finance/disconnection";
 import { holdingCurrentValue, holdingCurrentValueNative } from "@/features/portfolio/asset-groups";
+import { getPortfolioData } from "@/features/portfolio/data";
+import { getOpenFinanceData } from "@/features/open-finance/data";
+import { resolvePluggyQuantityChangeAction } from "@/features/open-finance/diagram-actions";
+import { saveAssetAction } from "@/features/portfolio/actions";
+
+const currentUser = vi.hoisted(() => ({ id: "" }));
+vi.mock("@/lib/current-user", () => ({ requireUserId: async () => currentUser.id }));
+vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 import { portfolioTools } from "@/features/mcp/portfolio-tools";
 
 const enabled = Boolean(process.env.DATABASE_URL);
@@ -29,6 +37,7 @@ suite("quantidade temporária de posições Pluggy", () => {
       include: { portfolio: true },
     });
     userIds.push(user.id);
+    currentUser.id = user.id;
     const item = await db!.pluggyItem.create({
       data: {
         userId: user.id,
@@ -113,11 +122,16 @@ suite("quantidade temporária de posições Pluggy", () => {
   }
 
   async function customQuantity(linkId: string, quantity: number) {
+    const link = await db!.pluggyInvestmentDiagramLink.findUniqueOrThrow({
+      where: { id: linkId }, include: { investment: { select: { quantity: true } } },
+    });
     await db!.pluggyInvestmentDiagramLink.update({
       where: { id: linkId },
       data: {
         metadataOverrideFields: { set: ["QUANTITY"] },
         overrideQuantity: new Prisma.Decimal(quantity),
+        overrideQuantityProviderQuantity: link.investment.quantity,
+        overrideQuantityAcknowledgedAt: new Date(),
         metadataOverrideUpdatedAt: new Date(),
       },
     });
@@ -126,7 +140,10 @@ suite("quantidade temporária de posições Pluggy", () => {
   async function restoreQuantity(linkId: string) {
     await db!.pluggyInvestmentDiagramLink.update({
       where: { id: linkId },
-      data: { metadataOverrideFields: { set: [] }, overrideQuantity: null },
+      data: {
+        metadataOverrideFields: { set: [] }, overrideQuantity: null,
+        overrideQuantityProviderQuantity: null, overrideQuantityAcknowledgedAt: null,
+      },
     });
   }
 
@@ -210,6 +227,105 @@ suite("quantidade temporária de posições Pluggy", () => {
     const holding = await db!.assetHolding.findUniqueOrThrow({ where: { id: f.holding.id } });
     expect(holding.quantity.toString()).toBe("0");
     expect(holding.includedInTotals).toBe(false);
+  });
+
+  it("preserva a escolha manual e o aviso nos dois painéis até o reconhecimento, voltando a avisar em outra mudança", async () => {
+    const f = await fixture();
+    await customQuantity(f.link.id, 110);
+    await db!.pluggyInvestment.update({
+      where: { id: f.investment.id }, data: { quantity: 120, balance: 6_000, status: "ACTIVE" },
+    });
+    await reconcilePluggyInvestmentsForUser(f.user.id);
+    await reconcilePluggyInvestmentsForUser(f.user.id);
+    for (const data of [await getPortfolioData(f.user.id), await getOpenFinanceData(f.user.id)]) {
+      expect(data.quantityChanges).toEqual([expect.objectContaining({
+        linkId: f.link.id, previousProviderQuantity: "0", providerQuantity: "120", manualQuantity: "110",
+      })]);
+    }
+    expect((await db!.assetHolding.findUniqueOrThrow({ where: { id: f.holding.id } })).quantity.toString()).toBe("110");
+    const warning = (await getPortfolioData(f.user.id)).quantityChanges[0];
+    expect(await resolvePluggyQuantityChangeAction({
+      linkId: warning.linkId, expectedUpdatedAt: warning.expectedUpdatedAt,
+      expectedProviderQuantity: warning.providerQuantity, decision: "KEEP_MANUAL",
+    })).toEqual({ status: "SAVED" });
+    await reconcilePluggyInvestmentsForUser(f.user.id);
+    expect((await getPortfolioData(f.user.id)).quantityChanges).toEqual([]);
+    expect((await getOpenFinanceData(f.user.id)).quantityChanges).toEqual([]);
+    await db!.pluggyInvestment.update({ where: { id: f.investment.id }, data: { quantity: 130, balance: 6_500 } });
+    await reconcilePluggyInvestmentsForUser(f.user.id);
+    const nextWarning = (await getPortfolioData(f.user.id)).quantityChanges[0];
+    expect(nextWarning).toMatchObject({
+      previousProviderQuantity: "120", providerQuantity: "130", manualQuantity: "110",
+    });
+    expect(await resolvePluggyQuantityChangeAction({
+      linkId: nextWarning.linkId, expectedUpdatedAt: nextWarning.expectedUpdatedAt,
+      expectedProviderQuantity: nextWarning.providerQuantity, decision: "PROVIDER",
+    })).toEqual({ status: "SAVED" });
+    expect((await getPortfolioData(f.user.id)).quantityChanges).toEqual([]);
+    expect((await db!.assetHolding.findUniqueOrThrow({ where: { id: f.holding.id } })).quantity.toString()).toBe("130");
+  });
+
+  it("exibe revisão mesmo com quantidade manual zero fora dos totais da Carteira", async () => {
+    const f = await fixture();
+    await customQuantity(f.link.id, 0);
+    await db!.pluggyInvestment.update({
+      where: { id: f.investment.id }, data: { quantity: 10, balance: 500, status: "ACTIVE" },
+    });
+    await reconcilePluggyInvestmentsForUser(f.user.id);
+    const data = await getPortfolioData(f.user.id);
+    expect(data.assets).toEqual([]);
+    expect(data.quantityChanges[0]).toMatchObject({ manualQuantity: "0", providerQuantity: "10" });
+  });
+
+  it("salva detalhes e quantidade no editor de ativo e permite restaurar a instituição", async () => {
+    const f = await fixture();
+    await customQuantity(f.link.id, 110);
+    await reconcilePluggyInvestmentsForUser(f.user.id);
+    const link = await db!.pluggyInvestmentDiagramLink.findUniqueOrThrow({ where: { id: f.link.id } });
+    const payload = {
+      id: f.asset.id, investmentClass: "BRAZILIAN_STOCKS" as const, instrumentType: "STOCK" as const,
+      ticker: "ITUB3", name: "Itaú corrigido", quantity: 110, unitPrice: 50, currency: "BRL", score: 7,
+    };
+    await saveAssetAction({
+      ...payload,
+      quantityEdits: [{ linkId: link.id, expectedUpdatedAt: link.updatedAt, expectedProviderQuantity: "0", mode: "CUSTOM", value: 115 }],
+    });
+    let holding = await db!.assetHolding.findUniqueOrThrow({ where: { id: f.holding.id } });
+    expect(holding.quantity.toString()).toBe("115");
+    expect(holding.includedInTotals).toBe(true);
+    expect((await db!.asset.findUniqueOrThrow({ where: { id: f.asset.id } })).name).toBe("Itaú corrigido");
+    expect((await db!.asset.findUniqueOrThrow({ where: { id: f.asset.id } })).score).toBe(7);
+    expect((await db!.pluggyInvestment.findUniqueOrThrow({ where: { id: f.investment.id } })).quantity?.toString()).toBe("0");
+    const saved = await db!.pluggyInvestmentDiagramLink.findUniqueOrThrow({ where: { id: link.id } });
+    expect(saved.overrideQuantityProviderQuantity?.toString()).toBe("0");
+    await saveAssetAction({
+      ...payload,
+      quantityEdits: [{ linkId: saved.id, expectedUpdatedAt: saved.updatedAt, expectedProviderQuantity: "0", mode: "PROVIDER", value: null }],
+    });
+    holding = await db!.assetHolding.findUniqueOrThrow({ where: { id: f.holding.id } });
+    expect(holding.quantity.toString()).toBe("0");
+    expect(holding.includedInTotals).toBe(false);
+    expect(await db!.assetHolding.count({ where: { assetId: f.asset.id } })).toBe(1);
+    expect(await db!.pluggyInvestmentTransaction.count({ where: { pluggyInvestmentDbId: f.investment.id } })).toBe(1);
+  });
+
+  it("não salva parcialmente o ativo quando uma das quantidades pertence a outro usuário", async () => {
+    const f = await fixture();
+    await customQuantity(f.link.id, 110);
+    await reconcilePluggyInvestmentsForUser(f.user.id);
+    const other = await fixture();
+    currentUser.id = f.user.id;
+    const link = await db!.pluggyInvestmentDiagramLink.findUniqueOrThrow({ where: { id: f.link.id } });
+    await expect(saveAssetAction({
+      id: f.asset.id, investmentClass: "BRAZILIAN_STOCKS", instrumentType: "STOCK", ticker: "ITUB3",
+      name: "Não deve ser salvo", quantity: 110, unitPrice: 50, currency: "BRL", score: 7,
+      quantityEdits: [
+        { linkId: link.id, expectedUpdatedAt: link.updatedAt, expectedProviderQuantity: "0", mode: "CUSTOM", value: 115 },
+        { linkId: other.link.id, expectedUpdatedAt: other.link.updatedAt, expectedProviderQuantity: "0", mode: "CUSTOM", value: 20 },
+      ],
+    })).rejects.toThrow("Posição conectada não encontrada");
+    expect((await db!.asset.findUniqueOrThrow({ where: { id: f.asset.id } })).name).toBe("ITUB3");
+    expect((await db!.assetHolding.findUniqueOrThrow({ where: { id: f.holding.id } })).quantity.toString()).toBe("110");
   });
 
   it("aceita zero explícito sem reutilizar o saldo positivo informado pela instituição", async () => {
