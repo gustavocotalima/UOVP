@@ -5,6 +5,7 @@ import {
   resolvePluggyInstitutionName,
 } from "./institution-logo";
 import { connectedInvestmentMetadataDto } from "./investment-metadata-dto";
+import { pluggyQuantityChangeDto } from "./investment-quantity-change-dto";
 
 type CurrencyAmount = {
   amount: string | number;
@@ -292,6 +293,14 @@ export async function getOpenFinanceData(userId: string) {
     accounts,
     transactions,
     investments,
+    quantityChanges: visibleItems.flatMap((item) => item.investments.flatMap((investment) => {
+      const change = pluggyQuantityChangeDto({
+        link: investment.diagramLink,
+        investment: { ...investment, item },
+        holding: investment.diagramLink?.holding ?? null,
+      });
+      return change ? [change] : [];
+    })),
     showSoldInvestments: preference?.showSoldInvestments ?? false,
     soldInvestmentCount: investments.filter((investment) =>
       investment.status === "TOTAL_WITHDRAWAL",

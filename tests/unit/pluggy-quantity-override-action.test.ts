@@ -46,7 +46,7 @@ vi.mock("@/features/portfolio/yahoo-finance", () => ({
   normalizeYahooSymbol: (value: string) => value.trim().toUpperCase(),
 }));
 
-import { savePluggyInvestmentMetadataOverridesAction } from "@/features/open-finance/diagram-actions";
+import { resolvePluggyQuantityChangeAction, savePluggyInvestmentMetadataOverridesAction } from "@/features/open-finance/diagram-actions";
 import { canEditPluggyInvestmentQuantity, effectivePluggyQuantity } from "@/features/open-finance/investment-quantity-override";
 
 function input(quantity?: { mode: "PROVIDER" | "CUSTOM"; value: number | null }) {
@@ -71,6 +71,8 @@ function fixture() {
     updatedAt: new Date("2026-10-14T10:00:00Z"),
     metadataOverrideFields: [] as string[],
     overrideQuantity: null as Prisma.Decimal | null,
+    overrideQuantityProviderQuantity: null as Prisma.Decimal | null,
+    overrideQuantityAcknowledgedAt: null as Date | null,
     investment: {
       source: "INVESTMENTS_API",
       providerAvailable: true,
@@ -133,6 +135,8 @@ describe("quantidade temporária de investimentos Pluggy", () => {
     const saved = mocks.tx.pluggyInvestmentDiagramLink.update.mock.calls[0][0].data;
     expect(saved.metadataOverrideFields.set).toEqual(["QUANTITY"]);
     expect(saved.overrideQuantity.toString()).toBe("110");
+    expect(saved.overrideQuantityProviderQuantity.toString()).toBe("0");
+    expect(saved.overrideQuantityAcknowledgedAt).toBeInstanceOf(Date);
     expect(link.investment.quantity.toString()).toBe("0");
     expect(link.investment.status).toBe("TOTAL_WITHDRAWAL");
     expect(mocks.reconcile).toHaveBeenCalledOnce();
@@ -312,5 +316,87 @@ describe("quantidade temporária de investimentos Pluggy", () => {
     }).toString()).toBe("0");
     expect(canEditPluggyInvestmentQuantity({ link, investment: link.investment, holding: link.holding })).toBe(true);
     expect(canEditPluggyInvestmentQuantity({ link, investment: { providerAvailable: true }, holding: link.holding })).toBe(false);
+  });
+
+  function reviewInput(decision: "KEEP_MANUAL" | "PROVIDER" = "KEEP_MANUAL") {
+    link.metadataOverrideFields = ["QUANTITY", "ISSUER"];
+    link.overrideQuantity = new Prisma.Decimal(110);
+    link.overrideQuantityProviderQuantity = new Prisma.Decimal(0);
+    link.overrideQuantityAcknowledgedAt = new Date("2026-10-14T09:00:00Z");
+    link.investment.quantity = new Prisma.Decimal(120);
+    return {
+      linkId: link.id,
+      expectedUpdatedAt: link.updatedAt.toISOString(),
+      expectedProviderQuantity: "120",
+      decision,
+    };
+  }
+
+  it("reconhece a nova quantidade ao manter o manual sem alterar valores nem outras correções", async () => {
+    expect(await resolvePluggyQuantityChangeAction(reviewInput())).toEqual({ status: "SAVED" });
+    const data = mocks.tx.pluggyInvestmentDiagramLink.update.mock.calls[0][0].data;
+    expect(data.overrideQuantityProviderQuantity.toString()).toBe("120");
+    expect(data.overrideQuantityAcknowledgedAt).toBeInstanceOf(Date);
+    expect(data).not.toHaveProperty("overrideQuantity");
+    expect(data).not.toHaveProperty("metadataOverrideFields");
+    expect(mocks.tx.assetHolding.update).not.toHaveBeenCalled();
+    expect(mocks.reconcile).not.toHaveBeenCalled();
+    expect(mocks.brapiFetch).not.toHaveBeenCalled();
+  });
+
+  it("volta ao provedor removendo apenas a correção da quantidade", async () => {
+    expect(await resolvePluggyQuantityChangeAction(reviewInput("PROVIDER"))).toEqual({ status: "SAVED" });
+    const data = mocks.tx.pluggyInvestmentDiagramLink.update.mock.calls[0][0].data;
+    expect(data.metadataOverrideFields.set).toEqual(["ISSUER"]);
+    expect(data.overrideQuantity).toBeNull();
+    expect(data.overrideQuantityProviderQuantity).toBeNull();
+    expect(data.overrideQuantityAcknowledgedAt).toBeNull();
+    expect(data).not.toHaveProperty("overrideIssuer");
+    expect(mocks.reconcile).toHaveBeenCalledOnce();
+  });
+
+  it.each(["version", "quantity", "null"])("rejeita decisão antiga: %s", async (conflict) => {
+    const payload = reviewInput();
+    if (conflict === "version") link.updatedAt = new Date("2026-10-14T11:00:00Z");
+    if (conflict === "quantity") link.investment.quantity = new Prisma.Decimal(130);
+    const result = await resolvePluggyQuantityChangeAction({ ...payload, expectedProviderQuantity: conflict === "null" ? null : "120" });
+    expect(result).toEqual({ status: "CONFLICT" });
+    expect(mocks.tx.pluggyInvestmentDiagramLink.update).not.toHaveBeenCalled();
+  });
+
+  it.each(["link", "item", "portfolio"])("rejeita acesso cruzado por %s", async (owner) => {
+    const payload = reviewInput();
+    if (owner === "link") link.userId = "user-b";
+    if (owner === "item") link.investment.item.userId = "user-b";
+    if (owner === "portfolio") link.holding.asset.portfolio.userId = "user-b";
+    expect(await resolvePluggyQuantityChangeAction(payload)).toEqual({ status: "NOT_FOUND" });
+    expect(mocks.tx.pluggyInvestmentDiagramLink.update).not.toHaveBeenCalled();
+  });
+
+  it.each(["excluded", "unavailable", "disconnected", "restored", "acknowledged"])("não aplica decisão indisponível: %s", async (state) => {
+    const payload = reviewInput();
+    if (state === "excluded") link.status = "EXCLUDED";
+    if (state === "unavailable") link.investment.providerAvailable = false;
+    if (state === "disconnected") link.investment.item.disconnectedAt = new Date();
+    if (state === "restored") link.metadataOverrideFields = ["ISSUER"];
+    if (state === "acknowledged") link.overrideQuantityProviderQuantity = new Prisma.Decimal(120);
+    expect(await resolvePluggyQuantityChangeAction(payload)).toEqual({ status: "UNAVAILABLE" });
+    expect(mocks.tx.pluggyInvestmentDiagramLink.update).not.toHaveBeenCalled();
+  });
+
+  it("não reconhece silenciosamente uma mudança ao salvar a mesma quantidade manual", async () => {
+    reviewInput();
+    await savePluggyInvestmentMetadataOverridesAction(input({ mode: "CUSTOM", value: 110 }));
+    const data = mocks.tx.pluggyInvestmentDiagramLink.update.mock.calls[0][0].data;
+    expect(data).not.toHaveProperty("overrideQuantityProviderQuantity");
+    expect(data).not.toHaveProperty("overrideQuantityAcknowledgedAt");
+  });
+
+  it("reconhece a instituição quando o usuário altera explicitamente a quantidade manual", async () => {
+    reviewInput();
+    await savePluggyInvestmentMetadataOverridesAction(input({ mode: "CUSTOM", value: 115 }));
+    const data = mocks.tx.pluggyInvestmentDiagramLink.update.mock.calls[0][0].data;
+    expect(data.overrideQuantity.toString()).toBe("115");
+    expect(data.overrideQuantityProviderQuantity.toString()).toBe("120");
   });
 });

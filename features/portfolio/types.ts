@@ -46,6 +46,17 @@ export type ConnectedInvestmentMetadataDto = {
   };
 };
 
+export type PluggyQuantityChangeDto = {
+  linkId: string;
+  expectedUpdatedAt: string;
+  name: string;
+  ticker: string | null;
+  institution: string;
+  previousProviderQuantity: string | null;
+  providerQuantity: string | null;
+  manualQuantity: string;
+};
+
 export type InvestmentMetadataCatalogItemDto = {
   id: number;
   name: string;
@@ -155,6 +166,7 @@ export type AssetDto = {
 };
 
 export type PortfolioDto = {
+  quantityChanges: PluggyQuantityChangeDto[];
   id: string;
   version: number;
   timeZone: string;

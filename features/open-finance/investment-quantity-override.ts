@@ -3,6 +3,8 @@ import { Prisma } from "@prisma/client";
 type QuantityOverrideLink = {
   metadataOverrideFields: readonly string[];
   overrideQuantity?: Prisma.Decimal | null;
+  overrideQuantityProviderQuantity?: Prisma.Decimal | null;
+  overrideQuantityAcknowledgedAt?: Date | null;
 };
 
 type QuantityEditContext = {
@@ -45,4 +47,24 @@ export function effectivePluggyQuantity(
   return hasPluggyQuantityOverride(link)
     ? link!.overrideQuantity!
     : providerQuantity ?? new Prisma.Decimal(0);
+}
+
+export function samePluggyQuantity(left: Prisma.Decimal | null, right: Prisma.Decimal | null) {
+  return left === null || right === null ? left === right : left.eq(right);
+}
+
+/** Compare quantities, not prices or provider timestamps. Acknowledgment is durable. */
+export function pendingPluggyQuantityChange(
+  providerQuantity: Prisma.Decimal | null,
+  link: QuantityOverrideLink | null | undefined,
+) {
+  if (!hasPluggyQuantityOverride(link)
+    || !link?.overrideQuantityAcknowledgedAt
+    || (providerQuantity !== null && (!providerQuantity.isFinite() || providerQuantity.lt(0)))
+    || samePluggyQuantity(link.overrideQuantityProviderQuantity ?? null, providerQuantity)) return null;
+  return {
+    previousProviderQuantity: link.overrideQuantityProviderQuantity?.toString() ?? null,
+    providerQuantity: providerQuantity?.toString() ?? null,
+    manualQuantity: link.overrideQuantity!.toString(),
+  };
 }

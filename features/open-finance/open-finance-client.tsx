@@ -31,6 +31,7 @@ import { SegmentedTabs } from "@/components/ui/segmented-tabs";
 import { cn } from "@/lib/utils";
 import type { OpenFinanceData } from "./data";
 import { InvestmentMetadataEditor } from "./investment-metadata-editor";
+import { InvestmentQuantityChangeNotice } from "./investment-quantity-change-notice";
 import {
   deletePluggyConnectionAction,
   resolvePluggyItemDisconnectionAction,
@@ -473,6 +474,8 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
           setScriptFailed(true);
         }}
       />
+
+      <InvestmentQuantityChangeNotice changes={data.quantityChanges} syncBusy={actionsBusy} />
 
       {scriptFailed && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[var(--danger)]/45 bg-[var(--danger)]/10 p-4 text-sm">

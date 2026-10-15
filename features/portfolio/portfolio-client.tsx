@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { memo, useState } from "react";
 import { SegmentedTabs } from "@/components/ui/segmented-tabs";
+import { InvestmentQuantityChangeNotice } from "@/features/open-finance/investment-quantity-change-notice";
 import type { DiagramQuestionDto, PortfolioDto } from "./types";
 
 const PanelLoading = () => (
@@ -72,6 +73,7 @@ export function PortfolioClient({
 
   return (
     <div className="space-y-6">
+      <InvestmentQuantityChangeNotice changes={portfolio.quantityChanges} />
       <SegmentedTabs value={section} onValueChange={changeSection} ariaLabel="Seções da carteira" options={sectionOptions} />
       {visitedSections.has("assets") && <section id="portfolio-panel-assets" role="tabpanel" aria-labelledby="portfolio-tab-assets" hidden={section !== "assets"}><MemoAssetsPanel assets={portfolio.assets} fixedIncomeFamilies={portfolio.fixedIncomeFamilies} catalog={portfolio.catalog} integrationReview={portfolio.integrationReview} questions={questions} initialAnswers={answers} timeZone={portfolio.timeZone} /></section>}
       {visitedSections.has("targets") && <section id="portfolio-panel-targets" role="tabpanel" aria-labelledby="portfolio-tab-targets" hidden={section !== "targets"}><MemoTargetsPanel initialTargets={portfolio.targets} /></section>}

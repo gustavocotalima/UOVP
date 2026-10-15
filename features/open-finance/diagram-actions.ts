@@ -24,7 +24,12 @@ import { PLUGGY_DIAGRAM_EXCLUSION_REASON } from "./diagram-exclusion";
 import { deletePluggyItem, PluggyApiError } from "./pluggy";
 import { requirePluggyCredentials } from "./pluggy-credentials";
 import { resolvePluggyInstitutionName } from "./institution-logo";
-import { canEditPluggyInvestmentQuantity } from "./investment-quantity-override";
+import {
+  canEditPluggyInvestmentQuantity,
+  hasPluggyQuantityOverride,
+  pendingPluggyQuantityChange,
+  samePluggyQuantity,
+} from "./investment-quantity-override";
 import {
   hasPluggyQuantityQuoteFx,
   resolvePluggyQuantityQuote,
@@ -489,6 +494,15 @@ export async function savePluggyInvestmentMetadataOverridesAction(
               overrideQuantity: parsed.quantity.mode === "CUSTOM"
                 ? new Prisma.Decimal(parsed.quantity.value!)
                 : null,
+              ...(parsed.quantity.mode === "PROVIDER" ? {
+                overrideQuantityProviderQuantity: null,
+                overrideQuantityAcknowledgedAt: null,
+              } : !hasPluggyQuantityOverride(link)
+                || !link.overrideQuantity!.eq(parsed.quantity.value!)
+                || !link.overrideQuantityAcknowledgedAt ? {
+                  overrideQuantityProviderQuantity: link.investment.quantity,
+                  overrideQuantityAcknowledgedAt: now,
+                } : {}),
             } : {}),
             metadataOverrideUpdatedAt: fields.length ? now : null,
           },
@@ -501,6 +515,81 @@ export async function savePluggyInvestmentMetadataOverridesAction(
   revalidatePath("/carteira");
   revalidatePath("/open-finance");
   revalidatePath("/home");
+}
+
+const quantityChangeDecisionSchema = z.object({
+  linkId: z.string().cuid(),
+  expectedUpdatedAt: z.coerce.date(),
+  expectedProviderQuantity: z.string().max(64).nullable().refine((value) => {
+    if (value === null) return true;
+    try {
+      const quantity = new Prisma.Decimal(value);
+      return quantity.isFinite() && quantity.gte(0);
+    } catch { return false; }
+  }),
+  decision: z.enum(["PROVIDER", "KEEP_MANUAL"]),
+});
+
+export type PluggyQuantityChangeDecisionInput = z.input<typeof quantityChangeDecisionSchema>;
+
+export async function resolvePluggyQuantityChangeAction(input: PluggyQuantityChangeDecisionInput) {
+  const userId = await requireUserId();
+  const parsed = quantityChangeDecisionSchema.safeParse(input);
+  if (!parsed.success) return { status: "INVALID" as const };
+  const value = parsed.data;
+  await assertUserOperationRateLimit({
+    userId, operation: "pluggy-investment-metadata", limit: 30, windowMs: 60_000,
+  });
+  const result = await withUserOperationLease({
+    userId,
+    operation: "pluggy-sync",
+    leaseMs: 60_000,
+    action: async (lease) => {
+      const decision = await lease.runFencedTransaction(async (tx) => {
+        const link = await tx.pluggyInvestmentDiagramLink.findFirst({
+          where: { id: value.linkId, userId },
+          include: metadataLinkInclude,
+        });
+        if (!link?.holding || link.userId !== userId
+          || link.investment.item.userId !== userId
+          || link.holding.asset.portfolio.userId !== userId) return { status: "NOT_FOUND" as const };
+        const expected = value.expectedProviderQuantity === null
+          ? null : new Prisma.Decimal(value.expectedProviderQuantity);
+        if (link.updatedAt.getTime() !== value.expectedUpdatedAt.getTime()
+          || !samePluggyQuantity(link.investment.quantity, expected)) return { status: "CONFLICT" as const };
+        if (!canEditPluggyInvestmentQuantity({ link, investment: link.investment, holding: link.holding })
+          || !pendingPluggyQuantityChange(link.investment.quantity, link)) return { status: "UNAVAILABLE" as const };
+
+        const now = new Date();
+        const fields = link.metadataOverrideFields.filter((field) => field !== "QUANTITY");
+        await tx.pluggyInvestmentDiagramLink.update({
+          where: { id: link.id },
+          data: value.decision === "KEEP_MANUAL" ? {
+            overrideQuantityProviderQuantity: link.investment.quantity,
+            overrideQuantityAcknowledgedAt: now,
+          } : {
+            metadataOverrideFields: { set: fields },
+            overrideQuantity: null,
+            overrideQuantityProviderQuantity: null,
+            overrideQuantityAcknowledgedAt: null,
+            metadataOverrideUpdatedAt: fields.length ? now : null,
+          },
+        });
+        return { status: "SAVED" as const };
+      });
+      if (decision.status === "SAVED" && value.decision === "PROVIDER") {
+        await reconcilePluggyInvestmentsForUser(userId, lease);
+      }
+      return decision;
+    },
+  }).catch((error: unknown) => {
+    if (error instanceof OperationInProgressError) return { status: "BUSY" as const };
+    throw error;
+  });
+  revalidatePath("/carteira");
+  revalidatePath("/open-finance");
+  if (result.status === "SAVED" && value.decision === "PROVIDER") revalidatePath("/home");
+  return result;
 }
 
 export async function excludePluggyDiagramLinkAction(linkId: string) {

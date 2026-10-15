@@ -58,6 +58,19 @@ type FormAsset = {
   yahooReitConfirmed: boolean;
 };
 
+type QuantityEditForm = {
+  linkId: string;
+  expectedUpdatedAt: string;
+  expectedProviderQuantity: string | null;
+  holdingId: string;
+  label: string;
+  step: number;
+  mode: "PROVIDER" | "CUSTOM";
+  value: string;
+  originalMode: "PROVIDER" | "CUSTOM";
+  originalValue: string;
+};
+
 type MarketTickerOption =
   | (BrapiTickerSearchResult & { provider: "BRAPI" })
   | (YahooTickerSearchResult & { provider: "YAHOO" })
@@ -563,6 +576,7 @@ export function AssetsPanel({
   const [filter, setFilter] = useState<InvestmentClassKey | "ALL">("ALL");
   const [instrumentFilter, setInstrumentFilter] = useState<InstrumentTypeKey | "ALL">("ALL");
   const [form, setForm] = useState<FormAsset | null>(null);
+  const [quantityForms, setQuantityForms] = useState<QuantityEditForm[]>([]);
   const [fixedGroupForm, setFixedGroupForm] = useState<FixedIncomeGroupForm | null>(null);
   const [holdingForm, setHoldingForm] = useState<HoldingForm | null>(null);
   const [metadataEditor, setMetadataEditor] = useState<AssetHoldingDto["connectedMetadata"]>(null);
@@ -657,6 +671,11 @@ export function AssetsPanel({
 
   const formQuestionType = form && !["ETF", "MUTUAL_FUND"].includes(form.instrumentType) ? questionTypeForClass(form.investmentClass) : null;
   const editingAsset = form?.id ? assets.find((asset) => asset.id === form.id) : undefined;
+  const singleQuantityForm = editingAsset?.holdings.length === 1 && quantityForms.length === 1 ? quantityForms[0] : null;
+  const previewQuantity = editingAsset?.holdings.reduce((total, holding) => {
+    const entry = quantityForms.find((value) => value.holdingId === holding.id);
+    return total + Number(entry ? entry.mode === "CUSTOM" ? entry.value : entry.expectedProviderQuantity ?? 0 : holding.quantity);
+  }, 0);
   const formQuestions = questions.filter((question) => question.active && question.type === formQuestionType);
   const positives = formQuestions.filter((question) => formAnswers[question.id] === true).length;
   const negatives = formQuestions.length - positives;
@@ -725,6 +744,7 @@ export function AssetsPanel({
 
   function startAdding() {
     setForm({ ...emptyAsset });
+    setQuantityForms([]);
     setSelectedMarketTicker(undefined);
     setFormAnswers({});
     setTickerOptions([]);
@@ -748,6 +768,18 @@ export function AssetsPanel({
     setSelectedMarketTicker(undefined);
     const questionType = asset.instrumentType === "ETF" ? null : questionTypeForClass(asset.investmentClass);
     const applicable = questions.filter((question) => question.active && question.type === questionType);
+    setQuantityForms(asset.holdings.flatMap((holding) => {
+      const metadata = holding.connectedMetadata;
+      if (!metadata?.canEditQuantity) return [];
+      const mode = metadata.overrideFields.includes("QUANTITY") ? "CUSTOM" as const : "PROVIDER" as const;
+      return [{
+        linkId: metadata.linkId, expectedUpdatedAt: metadata.expectedUpdatedAt,
+        expectedProviderQuantity: metadata.providerMetadata.quantity, holdingId: holding.id,
+        label: [holding.institution, holding.productName].filter(Boolean).join(" · "),
+        step: metadata.quantityStep, mode, originalMode: mode,
+        value: holding.quantity, originalValue: holding.quantity,
+      }];
+    }));
     setForm({
       id: asset.id,
       instrumentType: asset.instrumentType,
@@ -944,10 +976,25 @@ export function AssetsPanel({
     event.preventDefault();
     if (!form) return;
     if (usesMarketTickerSearch && !hasSelectedMarketTicker) return;
+    const quantityEdits = quantityForms.filter((entry) => entry.mode !== entry.originalMode
+      || (entry.mode === "CUSTOM" && Number(entry.value) !== Number(entry.originalValue)));
+    if (quantityEdits.some((entry) => entry.mode === "CUSTOM"
+      && (entry.value.trim() === "" || !Number.isFinite(Number(entry.value)) || Number(entry.value) < 0
+        || (entry.step === 1 && !Number.isInteger(Number(entry.value)))))) {
+      setMessage("Informe quantidades válidas maiores ou iguais a zero para cada posição.");
+      return;
+    }
     setMessage(undefined);
     startTransition(async () => {
       try {
-        await saveAssetAction(form);
+        await saveAssetAction({
+          ...form,
+          ...(quantityEdits.length ? { quantityEdits: quantityEdits.map((entry) => ({
+            linkId: entry.linkId, expectedUpdatedAt: entry.expectedUpdatedAt,
+            expectedProviderQuantity: entry.expectedProviderQuantity, mode: entry.mode,
+            value: entry.mode === "CUSTOM" ? Number(entry.value) : null,
+          })) } : {}),
+        });
         if (form.id && formQuestionType) await saveAssetAnswersAction(form.id, formAnswers);
         notifyPortfolioSimulationInvalidated();
         setForm(null);
@@ -2203,8 +2250,45 @@ export function AssetsPanel({
                     </>
                   )}
                 </div>
-                <div className="space-y-2"><Label htmlFor="asset-quantity">Quantidade</Label><Input id="asset-quantity" type="number" min="0" step="any" value={form.quantity} onChange={(event) => setForm({ ...form, quantity: Number(event.target.value) })} disabled={editingAsset?.providerControlled} required /></div>
-                {editingAsset?.providerControlled && <p className="text-xs text-[var(--muted-foreground)] sm:col-span-2">A quantidade é controlada pelo provedor e será atualizada na próxima sincronização.</p>}
+                <div className="space-y-2">
+                  <Label htmlFor="asset-quantity">{singleQuantityForm?.mode === "CUSTOM" ? "Quantidade temporária" : editingAsset?.providerControlled && !singleQuantityForm ? "Quantidade total" : "Quantidade"}</Label>
+                  <Input id="asset-quantity" type="number" min="0" step={singleQuantityForm?.step ?? "any"}
+                    value={singleQuantityForm ? singleQuantityForm.value : editingAsset?.providerControlled ? previewQuantity : form.quantity}
+                    onChange={(event) => singleQuantityForm
+                      ? setQuantityForms((current) => current.map((entry) => entry.linkId === singleQuantityForm.linkId ? { ...entry, value: event.target.value } : entry))
+                      : setForm({ ...form, quantity: Number(event.target.value) })}
+                    disabled={editingAsset?.providerControlled && (!singleQuantityForm || singleQuantityForm.mode === "PROVIDER")} required />
+                </div>
+                {quantityForms.length > 0 && (
+                  <div className="space-y-3 sm:col-span-2">
+                    <p className="text-xs text-[var(--muted-foreground)]">Quantidades temporárias serão salvas com o ativo e mantidas nas sincronizações. Os dados originais da instituição não são alterados. Uma mudança na quantidade da Pluggy exibirá um aviso para escolher entre a instituição e o valor manual.</p>
+                    {quantityForms.map((entry) => (
+                      <div key={entry.linkId} className="space-y-2 rounded-xl border p-3">
+                        <p className="break-words text-xs font-semibold">{entry.label}</p>
+                        {!singleQuantityForm && (
+                          <div className="space-y-2">
+                            <Label htmlFor={`asset-position-quantity-${entry.linkId}`}>Quantidade da posição</Label>
+                            <Input id={`asset-position-quantity-${entry.linkId}`} type="number" min="0" step={entry.step}
+                              value={entry.value} disabled={entry.mode === "PROVIDER"} required={entry.mode === "CUSTOM"}
+                              onChange={(event) => setQuantityForms((current) => current.map((value) => value.linkId === entry.linkId ? { ...value, value: event.target.value } : value))} />
+                          </div>
+                        )}
+                        <p className="text-xs text-[var(--muted-foreground)]">Instituição: {entry.expectedProviderQuantity === null ? "Não informada" : Number(entry.expectedProviderQuantity).toLocaleString("pt-BR", { maximumFractionDigits: 10 })}</p>
+                        <label className="flex items-center gap-2 text-xs">
+                          <input type="checkbox" className="size-4 accent-[var(--primary)]" checked={entry.mode === "CUSTOM"}
+                            onChange={(event) => {
+                              const checked = event.target.checked;
+                              setQuantityForms((current) => current.map((value) => value.linkId === entry.linkId
+                                ? { ...value, mode: checked ? "CUSTOM" : "PROVIDER", value: checked ? value.value : value.expectedProviderQuantity ?? "0" } : value));
+                            }} />
+                          {entry.mode === "CUSTOM" ? "Quantidade temporária · desmarque para usar a instituição" : "Usar quantidade temporária"}
+                        </label>
+                      </div>
+                    ))}
+                    <p className="text-xs text-[var(--muted-foreground)]">Zero retira a posição dos totais. Esta correção não cria movimentações nem confirma aportes aguardando sincronização.</p>
+                  </div>
+                )}
+                {editingAsset?.providerControlled && !quantityForms.length && <p className="text-xs text-[var(--muted-foreground)] sm:col-span-2">A quantidade é controlada pelo provedor e será atualizada na próxima sincronização.</p>}
                 {simpleScoreForm && <div className="space-y-2 sm:col-span-2"><Label htmlFor="asset-strength">{form.instrumentType === "ETF" ? "Nota do ETF (manual)" : form.instrumentType === "MUTUAL_FUND" ? "Nota do fundo (manual)" : "Nota de força"}</Label><Input id="asset-strength" type="number" min="-30" max="30" value={form.score} onChange={(event) => setForm({ ...form, score: Number(event.target.value) })} /></div>}
             </div>
 
