@@ -25,7 +25,7 @@ const summaryOutput = {
   portfolioId: nullableText, portfolioVersion: z.number().nullable(), currency: z.literal("BRL"),
   totalValueBrl: nullableText, knownSubtotalBrl: z.string(), complete: z.boolean(),
   valuationIssues: z.array(z.object({ holdingId: z.string(), assetId: z.string(), issue: z.string() })),
-  truncated: z.boolean(), pendingPluggyReview: z.number(), unselectedBinanceAssets: z.number(),
+  truncated: z.boolean(), pendingPluggyReview: z.number(), pendingAccountBalanceReview: z.number(), unselectedBinanceAssets: z.number(),
   pendingPositionsIncludedInTotals: z.literal(false),
   allocation: z.array(z.object({
     investmentClass: z.enum(INVESTMENT_CLASSES), targetPercentage: z.string(),
@@ -55,6 +55,7 @@ const holdingSelect = {
   rateConvention: true, benchmark: true, rateValue: true, purchaseDate: true,
   maturityDate: true, priceUpdatedAt: true, updatedAt: true,
   catalogItem: { select: { name: true } },
+  accountInvestmentLink: { select: { accountId: true, enabled: true, status: true, account: { select: { name: true, institutionName: true, balanceFxSource: true } } } },
   pluggyDiagramLink: { select: {
     id: true, status: true, metadataOverrideFields: true, metadataOverrideUpdatedAt: true,
     overrideQuantity: true,
@@ -163,6 +164,12 @@ function holdingDto(holding: Holding) {
     positionSource: holding.positionSource,
     pricingSource: holding.pricingSource,
     providerControlled: holding.positionSource !== "MANUAL",
+    accountBalanceSource: holding.accountInvestmentLink ? {
+      accountId: holding.accountInvestmentLink.accountId,
+      name: redactAnalysisText(holding.accountInvestmentLink.account.name),
+      sameMoneyAsAccountBalance: true,
+      warning: "This is the same money already included in account balances. Do not double-count it as additional wealth.",
+    } : null,
     includedInTotals: holding.includedInTotals,
     mappingStatus: link?.status ?? holding.binanceWalletAsset?.status ?? null,
     institution: redactAnalysisText(institution),
@@ -174,7 +181,7 @@ function holdingDto(holding: Holding) {
     valuationSource: valuation.valueSource,
     valuationIssue: valuation.issue,
     investedValueNative: holding.investedValue?.toString() ?? null,
-    fx: { rateToBrl: holding.fxRateToBrl?.toString() ?? null, updatedAt: iso(holding.fxUpdatedAt), source: "STORED_HOLDING_FX" },
+    fx: { rateToBrl: holding.fxRateToBrl?.toString() ?? null, updatedAt: iso(holding.fxUpdatedAt), source: holding.accountInvestmentLink?.account.balanceFxSource ?? "STORED_HOLDING_FX" },
     priceUpdatedAt: iso(holding.priceUpdatedAt),
     updatedAt: iso(holding.updatedAt),
     effectiveMetadata: {
@@ -234,7 +241,7 @@ async function validateHoldingCursor(db: Prisma.TransactionClient, context: McpC
 }
 
 async function loadPortfolio(db: Prisma.TransactionClient, context: McpContext) {
-  const [portfolio, assetRows, holdings, targets, reviewCounts, binanceCounts] = await Promise.all([
+  const [portfolio, assetRows, holdings, targets, reviewCounts, binanceCounts, accountReviewCounts] = await Promise.all([
     db.portfolio.findUnique({ where: { userId: context.userId }, select: { id: true, version: true, updatedAt: true } }),
     db.asset.findMany({
       where: { portfolio: { userId: context.userId } }, orderBy: { id: "asc" },
@@ -250,6 +257,7 @@ async function loadPortfolio(db: Prisma.TransactionClient, context: McpContext) 
       where: { userId: context.userId, status: "NEEDS_REVIEW", investment: { providerAvailable: true, status: "ACTIVE", balance: { gt: 0 } } },
     }),
     db.binanceWalletAsset.count({ where: { connection: { userId: context.userId }, status: { in: ["AVAILABLE", "NEEDS_REVIEW"] } } }),
+    db.accountInvestmentLink.count({ where: { enabled: true, status: "NEEDS_REVIEW", account: { userId: context.userId, active: true, balance: { gt: 0 } } } }),
   ]);
   const truncated = assetRows.length > MAX_ANALYSIS_HOLDINGS || holdings.length > MAX_ANALYSIS_HOLDINGS;
   const byAsset = new Map<string, Holding[]>();
@@ -258,7 +266,7 @@ async function loadPortfolio(db: Prisma.TransactionClient, context: McpContext) 
   const targetMap = Object.fromEntries(INVESTMENT_CLASSES.map((key) => [
     key, targets.find((target) => target.investmentClass === key)?.percentage.toString() ?? "0",
   ])) as Record<InvestmentClassKey, string>;
-  return { portfolio, assets, targets: targetMap, reviewCounts, binanceCounts, truncated };
+  return { portfolio, assets, targets: targetMap, reviewCounts, binanceCounts, accountReviewCounts, truncated };
 }
 
 function summarizePortfolio(data: Awaited<ReturnType<typeof loadPortfolio>>) {
@@ -292,6 +300,7 @@ function summarizePortfolio(data: Awaited<ReturnType<typeof loadPortfolio>>) {
     valuationIssues: issues,
     truncated: data.truncated,
     pendingPluggyReview: data.reviewCounts,
+    pendingAccountBalanceReview: data.accountReviewCounts,
     unselectedBinanceAssets: data.binanceCounts,
     pendingPositionsIncludedInTotals: false,
     allocation: INVESTMENT_CLASSES.map((key) => {
@@ -308,6 +317,7 @@ function summarizePortfolio(data: Awaited<ReturnType<typeof loadPortfolio>>) {
     warnings: [
       ...(!complete ? ["Portfolio total is incomplete; unknown valuations are not treated as zero."] : []),
       "Balances and prices are stored snapshots. This read does not synchronize providers.",
+      "ACCOUNT_BALANCE positions are also included in bank account balances; do not add those two representations as separate wealth.",
     ],
   };
 }
@@ -606,7 +616,11 @@ export const portfolioTools: McpToolDefinition[] = [
             quantity: suggestion.quantity.toString(), valueBrl: suggestion.value.toString(),
             nativeCurrency: asset.nativeCurrency,
             nativeUnitPrice: asset.nativeCurrency ? first?.unitPrice.toString() ?? null : null,
-            nativeValue: asset.nativeCurrency && first ? suggestion.quantity.mul(first.unitPrice.toString()).toString() : null,
+            nativeValue: asset.nativeCurrency && first
+              ? asset.instrumentType === "FIXED_INCOME" && first.fxRateToBrl?.gt(0)
+                ? suggestion.value.div(first.fxRateToBrl.toString()).toString()
+                : suggestion.quantity.mul(first.unitPrice.toString()).toString()
+              : null,
             suggestionPercentage: suggestion.suggestionPercentage.toString(), totalAfterSuggestionPercentage: suggestion.totalAfterSuggestionPercentage.toString(),
             providerControlled: asset.holdings.some((holding) => holding.positionSource !== "MANUAL"),
           };

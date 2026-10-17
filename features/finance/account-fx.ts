@@ -1,6 +1,7 @@
 import "server-only";
 
 import { Prisma } from "@prisma/client";
+import { projectAccountInvestment } from "./account-investments";
 import { ensureHistoricalFxRates } from "@/features/finance/fx";
 import {
   fetchYahooFxRates,
@@ -180,16 +181,19 @@ async function refreshStaleFinancialAccountFxWithLease(
   }
   await lease.runFencedTransaction(async (tx) => {
     for (const account of accounts) {
+      await tx.$queryRaw`SELECT "id" FROM "FinancialAccount" WHERE "id" = ${account.id} FOR UPDATE`;
+      const current = await tx.financialAccount.findUniqueOrThrow({ where: { id: account.id } });
       await tx.financialAccount.update({
         where: { id: account.id },
         data: {
-          balanceBrl: accountBalanceBrl(account.balance, fx.rateToBrl).toString(),
+          balanceBrl: accountBalanceBrl(current.balance, fx.rateToBrl).toString(),
           balanceFxRateToBrl: fx.rateToBrl,
           balanceFxRateDate: fx.rateDate,
           balanceFxSource: fx.source,
           providerUpdatedAt: fx.fetchedAt,
         },
       });
+      await projectAccountInvestment(tx, account.id);
     }
   });
   return { status: "UPDATED" as const, changed: true, message: null };

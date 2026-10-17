@@ -139,6 +139,9 @@ function portfolioRows(assets: AssetDto[]) {
     "Taxa",
     "Data da compra",
     "Vencimento",
+    "Origem da posição",
+    "Conta de origem",
+    "Mesmo valor incluído no saldo em conta",
   ];
   const rows: CellValue[][] = [headers];
   for (const asset of assets) {
@@ -189,7 +192,7 @@ function portfolioRows(assets: AssetDto[]) {
         Number(holding.quantity),
         Number(holding.unitPrice),
         holding.investedValue === null ? "" : Number(holding.investedValue),
-        Number(holding.currentValue),
+        holding.accountBalanceSource?.valuationUnavailable ? null : Number(holding.currentValue),
         holding.currency,
         holding.fractional,
         holding.rateConvention ?? "",
@@ -197,6 +200,9 @@ function portfolioRows(assets: AssetDto[]) {
         holding.rateValue === null ? "" : Number(holding.rateValue),
         holding.purchaseDate?.slice(0, 10) ?? "",
         holding.maturityDate?.slice(0, 10) ?? "",
+        holding.positionSource,
+        holding.accountBalanceSource?.name ?? "",
+        holding.accountBalanceSource ? true : "",
       ]);
     }
   }

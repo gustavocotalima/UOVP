@@ -10,6 +10,7 @@ const database = vi.hoisted(() => ({
   investmentTarget: { findMany: vi.fn() },
   pluggyInvestmentDiagramLink: { count: vi.fn() },
   binanceWalletAsset: { count: vi.fn() },
+  accountInvestmentLink: { count: vi.fn() },
   financialAccount: { findFirst: vi.fn() },
   diagramQuestion: { findMany: vi.fn() },
   assetQuestionAnswer: { findMany: vi.fn() },
@@ -58,6 +59,7 @@ async function run(name: string, input: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  database.accountInvestmentLink.count.mockResolvedValue(0);
   database.portfolio.findUnique.mockResolvedValue({ id: "portfolio-1", version: 5, updatedAt: date });
   database.asset.findMany.mockResolvedValue([asset()]);
   database.assetHolding.findMany.mockResolvedValue([holding()]);

@@ -102,7 +102,11 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
   const selectedUnitPricePaid = Number(contributionModal?.unitPricePaid ?? 0);
   const isFixedIncome = selectedAsset?.instrumentType === "FIXED_INCOME";
   const paidUnitPriceValid = isFixedIncome || (Number.isFinite(selectedUnitPricePaid) && selectedUnitPricePaid > 0);
-  const selectedEquivalentNative = isFixedIncome ? selectedQuantity : selectedQuantity * selectedUnitPricePaid;
+  const selectedEquivalentNative = isFixedIncome
+    ? selectedSuggestion?.nativeCurrency && Number(selectedSuggestion.fxRateToBrl) > 0
+      ? selectedQuantity / Number(selectedSuggestion.fxRateToBrl)
+      : selectedQuantity
+    : selectedQuantity * selectedUnitPricePaid;
   const selectedEquivalentBrl = isFixedIncome
     ? selectedQuantity
     : selectedSuggestion?.nativeCurrency
@@ -207,7 +211,7 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
                 ...item,
                 quantity: selectedQuantity.toString(),
                 value: selectedEquivalentBrl.toString(),
-                nativeValue: !isFixedIncome && item.nativeCurrency
+                nativeValue: item.nativeCurrency
                   ? selectedEquivalentNative.toString()
                   : item.nativeValue,
                 executed: !result.awaitingSync,
@@ -495,7 +499,9 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
             )}
             {providerControlled && (
               <div className="rounded-xl border border-[var(--primary)]/50 bg-[var(--primary)]/10 p-4 text-sm">
-                Esta posição é controlada por um provedor. O aporte ficará aguardando e só alterará a carteira depois que a sincronização confirmar a compra.
+                {selectedHolding?.positionSource === "ACCOUNT_BALANCE"
+                  ? "Este aporte registra apenas o planejamento. Faça o depósito fora deste fluxo. O saldo e a Carteira só mudarão pelos mecanismos normais da conta; uma mudança no câmbio não confirma o depósito."
+                  : "Esta posição é controlada por um provedor. O aporte ficará aguardando e só alterará a carteira depois que a sincronização confirmar a compra."}
               </div>
             )}
             <div className="flex justify-center pt-5">

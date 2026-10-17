@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { projectAccountInvestment } from "@/features/finance/account-investments";
 import { type UserOperationLeaseContext, withUserOperationLease } from "@/lib/operation-security";
 import { prisma } from "@/lib/prisma";
 import { PLUGGY_DIAGRAM_EXCLUSION_REASON } from "./diagram-exclusion";
@@ -264,6 +265,7 @@ async function resolvePluggyItemDisconnectionUnlocked(
       where: { pluggyItemDbId: item.id },
       data: { providerAvailable: false, providerRemovedAt: now },
     });
+    for (const accountId of accountIds) await projectAccountInvestment(tx, accountId);
     await tx.pluggyItem.update({
       where: { id: item.id },
       data: { disconnectionResolution: resolution },

@@ -72,8 +72,13 @@ export type AssetHoldingDto = {
   issuer: string;
   institution: string | null;
   productName: string;
-  pricingSource: "MANUAL" | "BRAPI" | "YAHOO" | "BINANCE" | "PLUGGY";
-  positionSource: "MANUAL" | "PLUGGY" | "BINANCE";
+  pricingSource: "MANUAL" | "BRAPI" | "YAHOO" | "BINANCE" | "PLUGGY" | "ACCOUNT_BALANCE";
+  positionSource: "MANUAL" | "PLUGGY" | "BINANCE" | "ACCOUNT_BALANCE";
+  accountBalanceSource?: {
+    linkId: string; accountId: string; name: string; expectedUpdatedAt: string;
+    alsoIncludedInAccountBalance: true; valuationUnavailable: boolean;
+    fxSource: string | null;
+  } | null;
   ticker: string | null;
   providerSymbol: string | null;
   brapiAssetType: string | null;
@@ -182,7 +187,8 @@ export type PortfolioDto = {
   }>;
   integrationReview: Array<{
     id: string;
-    source: "INVESTMENTS_API" | "ACCOUNT_RESERVED_BALANCE" | "ACCOUNT_AUTOMATIC_BALANCE";
+    source: "INVESTMENTS_API" | "ACCOUNT_RESERVED_BALANCE" | "ACCOUNT_AUTOMATIC_BALANCE" | "ACCOUNT_BALANCE";
+    accountBalanceSource?: { accountId: string; expectedUpdatedAt: string; automaticBalanceConflicts: string[] };
     investmentName: string;
     institution: string;
     providerType: string;

@@ -73,6 +73,7 @@ const accountSelect = {
   balanceBrl: true, balanceFxRateToBrl: true, balanceFxRateDate: true,
   balanceFxSource: true, creditLimit: true, availableCredit: true,
   dueDay: true, closingDay: true, providerUpdatedAt: true, updatedAt: true,
+  investmentLink: { select: { enabled: true, status: true, assetHoldingId: true } },
 } satisfies Prisma.FinancialAccountSelect;
 
 const transactionSelect = {
@@ -260,6 +261,11 @@ function accountResult(row: Account) {
   return {
     id: row.id, source: row.source, type: row.type, subtype: row.subtype,
     name: redactAnalysisText(row.name),
+    portfolioOverlap: row.investmentLink?.enabled ? {
+      holdingId: row.investmentLink.assetHoldingId, status: row.investmentLink.status,
+      sameMoneyAsAccountBalance: true,
+      warning: "This account balance is also represented in the investment portfolio. Do not add it twice.",
+    } : null,
     institutionName: redactAnalysisText(row.source === "PLUGGY"
       ? resolvePluggyInstitutionName(row.institutionName, null, [row.bankCode])
       : row.institutionName),
@@ -330,7 +336,9 @@ const summary = tool({
     return envelope(context, {
       period: input, totals: periodTotals(calculatePeriodAmounts(groups)), currentAccountTotals: balances,
       missingFxCount: missing, complete: missing === 0 && balances.missingFxCount === 0,
-    }, [...fxWarnings(missing), ...(balances.missingFxCount ? ["Some current account balances lack BRL conversion."] : [])]);
+    }, [...fxWarnings(missing), ...(balances.missingFxCount ? ["Some current account balances lack BRL conversion."] : []),
+      ...(accounts.some((account) => account.investmentLink?.enabled) ? ["Some account balances are also represented as ACCOUNT_BALANCE investments. Do not add both representations as separate wealth."] : []),
+    ]);
   }),
 });
 

@@ -52,6 +52,12 @@ Contas bancárias e cartões de crédito manuais aceitam BRL e USD.
 - Alterações em contas USD atualizam primeiro o saldo nativo e depois seu equivalente em BRL com a taxa corrente da conta.
 - Uma transferência BRL↔USD é registrada como duas transações internas manuais. Não existe fluxo automático de câmbio.
 
+### Saldo de conta como investimento
+
+Ao editar uma conta bancária manual ou conectada, marque **Classificar saldo como investimento** para enviar seu saldo positivo à revisão na Carteira. Confirme classe de renda fixa, família, indexação, tipo e nota; produto, taxa e cobertura FGC não são presumidos. Grupos BRL e USD permanecem separados.
+
+A conta continua sendo a única fonte do valor da posição. Alterações do saldo e do câmbio corrente atualizam a holding; taxas descritivas não geram juros nem transações. Desmarcar retira a posição dos totais da Carteira sem perder a classificação. O mesmo dinheiro permanece em **Saldo em conta**: exportações e MCP identificam essa sobreposição, portanto não some as duas representações como patrimônio adicional. O aporte nessa posição é apenas planejado e reconhecido após mudança no saldo nativo, nunca por variação cambial isolada.
+
 ## Carteira de investimentos
 
 - Classes de alocação: ações internacionais, ações nacionais, FIIs, REITs, criptoativos, renda fixa nacional, renda fixa internacional e Reserva de valor.

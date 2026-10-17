@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { accountInvestmentReviews } from "@/features/finance/account-investment-dto";
 import Decimal from "decimal.js";
 import { resolvePluggyInvestmentIssuer } from "@/features/open-finance/institution-logo";
 import { connectedInvestmentMetadataDto } from "@/features/open-finance/investment-metadata-dto";
@@ -57,6 +58,7 @@ export async function getPortfolioData(userId: string) {
         holdings: {
           include: {
             catalogItem: true,
+            accountInvestmentLink: { include: { account: true } },
             pluggyDiagramLink: {
               include: {
                 investment: {
@@ -152,6 +154,7 @@ export async function getPortfolioData(userId: string) {
     ]),
   ) as Record<InvestmentClassKey, number>;
 
+  const accountReviews = await accountInvestmentReviews(prisma, userId);
   return {
     id: portfolio.id,
     version: portfolio.version,
@@ -290,6 +293,15 @@ export async function getPortfolioData(userId: string) {
               )
             : null,
           productName: holding.productName,
+          accountBalanceSource: holding.accountInvestmentLink ? {
+            linkId: holding.accountInvestmentLink.id,
+            accountId: holding.accountInvestmentLink.accountId,
+            name: holding.accountInvestmentLink.account.name,
+            expectedUpdatedAt: holding.accountInvestmentLink.updatedAt.toISOString(),
+            alsoIncludedInAccountBalance: true as const,
+            valuationUnavailable: holding.currency !== "BRL" && !holding.fxRateToBrl?.gt(0),
+            fxSource: holding.accountInvestmentLink.account.balanceFxSource,
+          } : null,
           pricingSource: holding.pricingSource,
           positionSource: holding.positionSource,
           ticker: holding.ticker,
@@ -359,7 +371,7 @@ export async function getPortfolioData(userId: string) {
       summary: item.summary,
       familyCode: item.familyCode,
     })),
-    integrationReview: integrationReview.map((link) => ({
+    integrationReview: [...accountReviews, ...integrationReview.map((link) => ({
       id: link.id,
       source: link.investment.source,
       investmentName: link.investment.name,
@@ -432,7 +444,7 @@ export async function getPortfolioData(userId: string) {
       suggestedFamilyCode: link.suggestedFamilyCode,
       suggestedIndexation: link.suggestedIndexation,
       reviewReason: link.reviewReason,
-    })),
+    }))],
   };
 }
 

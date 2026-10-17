@@ -391,7 +391,7 @@ export async function getFinanceData(
     prisma.financialAccount.findMany({
       where: { userId, active: true },
       orderBy: [{ type: "asc" }, { sortOrder: "asc" }, { name: "asc" }],
-      include: { _count: { select: { transactions: true } } },
+      include: { investmentLink: true, _count: { select: { transactions: true } } },
     }),
     prisma.financeTransaction.findMany({
       where: transactionScope === "NONE"
@@ -565,6 +565,13 @@ export async function getFinanceData(
       sortOrder: account.sortOrder,
       providerUpdatedAt: account.providerUpdatedAt?.toISOString() ?? null,
       transactionCount: account._count.transactions,
+      accountInvestment: account.investmentLink ? {
+        linkId: account.investmentLink.id,
+        enabled: account.investmentLink.enabled,
+        status: account.investmentLink.status,
+        holdingId: account.investmentLink.assetHoldingId,
+        alsoIncludedInAccountBalance: true,
+      } : null,
     })),
     transactions: mappedTransactions.filter(
       (transaction) => transaction.referenceYear === year && transaction.referenceMonth === month,

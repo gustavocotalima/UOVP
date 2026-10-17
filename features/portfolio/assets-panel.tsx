@@ -37,6 +37,7 @@ import type { YahooSearchKind, YahooTickerSearchResult } from "./yahoo-finance";
 import { FIXED_INCOME_INDEXATIONS, FIXED_INCOME_INDEXATION_META, INSTRUMENT_TYPES, INSTRUMENT_TYPE_META, INVESTMENT_CLASSES, INVESTMENT_CLASS_META, MOCK_ASSET_CATALOG, RATE_CONVENTIONS, RATE_CONVENTION_META, type FixedIncomeIndexationKey, type InstrumentTypeKey, type InvestmentClassKey, type RateConventionKey } from "./constants";
 import type { AssetDto, AssetHoldingDto, DiagramQuestionDto, PortfolioDto } from "./types";
 import { excludePluggyDiagramLinkAction, reviewPluggyDiagramLinkAction } from "@/features/open-finance/diagram-actions";
+import { excludeAccountInvestmentAction, reviewAccountInvestmentAction } from "@/features/finance/account-investment-actions";
 import { InvestmentMetadataEditor } from "@/features/open-finance/investment-metadata-editor";
 import { financialModelingPrepLogoUrl, usableBrapiLogoUrl } from "./market-logo";
 
@@ -125,6 +126,12 @@ type ReviewForm = PortfolioDto["integrationReview"][number] & {
   familyCode: string;
   indexation: FixedIncomeIndexationKey | "";
   score: number;
+  accountCustomTypeName?: string;
+  accountCatalogItemId?: number | null;
+  accountRateConvention?: RateConventionKey | null;
+  accountBenchmark?: string;
+  accountRateValue?: string;
+  confirmDistinctAutomaticBalance?: boolean;
 };
 
 type HoldingTransactionsState = {
@@ -258,19 +265,23 @@ function MoneyWithNative({
   native,
   currency,
   strong = false,
+  nativePrimary = false,
+  unavailable = false,
 }: {
   brl: string;
   native?: string | null;
   currency?: string | null;
   strong?: boolean;
+  nativePrimary?: boolean;
+  unavailable?: boolean;
 }) {
   const Primary = strong ? "strong" : "span";
   return (
     <span className="block whitespace-nowrap">
-      <Primary>{formatMoney(brl)}</Primary>
+      <Primary>{nativePrimary && native != null && currency ? formatCurrency(native, currency) : unavailable ? "BRL indisponível" : formatMoney(brl)}</Primary>
       {native !== null && native !== undefined && currency && currency !== "BRL" && (
         <span className="mt-0.5 block text-[10px] font-normal text-[var(--muted-foreground)]">
-          {formatCurrency(native, currency)}
+          {nativePrimary ? unavailable ? "Equivalente BRL indisponível" : formatMoney(brl) : formatCurrency(native, currency)}
         </span>
       )}
     </span>
@@ -1108,6 +1119,37 @@ export function AssetsPanel({
       familyCode: item.suggestedFamilyCode ?? "",
       indexation: item.suggestedIndexation ?? (item.providerType === "FIXED_INCOME" ? "PRE_FIXED" : ""),
       score: 0,
+      accountCustomTypeName: "Saldo de conta remunerado",
+      accountCatalogItemId: null,
+      accountRateConvention: null,
+      accountBenchmark: "",
+      accountRateValue: "",
+      confirmDistinctAutomaticBalance: false,
+    });
+  }
+
+  function editAccountInvestment(asset: AssetDto, holding: AssetHoldingDto) {
+    const source = holding.accountBalanceSource;
+    if (!source) return;
+    setReviewForm({
+      id: source.linkId, source: "ACCOUNT_BALANCE", investmentName: `Saldo da conta · ${source.name}`,
+      institution: holding.institution || holding.issuer, providerType: "ACCOUNT_BALANCE", providerSubtype: null,
+      balance: holding.nativeCurrentValue ?? holding.currentValue, currencyCode: holding.currency,
+      code: null, isin: null, value: null, quantity: null, amount: null, taxes: null, taxes2: null,
+      amountProfit: null, amountWithdrawal: null, amountOriginal: null, lastMonthRate: null,
+      annualRate: null, lastTwelveMonthsRate: null, quotaDate: null, owner: null, number: null,
+      institutionNumber: null, insurerName: null, insurerCnpj: null, issuer: null, issuerCnpj: null,
+      rate: null, rateType: null, fixedAnnualRate: null, purchaseDate: null, dueDate: null,
+      issueDate: null, gracePeriodDate: null, metadata: null, status: null, updatedAt: source.expectedUpdatedAt,
+      transactions: [], suggestedInstrumentType: "FIXED_INCOME", suggestedInvestmentClass: asset.investmentClass,
+      suggestedMarketRegion: null, suggestedFamilyCode: asset.fixedIncomeFamilyCode,
+      suggestedIndexation: asset.indexation, reviewReason: "O valor continua incluído em Saldo em conta. Depósitos e retiradas são feitos pela conta, não por este editor.",
+      accountBalanceSource: { accountId: source.accountId, expectedUpdatedAt: source.expectedUpdatedAt, automaticBalanceConflicts: [] },
+      instrumentType: "FIXED_INCOME", investmentClass: asset.investmentClass, marketRegion: "",
+      familyCode: asset.fixedIncomeFamilyCode ?? "", indexation: asset.indexation ?? "", score: asset.score,
+      accountCustomTypeName: holding.customTypeName ?? "Saldo de conta remunerado",
+      accountCatalogItemId: holding.catalogItemId, accountRateConvention: holding.rateConvention,
+      accountBenchmark: holding.benchmark ?? "", accountRateValue: holding.rateValue ?? "",
     });
   }
 
@@ -1136,7 +1178,18 @@ export function AssetsPanel({
     setMessage(undefined);
     startTransition(async () => {
       try {
-        await reviewPluggyDiagramLinkAction({
+        if (review.source === "ACCOUNT_BALANCE" && review.accountBalanceSource) {
+          await reviewAccountInvestmentAction({
+            linkId: review.id, expectedUpdatedAt: review.accountBalanceSource.expectedUpdatedAt,
+            investmentClass: investmentClass as "FIXED_INCOME" | "INTERNATIONAL_FIXED_INCOME",
+            familyCode: review.familyCode, indexation: review.indexation as FixedIncomeIndexationKey,
+            score: review.score, customTypeName: review.accountCustomTypeName,
+            catalogItemId: review.accountCatalogItemId ?? null,
+            rateConvention: review.accountRateConvention ?? null, benchmark: review.accountBenchmark || null,
+            rateValue: review.accountRateValue ? Number(review.accountRateValue) : null,
+            confirmDistinctAutomaticBalance: review.confirmDistinctAutomaticBalance ?? false,
+          });
+        } else await reviewPluggyDiagramLinkAction({
           linkId: review.id,
           instrumentType,
           investmentClass,
@@ -1158,10 +1211,11 @@ export function AssetsPanel({
     if (!reviewForm) return;
     startTransition(async () => {
       try {
-        await excludePluggyDiagramLinkAction(reviewForm.id);
+        if (reviewForm.source === "ACCOUNT_BALANCE") await excludeAccountInvestmentAction(reviewForm.id);
+        else await excludePluggyDiagramLinkAction(reviewForm.id);
         notifyPortfolioSimulationInvalidated();
         setReviewForm(null);
-        setMessage("Investimento mantido apenas no Open Finance.");
+        setMessage(reviewForm.source === "ACCOUNT_BALANCE" ? "Saldo removido da Carteira e mantido em Contas." : "Investimento mantido apenas no Open Finance.");
       } catch (error) {
         setMessage(error instanceof Error ? error.message : "Não foi possível excluir o investimento do diagrama.");
       }
@@ -1335,7 +1389,7 @@ export function AssetsPanel({
           <CardHeader className="gap-4 @5xl:flex-row @5xl:items-center @5xl:justify-between">
             <div>
               <CardTitle>Seus ativos</CardTitle>
-              <p className="mt-1 text-sm text-[var(--muted-foreground)]">{assets.length} ativos · {formatMoney(total)}</p>
+              <p className="mt-1 text-sm text-[var(--muted-foreground)]">{assets.length} ativos · {formatMoney(total)}{assets.some((asset) => asset.holdings.some((holding) => holding.accountBalanceSource?.valuationUnavailable)) ? " (subtotal conhecido; há saldos sem câmbio)" : ""}</p>
             </div>
             <div className="hidden flex-wrap gap-2 @5xl:flex">
               <Button
@@ -1442,7 +1496,7 @@ export function AssetsPanel({
                         </div>
                       </div>
                       <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 border-t pt-4 text-sm">
-                        <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Valor atual</dt><dd className="mt-1"><MoneyWithNative brl={asset.currentValue} native={asset.nativeCurrentValue} currency={asset.nativeCurrency} strong /></dd></div>
+                        <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Valor atual</dt><dd className="mt-1"><MoneyWithNative brl={asset.currentValue} native={asset.nativeCurrentValue} currency={asset.nativeCurrency} strong nativePrimary={asset.holdings.some((holding) => !!holding.accountBalanceSource)} unavailable={asset.holdings.some((holding) => holding.accountBalanceSource?.valuationUnavailable)} /></dd></div>
                         <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">% da carteira</dt><dd className="mt-1 font-semibold">{formatPercent(total ? currentValue(asset) / total * 100 : 0)}</dd></div>
                         <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Nota</dt><dd className="mt-1 flex items-center gap-2 font-semibold">{asset.score}{asset.needsScore && <span className="text-[10px] font-normal text-[var(--primary)]">Revisar</span>}</dd></div>
                         <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">{showsApplicationCount ? "Aplicações" : "Quantidade"}</dt><dd className="mt-1 font-semibold">{showsApplicationCount ? asset.holdings.length : Number(asset.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 10 })}</dd></div>
@@ -1487,7 +1541,8 @@ export function AssetsPanel({
                                 <div className="min-w-0"><strong className="block truncate text-sm">{holding.typeName}</strong><span className="block truncate text-xs text-[var(--muted-foreground)]">{holding.productName}</span></div>
                                 {holding.positionSource !== "MANUAL"
                                   ? <div className="flex shrink-0 flex-col items-end gap-1">
-                                      <span className="rounded-full bg-[var(--primary)]/12 px-2 py-1 text-[10px] font-semibold text-[var(--primary)]">{holding.positionSource === "BINANCE" ? "Binance" : pluggyInvestmentSourceLabel(holding.providerInvestmentSource)}</span>
+                                      <span className="max-w-48 truncate rounded-full bg-[var(--primary)]/12 px-2 py-1 text-[10px] font-semibold text-[var(--primary)]" title={holding.accountBalanceSource ? `Saldo da conta · ${holding.accountBalanceSource.name}` : undefined}>{holding.accountBalanceSource ? `Saldo da conta · ${holding.accountBalanceSource.name}` : holding.positionSource === "BINANCE" ? "Binance" : pluggyInvestmentSourceLabel(holding.providerInvestmentSource)}</span>
+                                      {holding.accountBalanceSource && <><Button variant="ghost" size="sm" onClick={() => editAccountInvestment(asset, holding)}><Pencil className="size-3.5" /> Classificação</Button><Button variant="ghost" size="sm" onClick={() => startTransition(async () => { try { await excludeAccountInvestmentAction(holding.accountBalanceSource!.linkId); notifyPortfolioSimulationInvalidated(); } catch (error) { setMessage(error instanceof Error ? error.message : "Não foi possível remover."); } })}>Remover da Carteira</Button></>}
                                       <TemporaryQuantityBadge metadata={holding.connectedMetadata} />
                                       {holding.connectedMetadata?.overrideFields.some((field) => field !== "QUANTITY") ? <span className="text-[10px] font-semibold text-[var(--primary)]">Editado manualmente</span> : null}
                                       {holding.connectedMetadata && (
@@ -1501,7 +1556,7 @@ export function AssetsPanel({
                               <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-3 text-xs">
                                 <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Emissor</dt><dd className="mt-1">{holding.issuer || "—"}</dd></div>
                                 {holding.institution && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Instituição</dt><dd className="mt-1">{holding.institution}</dd></div>}
-                                <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Atual</dt><dd className="mt-1"><MoneyWithNative brl={holding.currentValue} native={holding.nativeCurrentValue} currency={holding.currency} strong /></dd></div>
+                                <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Atual</dt><dd className="mt-1"><MoneyWithNative brl={holding.currentValue} native={holding.nativeCurrentValue} currency={holding.currency} strong nativePrimary={!!holding.accountBalanceSource} unavailable={holding.accountBalanceSource?.valuationUnavailable} /></dd></div>
                                 {holding.investedValue !== null && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Investido</dt><dd className="mt-1">{formatMoney(holding.investedValue)}</dd></div>}
                                 {["STOCK", "ETF", "REAL_ESTATE_FUND", "REIT", "CRYPTO"].includes(asset.instrumentType) && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Quantidade atual</dt><dd className="mt-1">{Number(holding.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 10 })}<ProviderQuantity metadata={holding.connectedMetadata} /></dd></div>}
                                 {displayedAveragePrice !== null && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Preço médio</dt><dd className="mt-1">{formatMoney(displayedAveragePrice)}{displayedAveragePriceCoverage < 0.999 && <span className="block text-[9px] text-[var(--primary)]">Histórico parcial</span>}</dd></div>}
@@ -1510,6 +1565,8 @@ export function AssetsPanel({
                                 {holding.maturityDate && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Vencimento</dt><dd className="mt-1">{reviewDate(holding.maturityDate, timeZone)}</dd></div>}
                                 {holding.positionSource !== "MANUAL" && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Status</dt><dd className="mt-1">{holding.providerStatus ?? "Sincronizado"}</dd></div>}
                               </dl>
+                              {holding.accountBalanceSource && <p className="mt-3 text-xs text-[var(--muted-foreground)]">Mesmo dinheiro incluído em Saldo em conta. Valor e moeda são controlados pela conta; nenhuma movimentação de investimento é criada.</p>}
+                              {holding.accountBalanceSource && holding.currency !== "BRL" && holding.fxRateToBrl && <p className="mt-2 text-xs text-[var(--muted-foreground)]">Câmbio corrente: 1 {holding.currency} = {formatMoney(holding.fxRateToBrl)} · {holding.accountBalanceSource.fxSource ?? "Não informado"}{holding.fxUpdatedAt ? ` · ${formatDateOnly(holding.fxUpdatedAt)}` : ""}</p>}
 
                               {holding.providerInvestmentSource && holding.providerInvestmentSource !== "INVESTMENTS_API" && (
                                 <p className="mt-3 rounded-lg border border-dashed p-3 text-xs text-[var(--muted-foreground)]">
@@ -1621,7 +1678,7 @@ export function AssetsPanel({
                             )}
                             {asset.instrumentType === "ETF" && asset.fixedIncomeFamilyName && asset.indexation && <span className="mt-0.5 block max-w-28 truncate text-[10px] text-[var(--muted-foreground)]" title={`${asset.fixedIncomeFamilyName} · ${FIXED_INCOME_INDEXATION_META[asset.indexation].label}`}>{asset.fixedIncomeFamilyName} · {FIXED_INCOME_INDEXATION_META[asset.indexation].label}</span>}
                           </td>
-                          <td className="whitespace-nowrap px-3"><MoneyWithNative brl={asset.currentValue} native={asset.nativeCurrentValue} currency={asset.nativeCurrency} /></td>
+                          <td className="whitespace-nowrap px-3"><MoneyWithNative brl={asset.currentValue} native={asset.nativeCurrentValue} currency={asset.nativeCurrency} nativePrimary={asset.holdings.some((holding) => !!holding.accountBalanceSource)} unavailable={asset.holdings.some((holding) => holding.accountBalanceSource?.valuationUnavailable)} /></td>
                           <td className="whitespace-nowrap px-3">{formatPercent(total ? currentValue(asset) / total * 100 : 0)}</td>
                           <td className="whitespace-nowrap px-3">
                             <span className="grid size-8 place-items-center rounded-full bg-[var(--muted)] font-semibold">{asset.score}</span>
@@ -1705,7 +1762,8 @@ export function AssetsPanel({
                                           <td className="px-3 py-3">{holding.issuer}</td>
                                           {holdingColumns.invested && <td className="whitespace-nowrap px-3 py-3">{holding.investedValue == null ? "—" : formatMoney(holding.investedValue)}</td>}
                                           <td className="whitespace-nowrap px-3 py-3">
-                                            <MoneyWithNative brl={holding.currentValue} native={holding.nativeCurrentValue} currency={holding.currency} strong />
+                                            <MoneyWithNative brl={holding.currentValue} native={holding.nativeCurrentValue} currency={holding.currency} strong nativePrimary={!!holding.accountBalanceSource} unavailable={holding.accountBalanceSource?.valuationUnavailable} />
+                                            {holding.accountBalanceSource && holding.currency !== "BRL" && holding.fxRateToBrl && <span className="mt-1 block text-[10px] text-[var(--muted-foreground)]">1 {holding.currency} = {formatMoney(holding.fxRateToBrl)} · {holding.accountBalanceSource.fxSource ?? "Não informado"}{holding.fxUpdatedAt ? ` · ${formatDateOnly(holding.fxUpdatedAt)}` : ""}</span>}
                                             {holding.pricingSource === "YAHOO" && holding.fxRateToBrl && (
                                               <span className="mt-1 block text-[10px] font-normal text-[var(--muted-foreground)]">
                                                 {reviewMoney(holding.unitPrice, holding.currency)} · câmbio {Number(holding.fxRateToBrl).toLocaleString("pt-BR", { maximumFractionDigits: 6 })}
@@ -1737,7 +1795,8 @@ export function AssetsPanel({
                                           {holdingColumns.maturityDate && <td className="whitespace-nowrap px-3 py-3">{holding.maturityDate ? reviewDate(holding.maturityDate, timeZone) : "—"}</td>}
                                           <td className="px-3 py-3">
                                             {holding.positionSource !== "MANUAL"
-                                              ? <div className="flex flex-col items-end gap-1 text-right"><span className="rounded-full bg-[var(--primary)]/12 px-2 py-1 text-[10px] font-semibold text-[var(--primary)]">{holding.positionSource === "BINANCE" ? "Binance" : "Pluggy"}</span>{holding.institution && <span className="block text-[10px] font-medium">{holding.institution}</span>}<span className="block text-[10px] text-[var(--muted-foreground)]">{holding.providerStatus ?? "Sincronizado"}</span>
+                                              ? <div className="flex flex-col items-end gap-1 text-right"><span className="rounded-full bg-[var(--primary)]/12 px-2 py-1 text-[10px] font-semibold text-[var(--primary)]">{holding.accountBalanceSource ? `Saldo da conta · ${holding.accountBalanceSource.name}` : holding.positionSource === "BINANCE" ? "Binance" : "Pluggy"}</span>{holding.institution && <span className="block text-[10px] font-medium">{holding.institution}</span>}<span className="block text-[10px] text-[var(--muted-foreground)]">{holding.providerStatus ?? "Sincronizado"}</span>
+                                                  {holding.accountBalanceSource && <><span className="text-[10px] text-[var(--muted-foreground)]">Mesmo valor de Saldo em conta</span><Button variant="ghost" size="sm" onClick={() => editAccountInvestment(asset, holding)}><Pencil className="size-3.5" /> Classificação</Button><Button variant="ghost" size="sm" onClick={() => startTransition(async () => { try { await excludeAccountInvestmentAction(holding.accountBalanceSource!.linkId); notifyPortfolioSimulationInvalidated(); } catch (error) { setMessage(error instanceof Error ? error.message : "Não foi possível remover."); } })}>Remover da Carteira</Button></>}
                                                   <TemporaryQuantityBadge metadata={holding.connectedMetadata} />
                                                   {holding.connectedMetadata?.overrideFields.some((field) => field !== "QUANTITY") ? <span className="text-[10px] font-semibold text-[var(--primary)]">Editado manualmente</span> : null}
                                                   {holding.connectedMetadata && (
@@ -1840,24 +1899,25 @@ export function AssetsPanel({
         mobileMode="full"
         onOpenChange={(open) => !open && setReviewForm(null)}
         dismissible={!pending}
-        title="Revisar integração Pluggy"
+        title={reviewForm?.source === "ACCOUNT_BALANCE" ? "Classificar saldo da conta" : "Revisar integração Pluggy"}
         className="max-w-5xl"
         footer={reviewForm && (
           <>
-            <Button type="button" variant="outline" onClick={excludeReview} disabled={pending}>Manter só no Open Finance</Button>
+            <Button type="button" variant="outline" onClick={excludeReview} disabled={pending}>{reviewForm.source === "ACCOUNT_BALANCE" ? "Manter só em Contas" : "Manter só no Open Finance"}</Button>
             <Button type="submit" form="pluggy-review-form" disabled={pending}>{pending ? "Integrando…" : "Integrar ao diagrama"}</Button>
           </>
         )}
       >
         {reviewForm && (
           <form id="pluggy-review-form" onSubmit={submitReview} className="space-y-5">
+            {message && <p role="status" className="rounded-xl border p-3 text-sm">{message}</p>}
             <div className="rounded-xl border bg-[var(--muted)]/30 p-4">
               <strong className="block">{reviewForm.investmentName}</strong>
               <p className="mt-1 text-sm text-[var(--muted-foreground)]">{reviewForm.institution} · {reviewForm.providerType}{reviewForm.providerSubtype ? ` / ${reviewForm.providerSubtype}` : ""}</p>
-              <p className="mt-2 font-semibold">{formatMoney(reviewForm.balance)}</p>
+              <p className="mt-2 font-semibold">{formatCurrency(reviewForm.balance, reviewForm.currencyCode)}</p>
               {reviewForm.reviewReason && <p className="mt-3 text-sm text-[var(--primary)]">{reviewForm.reviewReason}</p>}
             </div>
-            <PluggyReviewSourceData review={reviewForm} timeZone={timeZone} />
+            {reviewForm.source !== "ACCOUNT_BALANCE" && <PluggyReviewSourceData review={reviewForm} timeZone={timeZone} />}
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="review-instrument">Instrumento</Label>
@@ -1872,7 +1932,7 @@ export function AssetsPanel({
                   });
                 }} required>
                   <option value="">Selecione</option>
-                  {INSTRUMENT_TYPES.map((instrumentType) => <option key={instrumentType} value={instrumentType}>{INSTRUMENT_TYPE_META[instrumentType].label}</option>)}
+                  {INSTRUMENT_TYPES.filter((type) => reviewForm.source !== "ACCOUNT_BALANCE" || type === "FIXED_INCOME").map((instrumentType) => <option key={instrumentType} value={instrumentType}>{INSTRUMENT_TYPE_META[instrumentType].label}</option>)}
                 </Select>
               </div>
               <div className="space-y-2">
@@ -1888,7 +1948,7 @@ export function AssetsPanel({
                   });
                 }} required>
                   <option value="">Selecione</option>
-                  {INVESTMENT_CLASSES.map((investmentClass) => <option key={investmentClass} value={investmentClass}>{INVESTMENT_CLASS_META[investmentClass].label}</option>)}
+                  {INVESTMENT_CLASSES.filter((type) => reviewForm.source !== "ACCOUNT_BALANCE" || type === (reviewForm.currencyCode === "USD" ? "INTERNATIONAL_FIXED_INCOME" : "FIXED_INCOME")).map((investmentClass) => <option key={investmentClass} value={investmentClass}>{INVESTMENT_CLASS_META[investmentClass].label}</option>)}
                 </Select>
               </div>
               {reviewForm.instrumentType === "ETF" && reviewForm.investmentClass === "STORE_OF_VALUE" && (
@@ -1932,7 +1992,26 @@ export function AssetsPanel({
                 <Label htmlFor="review-score">Nota inicial</Label>
                 <Input id="review-score" type="number" min="-30" max="30" value={reviewForm.score} onChange={(event) => setReviewForm({ ...reviewForm, score: Number(event.target.value) })} />
                 <p className="text-xs text-[var(--muted-foreground)]">Nota 0 inclui o ativo nos totais, mas não nas sugestões de aporte.</p>
+                {reviewForm.source === "ACCOUNT_BALANCE" && <p className="text-xs text-[var(--muted-foreground)]">Se o grupo já existir, sua classificação e nota serão preservadas.</p>}
               </div>
+              {reviewForm.source === "ACCOUNT_BALANCE" && <>
+                <div className="space-y-2 sm:col-span-2"><Label htmlFor="account-review-type">Tipo do produto</Label>
+                  <Select id="account-review-type" className="w-full" value={reviewForm.accountCatalogItemId ?? ""} onChange={(event) => setReviewForm({ ...reviewForm, accountCatalogItemId: event.target.value ? Number(event.target.value) : null })}>
+                    <option value="">Tipo personalizado</option>{catalog.filter((item) => item.familyCode === reviewForm.familyCode).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                  </Select>
+                </div>
+                {!reviewForm.accountCatalogItemId && <div className="space-y-2 sm:col-span-2"><Label htmlFor="account-review-custom">Tipo personalizado</Label><Input id="account-review-custom" value={reviewForm.accountCustomTypeName ?? ""} onChange={(event) => setReviewForm({ ...reviewForm, accountCustomTypeName: event.target.value })} required /></div>}
+                <div className="space-y-2"><Label htmlFor="account-review-rate-format">Formato da taxa (opcional)</Label><Select id="account-review-rate-format" className="w-full" value={reviewForm.accountRateConvention ?? ""} onChange={(event) => setReviewForm({ ...reviewForm, accountRateConvention: event.target.value as RateConventionKey || null, accountBenchmark: "", accountRateValue: "" })}><option value="">Não informado</option>{RATE_CONVENTIONS.map((item) => <option key={item} value={item}>{RATE_CONVENTION_META[item]}</option>)}</Select></div>
+                {reviewForm.accountRateConvention && <>
+                  <div className="space-y-2"><Label htmlFor="account-review-rate">Taxa descritiva</Label><Input id="account-review-rate" type="number" step="0.000001" min="0" value={reviewForm.accountRateValue ?? ""} onChange={(event) => setReviewForm({ ...reviewForm, accountRateValue: event.target.value })} /></div>
+                  {["PERCENT_OF_INDEXER", "INDEXER_PLUS"].includes(reviewForm.accountRateConvention) && <div className="space-y-2"><Label htmlFor="account-review-benchmark">Indexador</Label><Input id="account-review-benchmark" value={reviewForm.accountBenchmark ?? ""} onChange={(event) => setReviewForm({ ...reviewForm, accountBenchmark: event.target.value })} required /></div>}
+                </>}
+                <p className="text-xs text-[var(--muted-foreground)] sm:col-span-2">A taxa é apenas descritiva. O saldo não recebe juros calculados pelo UOVP.</p>
+                {!!reviewForm.accountBalanceSource?.automaticBalanceConflicts.length && <div className="rounded-xl border border-[var(--primary)] p-3 text-sm sm:col-span-2">
+                  <p>Já existe saldo automático desta conta na Carteira: {reviewForm.accountBalanceSource.automaticBalanceConflicts.join(", ")}. Remova a representação duplicada ou confirme abaixo.</p>
+                  <label className="mt-3 flex items-center gap-2"><input type="checkbox" checked={reviewForm.confirmDistinctAutomaticBalance ?? false} onChange={(event) => setReviewForm({ ...reviewForm, confirmDistinctAutomaticBalance: event.target.checked })} />Confirmo que são valores distintos, não o mesmo saldo.</label>
+                </div>}
+              </>}
             </div>
           </form>
         )}

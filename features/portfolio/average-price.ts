@@ -11,7 +11,7 @@ export type AveragePriceTransaction = {
 };
 
 export type HoldingAveragePriceInput = {
-  positionSource: "MANUAL" | "PLUGGY" | "BINANCE";
+  positionSource: "MANUAL" | "PLUGGY" | "BINANCE" | "ACCOUNT_BALANCE";
   quantity: Decimal.Value;
   investedValue: DecimalValue;
   amountOriginal?: DecimalValue;

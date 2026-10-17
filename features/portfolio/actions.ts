@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { Prisma, type DiagramType, type FixedIncomeIndexation, type InstrumentType, type InvestmentClass, type MarketRegion, type RateConvention } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { setAccountInvestmentPreference } from "@/features/finance/account-investments";
 import { requireUserId } from "@/lib/current-user";
 import {
   assertUserOperationRateLimit,
@@ -231,7 +232,7 @@ export async function saveAssetAction(input: AssetInput) {
     where: {
       assetId: parsed.id,
       includedInTotals: true,
-      positionSource: { in: ["MANUAL", "PLUGGY", "BINANCE"] },
+      positionSource: { in: ["MANUAL", "PLUGGY", "BINANCE", "ACCOUNT_BALANCE"] },
       asset: { portfolio: { userId } },
     },
     orderBy: { createdAt: "asc" },
@@ -404,7 +405,7 @@ export async function saveAssetAction(input: AssetInput) {
       where: { assetId: parent.id, positionSource: "PLUGGY", includedInTotals: true },
     });
     const providerControlled = await tx.assetHolding.count({
-      where: { assetId: parent.id, positionSource: { in: ["PLUGGY", "BINANCE"] }, includedInTotals: true },
+      where: { assetId: parent.id, positionSource: { in: ["PLUGGY", "BINANCE", "ACCOUNT_BALANCE"] }, includedInTotals: true },
     });
     if (pluggyControlled) {
       await tx.pluggyInvestmentDiagramLink.updateMany({
@@ -547,6 +548,7 @@ export async function saveFixedIncomeGroupAction(input: FixedIncomeGroupInput, i
         fixedIncomeFamilyCode: family.code,
         indexation: parsed.indexation as FixedIncomeIndexation,
         instrumentType: "FIXED_INCOME",
+        investmentClass: parsed.investmentClass,
         ...(parsed.id ? { id: { not: parsed.id } } : {}),
       },
       select: { id: true },
@@ -1063,6 +1065,8 @@ export async function deleteAssetAction(assetId: string) {
   const userId = await requireUserId();
   const asset = await assertOwnedAsset(userId, assetId);
   await prisma.$transaction(async (tx) => {
+    const accountLinks = await tx.accountInvestmentLink.findMany({ where: { assetHolding: { assetId: asset.id }, account: { userId } } });
+    for (const link of accountLinks) await setAccountInvestmentPreference(tx, userId, link.accountId, false);
     await tx.pluggyInvestmentDiagramLink.updateMany({
       where: { holding: { assetId: asset.id } },
       data: reopenDeletedPluggyPositionForReview(
@@ -1099,6 +1103,8 @@ export async function deleteAssetClassAction(investmentClass: InvestmentClassKey
       },
     });
     for (const asset of assets) {
+      const accountLinks = await tx.accountInvestmentLink.findMany({ where: { assetHolding: { assetId: asset.id }, account: { userId } } });
+      for (const link of accountLinks) await setAccountInvestmentPreference(tx, userId, link.accountId, false);
       await tx.pluggyInvestmentDiagramLink.updateMany({
         where: { holding: { assetId: asset.id } },
         data: reopenDeletedPluggyPositionForReview(
@@ -1916,7 +1922,9 @@ export async function simulateContributionAction(
             value: suggestion.value.toString(),
             nativeCurrency,
             nativeUnitPrice,
-            nativeValue: nativeUnitPrice ? suggestion.quantity.mul(nativeUnitPrice) : null,
+            nativeValue: asset?.instrumentType === "FIXED_INCOME" && nativeCurrency && assetFxRate?.gt(0)
+              ? suggestion.value.div(assetFxRate)
+              : nativeUnitPrice ? suggestion.quantity.mul(nativeUnitPrice) : null,
             fxRateToBrl: assetFxRate,
             suggestionPercentage: suggestion.suggestionPercentage.toString(),
             totalAfterSuggestionPercentage: suggestion.totalAfterSuggestionPercentage.toString(),
@@ -2011,6 +2019,9 @@ export async function executeContributionAction(
       });
       if (externalSuggestion) {
         if (selected.length !== 1) throw new Error("Planeje aportes de posições controladas por provedor individualmente.");
+        const externalHoldings = externalSuggestion.asset.holdings.filter((holding) =>
+          holding.positionSource !== "MANUAL" && holding.includedInTotals
+          && (externalSuggestion.asset.instrumentType !== "FIXED_INCOME" || holding.id === destination?.holdingId));
         const existingAwaiting = await tx.contributionSuggestion.count({
           where: {
             assetId: externalSuggestion.assetId,
@@ -2104,8 +2115,7 @@ export async function executeContributionAction(
             baselineValue,
             externalBaselines: {
               deleteMany: {},
-              create: externalSuggestion.asset.holdings
-                .filter((holding) => holding.positionSource !== "MANUAL" && holding.includedInTotals)
+              create: externalHoldings
                 .map((holding) => ({
                   holdingId: holding.id,
                   quantity: observedQuantity(holding),

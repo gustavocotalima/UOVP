@@ -1,6 +1,7 @@
 "use client";
 
 import Script from "next/script";
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -58,6 +59,7 @@ type AccountForm = {
   creditLimit: string;
   dueDay: string;
   closingDay: string;
+  classifyBalanceAsInvestment: boolean;
 };
 
 function emptyForm(type: AccountForm["type"]): AccountForm {
@@ -77,6 +79,7 @@ function emptyForm(type: AccountForm["type"]): AccountForm {
     creditLimit: "",
     dueDay: "",
     closingDay: "",
+    classifyBalanceAsInvestment: false,
   };
 }
 
@@ -205,6 +208,7 @@ export function AccountsClient({ data }: { data: FinanceData }) {
       creditLimit: account.creditLimit ?? "",
       dueDay: account.dueDay?.toString() ?? "",
       closingDay: account.closingDay?.toString() ?? "",
+      classifyBalanceAsInvestment: account.accountInvestment?.enabled ?? false,
     });
     setAccountFxRequired(false);
     setFormOpen(true);
@@ -227,6 +231,7 @@ export function AccountsClient({ data }: { data: FinanceData }) {
           brand: form.brand,
           balance: Number(form.balance),
           expectedBalance: editing ? Number(editing.balance) : undefined,
+          classifyBalanceAsInvestment: editing?.type === "BANK_ACCOUNT" ? form.classifyBalanceAsInvestment : undefined,
           currencyCode: form.currencyCode,
           manualFxRateToBrl: form.manualFxRateToBrl
             ? Number(form.manualFxRateToBrl)
@@ -367,7 +372,7 @@ export function AccountsClient({ data }: { data: FinanceData }) {
       </Dialog>
 
       <Dialog open={formOpen} onOpenChange={setFormOpen} dismissible={!busy} title={editing ? "Editar conta" : form.type === "BANK_ACCOUNT" ? "Adicionar conta bancária" : "Adicionar cartão"} footer={<Button onClick={saveAccount} disabled={busy || form.name.trim().length < 2 || (accountFxRequired && !(Number(form.manualFxRateToBrl) > 0))}>{editing ? "Salvar alterações" : "Adicionar"}</Button>}>
-        {editing?.source === "PLUGGY" && <div className="mb-5 rounded-xl bg-[var(--muted)] p-3 text-sm text-[var(--muted-foreground)]">Apenas o nome personalizado pode ser alterado. Saldos, limites e datas continuam sendo atualizados pela instituição.</div>}
+        {editing?.source === "PLUGGY" && <div className="mb-5 rounded-xl bg-[var(--muted)] p-3 text-sm text-[var(--muted-foreground)]">O nome e a preferência da Carteira podem ser alterados. Saldos, limites, moeda e datas continuam sendo atualizados pela instituição.</div>}
         {accountFxRequired && <FinanceNotice type="error">Não foi possível obter USD/BRL automaticamente. Informe a cotação manual para continuar.</FinanceNotice>}
         <AccountFormFields
           form={form}
@@ -376,6 +381,16 @@ export function AccountsClient({ data }: { data: FinanceData }) {
           currencyLocked={Boolean(editing && editing.transactionCount > 0)}
           fxRequired={accountFxRequired}
         />
+        {editing?.type === "BANK_ACCOUNT" && ["BRL", "USD"].includes(editing.currencyCode) && <div className="mt-5 space-y-2 rounded-xl border p-4">
+          <label className="flex items-center gap-2 text-sm font-semibold">
+            <input type="checkbox" checked={form.classifyBalanceAsInvestment} onChange={(event) => setForm({ ...form, classifyBalanceAsInvestment: event.target.checked })} />
+            Classificar saldo como investimento
+          </label>
+          <p className="text-xs text-[var(--muted-foreground)]">Exibe o saldo desta conta também na Carteira. O valor continuará incluído no Saldo em conta.</p>
+          {editing.accountInvestment?.enabled && <Link className="inline-block text-sm text-[var(--primary)] underline" href="/carteira">
+            {editing.accountInvestment.status === "MAPPED" ? "Incluído na Carteira" : "Aguardando classificação"} → Ver posição
+          </Link>}
+        </div>}
       </Dialog>
 
       <Dialog open={orderOpen} onOpenChange={setOrderOpen} dismissible={!busy} title="Ordenar contas" description="Reorganize suas contas na ordem desejada." footer={<><Button variant="outline" onClick={() => setOrderOpen(false)}>Cancelar</Button><Button onClick={saveOrder} disabled={busy || !order.length}>Salvar</Button></>}>

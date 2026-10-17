@@ -1,6 +1,7 @@
 "use server";
 
 import { Prisma, type PluggyInvestmentMetadataOverrideField } from "@prisma/client";
+import { projectAccountInvestment } from "@/features/finance/account-investments";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
@@ -225,7 +226,7 @@ export async function savePluggyConnectionDisplayNameAction(
           source: "PLUGGY",
           providerItemId: item.pluggyItemId,
         },
-        select: { bankCode: true },
+        select: { id: true, bankCode: true },
       });
       const automaticName = resolvePluggyInstitutionName(
         item.institutionName,
@@ -246,6 +247,7 @@ export async function savePluggyConnectionDisplayNameAction(
         },
         data: { institutionName: effectiveName },
       });
+      for (const account of accounts) await projectAccountInvestment(tx, account.id);
 
       return { displayName: parsed.displayName, effectiveName };
     }),

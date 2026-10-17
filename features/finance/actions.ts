@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { Prisma, type BudgetCategory, type FinancialAccountType } from "@prisma/client";
 import { z } from "zod";
+import { projectAccountInvestment, setAccountInvestmentPreference } from "./account-investments";
 import { BUDGET_CATEGORIES, type BudgetCategoryKey } from "@/features/budget/constants";
 import { requireUserId } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
@@ -47,7 +48,8 @@ async function withSerializableRetry<T>(operation: (tx: Prisma.TransactionClient
       });
     } catch (error) {
       const retryable = error instanceof Prisma.PrismaClientKnownRequestError
-        && error.code === "P2034";
+        && (error.code === "P2034" || (error.code === "P2010"
+          && ["40001", "40P01"].includes(String(error.meta?.code))));
       if (!retryable || attempt === SERIALIZABLE_RETRY_LIMIT - 1) throw error;
     }
   }
@@ -83,6 +85,7 @@ function revalidateFinance() {
     "/tags",
     "/perfil",
     "/open-finance",
+    "/carteira",
   ].forEach((path) => revalidatePath(path));
 }
 
@@ -221,6 +224,7 @@ export async function saveFinancialAccountAction(input: {
   brand?: string;
   balance: number;
   expectedBalance?: number;
+  classifyBalanceAsInvestment?: boolean;
   currencyCode: FinancialAccountCurrency;
   manualFxRateToBrl?: number;
   creditLimit?: number | null;
@@ -242,6 +246,7 @@ export async function saveFinancialAccountAction(input: {
       brand: z.string().trim().max(32).optional(),
       balance: moneySchema,
       expectedBalance: moneySchema.optional(),
+      classifyBalanceAsInvestment: z.boolean().optional(),
       currencyCode: accountCurrencySchema,
       manualFxRateToBrl: fxRateSchema.optional(),
       creditLimit: z.number().finite().min(0).max(1_000_000_000).nullable().optional(),
@@ -251,9 +256,10 @@ export async function saveFinancialAccountAction(input: {
     .parse(input);
   const existingAccount = parsed.id ? await ownedAccount(userId, parsed.id) : null;
   if (existingAccount?.source === "PLUGGY") {
-    await prisma.financialAccount.update({
-      where: { id: existingAccount.id },
-      data: { name: parsed.name },
+    await withSerializableRetry(async (tx) => {
+      await lockOwnedActiveAccounts(tx, userId, [existingAccount.id]);
+      await tx.financialAccount.update({ where: { id: existingAccount.id }, data: { name: parsed.name } });
+      await setAccountInvestmentPreference(tx, userId, existingAccount.id, parsed.classifyBalanceAsInvestment);
     });
     revalidateFinance();
     return { ok: true } satisfies FinancialMutationResult;
@@ -332,6 +338,7 @@ export async function saveFinancialAccountAction(input: {
       if (balanceChanged) {
         await absorbManualTransactionsIntoBalance(tx, userId, lockedAccount.id);
       }
+      await setAccountInvestmentPreference(tx, userId, lockedAccount.id, parsed.classifyBalanceAsInvestment);
     });
   } else {
     const max = await prisma.financialAccount.aggregate({
@@ -355,11 +362,15 @@ export async function saveFinancialAccountAction(input: {
 export async function deleteFinancialAccountAction(id: string) {
   const userId = await requireUserId();
   const account = await ownedAccount(userId, idSchema.parse(id));
-  if (account.source === "MANUAL") {
-    await prisma.financialAccount.delete({ where: { id: account.id } });
-  } else {
-    await prisma.financialAccount.update({ where: { id: account.id }, data: { active: false } });
-  }
+  await withSerializableRetry(async (tx) => {
+    await lockOwnedActiveAccounts(tx, userId, [account.id]);
+    await setAccountInvestmentPreference(tx, userId, account.id, false);
+    if (account.source === "MANUAL") {
+      await tx.financialAccount.delete({ where: { id: account.id } });
+    } else {
+      await tx.financialAccount.update({ where: { id: account.id }, data: { active: false } });
+    }
+  });
   revalidateFinance();
 }
 
@@ -496,6 +507,7 @@ export async function createFinanceTransactionAction(input: {
         lockedAccount.id,
         accountBalanceDelta(lockedAccount.type, signedAmount),
       );
+      await projectAccountInvestment(tx, lockedAccount.id);
     }
   });
   revalidateFinance();
@@ -655,6 +667,12 @@ export async function updateFinanceTransactionAction(input: {
         },
       },
     });
+    // Project only the committed final balance, not the temporary reversal above.
+    if (adjustments.reversePrevious || adjustments.applyNext) {
+      for (const accountId of [...new Set([lockedCurrentAccount.id, lockedNextAccount.id])].sort()) {
+        await projectAccountInvestment(tx, accountId);
+      }
+    }
   });
   revalidateFinance();
   return { ok: true } satisfies FinancialMutationResult;
@@ -974,6 +992,7 @@ export async function deleteFinanceTransactionAction(id: string) {
         account.id,
         accountBalanceDelta(account.type, currentTransaction.amount).negated(),
       );
+      await projectAccountInvestment(tx, account.id);
     }
     await tx.financeTransaction.delete({ where: { id: currentTransaction.id } });
   });

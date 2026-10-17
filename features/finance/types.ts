@@ -52,6 +52,13 @@ export type FinancialAccountDto = {
   sortOrder: number;
   providerUpdatedAt: string | null;
   transactionCount: number;
+  accountInvestment?: {
+    linkId: string;
+    enabled: boolean;
+    status: "MAPPED" | "NEEDS_REVIEW" | "EXCLUDED";
+    holdingId: string | null;
+    alsoIncludedInAccountBalance: true;
+  } | null;
 };
 
 export type FinanceTransactionDto = {

@@ -6,7 +6,7 @@ export type HoldingAmount = {
   quantity: Decimal.Value;
   unitPrice: Decimal.Value;
   fxRateToBrl?: Decimal.Value | null;
-  pricingSource?: "MANUAL" | "BRAPI" | "YAHOO" | "BINANCE" | "PLUGGY";
+  pricingSource?: "MANUAL" | "BRAPI" | "YAHOO" | "BINANCE" | "PLUGGY" | "ACCOUNT_BALANCE";
   currency?: string | null;
 };
 
@@ -63,7 +63,10 @@ export function holdingCurrentValue(holding: HoldingAmount) {
   if (requiresFxConversion(holding)) {
     const fxRate = holdingFxRate(holding);
     if (!fxRate) return new Decimal(0);
-    if (holding.currentValue != null) return new Decimal(holding.currentValue).mul(fxRate);
+    if (holding.currentValue != null) {
+      const converted = new Decimal(holding.currentValue).mul(fxRate);
+      return holding.pricingSource === "ACCOUNT_BALANCE" ? converted.toDecimalPlaces(2) : converted;
+    }
     if (holding.providerCurrentValue != null) return new Decimal(holding.providerCurrentValue).mul(fxRate);
     return new Decimal(holding.quantity).mul(holding.unitPrice).mul(fxRate);
   }

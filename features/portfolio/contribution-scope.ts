@@ -6,6 +6,7 @@ type ContributionScopeAsset = {
   holdings: Array<{
     currency: string;
     pricingSource: string;
+    fxRateToBrl?: string | { toString(): string } | null;
   }>;
 };
 
@@ -28,12 +29,16 @@ export function assetCanReceiveContribution(
   asset: ContributionScopeAsset,
   scope: ContributionScopeKey,
 ) {
+  if (asset.holdings.some((holding) => holding.pricingSource === "ACCOUNT_BALANCE"
+    && holding.currency !== "BRL" && !(Number(holding.fxRateToBrl) > 0))) return false;
   if (scope === "ALL_ASSETS") return true;
 
   if (scope === "USD_ONLY") {
     return asset.nativeCurrency?.trim().toUpperCase() === "USD"
-      && ["STOCK", "ETF", "REIT"].includes(asset.instrumentType)
-      && asset.holdings.some((holding) => holding.pricingSource === "YAHOO");
+      && ((["STOCK", "ETF", "REIT"].includes(asset.instrumentType)
+        && asset.holdings.some((holding) => holding.pricingSource === "YAHOO"))
+        || (asset.instrumentType === "FIXED_INCOME"
+          && asset.holdings.some((holding) => holding.pricingSource === "ACCOUNT_BALANCE")));
   }
 
   return asset.nativeCurrency === null

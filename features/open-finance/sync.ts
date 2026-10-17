@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { projectAccountInvestment } from "@/features/finance/account-investments";
 import { prisma } from "@/lib/prisma";
 import {
   type UserOperationLeaseContext,
@@ -269,11 +270,13 @@ async function upsertFinancialAccount(
     active: true,
   };
   const { name, ...providerData } = data;
-  return tx.financialAccount.upsert({
+  const saved = await tx.financialAccount.upsert({
     where: { externalId: account.id },
     update: providerData,
     create: { externalId: account.id, sortOrder, name, ...providerData },
   });
+  await projectAccountInvestment(tx, saved.id);
+  return saved;
 }
 
 function transactionOperation(
@@ -919,6 +922,11 @@ async function syncPluggyItemForUserUnlocked(
           },
         }),
       ]);
+      const inactiveAccounts = await tx.financialAccount.findMany({
+        where: { userId, source: "PLUGGY", providerItemId: stored.pluggyItemId, active: false, investmentLink: { isNot: null } },
+        select: { id: true }, orderBy: { id: "asc" },
+      });
+      for (const account of inactiveAccounts) await projectAccountInvestment(tx, account.id);
     });
 
     const diagram = await reconcilePluggyInvestmentsForUser(userId, lease);

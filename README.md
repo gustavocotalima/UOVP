@@ -56,6 +56,12 @@ Manual bank accounts and credit cards support BRL and USD.
 - USD balance changes update the native balance first, then its BRL equivalent using the account's current rate.
 - A BRL↔USD transfer is recorded as two manual internal transactions. There is no automatic currency-exchange workflow.
 
+### Account balances as investments
+
+When editing a manual or connected bank account, enable **Classificar saldo como investimento** to send its positive balance for review in Carteira. Confirm the fixed-income class, family, indexation, product type and score; no product, rate or FGC coverage is assumed. BRL and USD groups remain separate.
+
+The account remains the only source of the position's value. Balance changes and current FX update the linked holding; descriptive rates do not generate interest or transactions. Disabling the option removes the position from portfolio totals without losing its classification. The same money remains in **Saldo em conta**: portfolio exports and MCP identify this overlap, so do not add both representations as additional wealth. A contribution to this position is only planned, and is acknowledged after a native balance change, never after an FX-only change.
+
 ## Investment portfolio
 
 - Allocation classes: international stocks, Brazilian stocks, FIIs, REITs, cryptoassets, Brazilian fixed income, international fixed income, and Store of value.

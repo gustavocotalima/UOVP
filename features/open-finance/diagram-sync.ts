@@ -660,6 +660,7 @@ export async function reconcilePluggyInvestmentsForUser(
             instrumentType: "FIXED_INCOME",
             fixedIncomeFamilyCode: family.code,
             indexation: classification.indexation,
+            investmentClass: classification.investmentClass,
           },
           include: { holdings: true },
         });
