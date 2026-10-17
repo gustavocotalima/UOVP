@@ -248,7 +248,7 @@ describe("modais da carteira", () => {
     cy.get('[role="dialog"]').should("contain", "Nota do ETF (manual)").and("not.contain", "ROE historicamente");
   });
 
-  it("reproduz o modal operacional de novo aporte", () => {
+  it("recalcula um aporte invalidado e permite registrar a nova sugestão", () => {
     cy.contains("button:visible", "Adicionar ativo").click();
     cy.get("#asset-class").select("INTERNATIONAL_STOCKS");
     cy.get("#asset-ticker").type("AAPL");
@@ -278,5 +278,20 @@ describe("modais da carteira", () => {
     cy.get("#contribution-quantity").should("be.visible").type("{selectall}3");
     cy.get("#contribution-unit-price").should("be.visible").type("{selectall}100");
     cy.get('[role="dialog"]').contains(/Valor informado:\s*US\$\s*300,00\s*·\s*R\$\s*[\d.]+,\d{2}/);
+
+    cy.get<string>("@testUserEmail").then((email) => {
+      cy.task("invalidateContributionSimulations", { email });
+    });
+    cy.get('[role="dialog"]').contains("button", "Aportar").click();
+    cy.contains("A carteira mudou. Revise a nova sugestão antes de registrar o aporte.").should("be.visible");
+    cy.get('[role="dialog"]').should("not.exist");
+    cy.get('table[aria-label="Sugestões de investimento"]')
+      .contains("tr", "AAPL")
+      .contains("button", "Aportar")
+      .click();
+    cy.get("#contribution-quantity").type("{selectall}1");
+    cy.get("#contribution-unit-price").type("{selectall}100");
+    cy.get('[role="dialog"]').contains("button", "Aportar").click();
+    cy.contains("Aporte registrado.").should("be.visible");
   });
 });

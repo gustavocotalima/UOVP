@@ -179,6 +179,10 @@ export function extractAccountInvestmentSnapshots(
     if (amount.lte(0)) {
       return { managed: true, complete: true, mode: "EMPTY", snapshots: [] };
     }
+    const accountBalance = decimal(account.balance);
+    if (accountBalance?.equals(amount)) {
+      return { managed: true, complete: true, mode: "EMPTY", snapshots: [] };
+    }
     const currencyCode = currency(account.currencyCode, "BRL");
     const providerReference = stableReference(
       account.id,

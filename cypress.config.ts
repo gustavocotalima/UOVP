@@ -63,6 +63,24 @@ export default defineConfig({
       on("before:run", cleanupCypressUsers);
       on("after:run", cleanupCypressUsers);
       on("task", {
+        async invalidateContributionSimulations({ email }: { email: string }) {
+          if (!/^cypress-[^@]+@example\.com$/.test(email)) throw new Error("Only Cypress users may be updated");
+          const prisma = new PrismaClient();
+          try {
+            const user = await prisma.user.findUniqueOrThrow({ where: { email }, include: { portfolio: true } });
+            if (!user.portfolio) throw new Error("Portfolio not found");
+            await prisma.$transaction(async (tx) => {
+              await tx.portfolio.update({ where: { id: user.portfolio!.id }, data: { version: { increment: 1 } } });
+              await tx.contributionSimulation.updateMany({
+                where: { userId: user.id, status: "DRAFT" },
+                data: { status: "STALE" },
+              });
+            });
+            return true;
+          } finally {
+            await prisma.$disconnect();
+          }
+        },
         async createRegistrationInvite({ email }: { email: string }) {
           const prisma = new PrismaClient();
           try {

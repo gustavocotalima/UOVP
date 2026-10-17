@@ -158,6 +158,20 @@ describe("saldos reservados de contas Pluggy", () => {
     });
   });
 
+  it("não duplica o saldo disponível quando o saldo automático é idêntico ao da conta", () => {
+    expect(extractAccountInvestmentSnapshots(account({
+      balance: 500,
+      bankData: {
+        automaticallyInvestedBalance: 500,
+      },
+    }))).toEqual({
+      managed: true,
+      complete: true,
+      mode: "EMPTY",
+      snapshots: [],
+    });
+  });
+
   it("não infere zero quando a instituição declara reservas sem informar os valores", () => {
     const result = extractAccountInvestmentSnapshots(account({
       bankData: {

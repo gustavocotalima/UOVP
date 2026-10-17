@@ -81,7 +81,7 @@ const assetSchema = z.object({
   quantity: z.coerce.number().min(0),
   unitPrice: z.coerce.number().min(0),
   manualValue: z.coerce.number().min(0).nullable().optional(),
-  currency: z.string().trim().length(3).default("BRL"),
+  currency: z.string().trim().regex(/^[A-Za-z0-9]{3,8}$/, "Informe uma moeda válida.").transform((value) => value.toUpperCase()).default("BRL"),
   fractional: z.boolean().default(false),
   score: z.coerce.number().int().min(-30).max(30).default(0),
   fixedIncomeFamilyCode: z.string().trim().min(2).max(80).nullable().optional(),
@@ -1988,21 +1988,20 @@ export async function executeContributionAction(
     : z.number().positive().max(1_000_000_000).parse(paidUnitPrice);
   if (parsedQuantity !== undefined && !parsedSuggestionId) throw new Error("Selecione um ativo para informar a quantidade.");
   try {
-    await prisma.$transaction(async (tx) => {
+    const execution = await prisma.$transaction(async (tx) => {
       const simulation = await tx.contributionSimulation.findFirst({
-        where: { id: parsedSimulationId, userId, status: "DRAFT" },
+        where: { id: parsedSimulationId, userId },
         include: { user: { include: { portfolio: true } }, suggestions: { include: { asset: { include: { holdings: true } } } } },
       });
       const portfolio = simulation?.user.portfolio;
-      if (!simulation || !portfolio) throw new Error("Simulação não encontrada.");
-      if (simulation.portfolioVersion !== portfolio.version) {
-        throw new Error("A carteira mudou. Calcule novamente antes de aportar.");
+      if (!simulation || !portfolio || simulation.status !== "DRAFT" || simulation.portfolioVersion !== portfolio.version) {
+        return "INVALIDATED" as const;
       }
       const selected = simulation.suggestions.filter(
         (suggestion) => suggestion.executionStatus === "PENDING"
           && (!parsedSuggestionId || suggestion.id === parsedSuggestionId),
       );
-      if (!selected.length) throw new Error("Nenhuma sugestão disponível para executar.");
+      if (!selected.length) return "INVALIDATED" as const;
       if (selected.some((suggestion) => suggestion.asset.instrumentType !== "FIXED_INCOME") && parsedPaidUnitPrice === undefined) {
         throw new Error("Informe o preço unitário pago para registrar o aporte.");
       }
@@ -2129,14 +2128,14 @@ export async function executeContributionAction(
             },
           },
         });
-        return;
+        return "EXECUTED" as const;
       }
 
       const versionClaim = await tx.portfolio.updateMany({
         where: { id: portfolio.id, version: portfolio.version },
         data: { version: { increment: 1 } },
       });
-      if (versionClaim.count !== 1) throw new Error("A carteira mudou. Calcule novamente antes de aportar.");
+      if (versionClaim.count !== 1) return "INVALIDATED" as const;
       const newVersion = portfolio.version + 1;
 
       for (const suggestion of selected) {
@@ -2231,10 +2230,12 @@ export async function executeContributionAction(
           executedAt: remainingCount === 0 ? new Date() : null,
         },
       });
+      return "EXECUTED" as const;
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    if (execution === "INVALIDATED") return { status: "INVALIDATED" as const };
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034") {
-      throw new Error("A carteira foi atualizada ao mesmo tempo. Recarregue e tente novamente.");
+      return { status: "INVALIDATED" as const };
     }
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       throw new Error("Este ativo já possui um aporte aguardando confirmação do provedor.");
@@ -2243,7 +2244,7 @@ export async function executeContributionAction(
   }
   revalidatePath("/carteira");
   revalidatePath("/home");
-  return { awaitingSync: Boolean(parsedSuggestionId && await prisma.contributionSuggestion.count({
+  return { status: "EXECUTED" as const, awaitingSync: Boolean(parsedSuggestionId && await prisma.contributionSuggestion.count({
     where: {
       id: parsedSuggestionId,
       simulation: { userId },

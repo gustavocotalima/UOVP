@@ -15,6 +15,12 @@ const mocks = vi.hoisted(() => {
     pluggyInvestmentDiagramLink: {
       updateMany: vi.fn(),
     },
+    contributionSimulation: {
+      findFirst: vi.fn(),
+    },
+    portfolio: {
+      updateMany: vi.fn(),
+    },
   };
   return {
     tx,
@@ -62,7 +68,7 @@ vi.mock("@/features/portfolio/invalidation", () => ({
   bumpPortfolioAndInvalidateDrafts: mocks.bumpPortfolioAndInvalidateDrafts,
 }));
 
-import { saveAssetAction } from "@/features/portfolio/actions";
+import { executeContributionAction, saveAssetAction } from "@/features/portfolio/actions";
 
 describe("edição da classificação de ativos Pluggy", () => {
   beforeEach(() => {
@@ -191,5 +197,77 @@ describe("edição da classificação de ativos Pluggy", () => {
     })).rejects.toThrow("Selecione se o ETF de reserva de valor é nacional ou internacional.");
 
     expect(mocks.tx.asset.update).not.toHaveBeenCalled();
+  });
+
+  it("permite editar um criptoativo cotado em USDT", async () => {
+    mocks.assetHoldingFindMany.mockResolvedValueOnce([{
+      id: "holding-binance",
+      positionSource: "BINANCE",
+      pricingSource: "BINANCE",
+      currency: "USDT",
+    }]);
+    mocks.tx.assetHolding.count.mockResolvedValueOnce(0).mockResolvedValueOnce(1);
+
+    await expect(saveAssetAction({
+      id: "cmrzcyi3305pglw710ptyacct",
+      investmentClass: "CRYPTO",
+      instrumentType: "CRYPTO",
+      ticker: "BTC",
+      name: "Bitcoin",
+      quantity: 0.1,
+      unitPrice: 100_000,
+      manualValue: null,
+      currency: "USDT",
+      fractional: true,
+      score: 8,
+      yahooReitConfirmed: false,
+    })).resolves.toBeUndefined();
+
+    expect(mocks.tx.asset.update).toHaveBeenCalled();
+    expect(mocks.tx.assetHolding.update).not.toHaveBeenCalled();
+  });
+});
+
+describe("execução de aporte invalidado", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.requireUserId.mockResolvedValue("user-a");
+  });
+
+  it.each([
+    { status: "STALE", portfolioVersion: 756, version: 757 },
+    { status: "DRAFT", portfolioVersion: 756, version: 757 },
+    { status: "EXECUTED", portfolioVersion: 757, version: 757 },
+  ])("devolve estado recuperável para simulação $status", async ({ status, portfolioVersion, version }) => {
+    mocks.tx.contributionSimulation.findFirst.mockResolvedValue({
+      status,
+      portfolioVersion,
+      user: { portfolio: { id: "portfolio-a", version } },
+    });
+
+    await expect(executeContributionAction("cmrzcyi3305pglw710ptyacct")).resolves.toEqual({ status: "INVALIDATED" });
+    expect(mocks.tx.contributionSimulation.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: "cmrzcyi3305pglw710ptyacct", userId: "user-a" },
+    }));
+    expect(mocks.tx.portfolio.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("permite recalcular quando a simulação não existe mais", async () => {
+    mocks.tx.contributionSimulation.findFirst.mockResolvedValue(null);
+
+    await expect(executeContributionAction("cmrzcyi3305pglw710ptyacct")).resolves.toEqual({ status: "INVALIDATED" });
+    expect(mocks.tx.portfolio.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("permite recalcular quando a sugestão já foi consumida", async () => {
+    mocks.tx.contributionSimulation.findFirst.mockResolvedValue({
+      status: "DRAFT",
+      portfolioVersion: 757,
+      user: { portfolio: { id: "portfolio-a", version: 757 } },
+      suggestions: [],
+    });
+
+    await expect(executeContributionAction("cmrzcyi3305pglw710ptyacct")).resolves.toEqual({ status: "INVALIDATED" });
+    expect(mocks.tx.portfolio.updateMany).not.toHaveBeenCalled();
   });
 });

@@ -153,6 +153,8 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
   function calculate() {
     const requestId = ++calculationRequestId.current;
     setMessage(undefined);
+    setSimulation(undefined);
+    setContributionModal(undefined);
     startTransition(async () => {
       try {
         const result = await simulateContributionAction(value, currency, scope);
@@ -164,6 +166,25 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
         setMessage(error instanceof Error ? error.message : "Não foi possível calcular.");
       }
     });
+  }
+
+  async function recalculateAfterInvalidation() {
+    const requestId = ++calculationRequestId.current;
+    setSimulation(undefined);
+    setContributionModal(undefined);
+    setMessage("A carteira mudou. Recalculando o aporte…");
+    router.refresh();
+    try {
+      const result = await simulateContributionAction(value, currency, scope);
+      if (calculationRequestId.current !== requestId) return;
+      setSimulation(result);
+      setMessage(result.suggestions.length
+        ? "A carteira mudou. Revise a nova sugestão antes de registrar o aporte."
+        : "A carteira mudou e não há ativos elegíveis. Confira metas, notas e preços.");
+    } catch {
+      if (calculationRequestId.current !== requestId) return;
+      setMessage("A simulação anterior expirou. Não foi possível recalcular agora; tente Calcular novamente.");
+    }
   }
 
   function executeContribution() {
@@ -204,6 +225,10 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
           isFixedIncome ? undefined : selectedUnitPricePaid,
           destination,
         );
+        if (result.status === "INVALIDATED") {
+          await recalculateAfterInvalidation();
+          return;
+        }
         setSimulation({
           ...simulation,
           suggestions: simulation.suggestions.map((item) => item.id === selectedSuggestion.id
@@ -237,7 +262,12 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
           <div className="w-full max-w-sm space-y-2">
             <Label htmlFor="contribution-value">Valor do aporte</Label>
             <div className="grid grid-cols-[minmax(0,1fr)_96px] gap-2">
-              <Input id="contribution-value" type="number" min="0.01" step="0.01" value={value} onChange={(event) => setValue(Number(event.target.value))} />
+              <Input id="contribution-value" type="number" min="0.01" step="0.01" value={value} onChange={(event) => {
+                calculationRequestId.current += 1;
+                setValue(Number(event.target.value));
+                setSimulation(undefined);
+                setContributionModal(undefined);
+              }} />
               <Select
                 aria-label="Moeda do aporte"
                 value={currency}
