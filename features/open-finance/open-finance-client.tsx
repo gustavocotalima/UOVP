@@ -22,6 +22,7 @@ import {
   Unplug,
   WalletCards,
 } from "lucide-react";
+import { PrivateValue } from "@/components/ui/private-value";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
@@ -679,7 +680,7 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
                     </div>
                   </div>
                   <div className="text-left @3xl:text-right">
-                    <p className="font-semibold tabular-nums">{money(account.balance, account.currencyCode)}</p>
+                    <p className="font-semibold tabular-nums"><PrivateValue>{money(account.balance, account.currencyCode)}</PrivateValue></p>
                     <p className="text-xs text-[var(--muted-foreground)]">{date(account.updatedAt, data.timeZone)}</p>
                   </div>
                 </div>
@@ -714,7 +715,7 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
                       </div>
                     </div>
                     <div className="pl-12 text-left @3xl:pl-0 @3xl:text-right">
-                      <p className={cn("text-sm font-semibold tabular-nums", incoming ? "text-[var(--success)]" : "")}>{money(transaction.amount, transaction.currencyCode)}</p>
+                      <p className={cn("text-sm font-semibold tabular-nums", incoming ? "text-[var(--success)]" : "")}><PrivateValue>{money(transaction.amount, transaction.currencyCode)}</PrivateValue></p>
                       <p className="text-xs text-[var(--muted-foreground)]">{date(transaction.date, data.timeZone)}</p>
                     </div>
                   </div>
@@ -1080,7 +1081,7 @@ function InvestmentPortfolio({
               {showSold ? "Ocultar vendidos" : `Mostrar vendidos (${soldCount})`}
             </Button>
           )}
-          <strong className="text-xl tabular-nums text-[var(--success)]">{money(total)}</strong>
+          <strong className="text-xl tabular-nums text-[var(--success)]"><PrivateValue>{money(total)}</PrivateValue></strong>
         </div>
       </CardHeader>
 
@@ -1096,7 +1097,7 @@ function InvestmentPortfolio({
           <section key={label}>
             <div className="flex items-center justify-between border-b bg-[var(--muted)]/35 px-5 py-3 text-[11px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
               <span>{label}</span>
-              <span className="tabular-nums">{money(groupTotal)}</span>
+              <span className="tabular-nums"><PrivateValue>{money(groupTotal)}</PrivateValue></span>
             </div>
             {groupInvestments.map((investment) => {
               const expanded = investment.id === expandedId;
@@ -1142,7 +1143,7 @@ function InvestmentPortfolio({
                     <span className="flex items-center gap-2 text-right sm:gap-3">
                       <span>
                         <strong className="block text-sm tabular-nums text-[var(--success)]">
-                          {money(investment.balance, investment.currencyCode)}
+                          <PrivateValue>{money(investment.balance, investment.currencyCode)}</PrivateValue>
                         </strong>
                         <span className="text-[10px] tabular-nums text-[var(--muted-foreground)]">
                           {share.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%
@@ -1201,7 +1202,7 @@ function InvestmentDetails({
     : "Saldo investido automaticamente";
   const sourceInstitution = investment.investmentInstitution || investment.institution;
   const details = [
-    { label: "Saldo", value: money(investment.balance, investment.currencyCode) },
+    { label: "Saldo", value: <PrivateValue>{money(investment.balance, investment.currencyCode)}</PrivateValue> },
     !investment.movementsAvailable
       ? { label: "Origem", value: `${sourceInstitution} · ${sourceLabel}` }
       : null,
@@ -1210,23 +1211,23 @@ function InvestmentDetails({
       label: "Rentabilidade",
       value: effectiveMetadata ? effectiveRate(effectiveMetadata) : rate(investment),
     },
-    investment.amountOriginal !== null ? { label: "Valor investido", value: money(investment.amountOriginal, investment.currencyCode) } : null,
-    investment.amount !== null ? { label: "Valor bruto informado", value: money(investment.amount, investment.currencyCode) } : null,
-    investment.amountProfit !== null ? { label: "Lucro / prejuízo", value: money(investment.amountProfit, investment.currencyCode) } : null,
-    investment.amountWithdrawal !== null ? { label: "Disponível para resgate", value: money(investment.amountWithdrawal, investment.currencyCode) } : null,
+    investment.amountOriginal !== null ? { label: "Valor investido", value: <PrivateValue>{money(investment.amountOriginal, investment.currencyCode)}</PrivateValue> } : null,
+    investment.amount !== null ? { label: "Valor bruto informado", value: <PrivateValue>{money(investment.amount, investment.currencyCode)}</PrivateValue> } : null,
+    investment.amountProfit !== null ? { label: "Lucro / prejuízo", value: <PrivateValue>{money(investment.amountProfit, investment.currencyCode)}</PrivateValue> } : null,
+    investment.amountWithdrawal !== null ? { label: "Disponível para resgate", value: <PrivateValue>{money(investment.amountWithdrawal, investment.currencyCode)}</PrivateValue> } : null,
     investment.code ? { label: "Código / ticker", value: investment.code } : null,
     investment.isin ? { label: "ISIN", value: investment.isin } : null,
-    investment.quantity !== null ? { label: hasTemporaryQuantity(investment) ? "Quantidade da instituição" : "Quantidade", value: decimal(investment.quantity) } : null,
+    investment.quantity !== null ? { label: hasTemporaryQuantity(investment) ? "Quantidade da instituição" : "Quantidade", value: <PrivateValue>{decimal(investment.quantity)}</PrivateValue> } : null,
     hasTemporaryQuantity(investment) && effectiveMetadata
-      ? { label: "Quantidade usada na Carteira", value: decimal(effectiveMetadata.quantity) }
+      ? { label: "Quantidade usada na Carteira", value: <PrivateValue>{decimal(effectiveMetadata.quantity)}</PrivateValue> }
       : null,
-    investment.value !== null ? { label: "Valor unitário", value: money(investment.value, investment.currencyCode) } : null,
+    investment.value !== null ? { label: "Valor unitário", value: <PrivateValue>{money(investment.value, investment.currencyCode)}</PrivateValue> } : null,
     investment.lastMonthRate !== null ? { label: "Rentabilidade no mês", value: percentage(investment.lastMonthRate) } : null,
     investment.lastTwelveMonthsRate !== null ? { label: "Rentabilidade em 12 meses", value: percentage(investment.lastTwelveMonthsRate) } : null,
     investment.annualRate !== null ? { label: "Rentabilidade anual", value: percentage(investment.annualRate) } : null,
     !investment.connectedMetadata && investment.fixedAnnualRate !== null ? { label: "Taxa fixa anual", value: percentage(investment.fixedAnnualRate) } : null,
-    investment.taxes !== null ? { label: "Imposto de renda", value: money(investment.taxes, investment.currencyCode) } : null,
-    investment.taxes2 !== null ? { label: "IOF / outros impostos", value: money(investment.taxes2, investment.currencyCode) } : null,
+    investment.taxes !== null ? { label: "Imposto de renda", value: <PrivateValue>{money(investment.taxes, investment.currencyCode)}</PrivateValue> } : null,
+    investment.taxes2 !== null ? { label: "IOF / outros impostos", value: <PrivateValue>{money(investment.taxes2, investment.currencyCode)}</PrivateValue> } : null,
     (effectiveMetadata?.issuer || investment.issuer)
       ? { label: "Emissor", value: effectiveMetadata?.issuer || investment.issuer! }
       : null,
@@ -1247,7 +1248,7 @@ function InvestmentDetails({
     investment.quotaDate ? { label: "Data da posição", value: shortDate(investment.quotaDate, timeZone) } : null,
     status(investment.status) ? { label: "Status", value: status(investment.status)! } : null,
     { label: "Atualizado pela instituição", value: date(investment.updatedAt, timeZone) },
-  ].filter((item): item is { label: string; value: string } => item !== null);
+  ].filter((item): item is NonNullable<typeof item> => item !== null);
 
   return (
     <div className="border-t bg-[var(--muted)]/10 px-3 py-4 sm:px-5 sm:py-5">
@@ -1321,19 +1322,19 @@ function InvestmentDetails({
                     <strong className="block text-xs">{transaction.type.replaceAll("_", " ")}</strong>
                     <p className="mt-0.5 text-[11px] text-[var(--muted-foreground)]">
                       {shortDate(transaction.date, timeZone)}
-                      {transaction.quantity !== null ? ` · ${decimal(transaction.quantity)} un.` : ""}
+                      <PrivateValue>{transaction.quantity !== null ? ` · ${decimal(transaction.quantity)} un.` : ""}</PrivateValue>
                       {transaction.description ? ` · ${transaction.description}` : ""}
                     </p>
                     <p className="mt-1 text-[10px] text-[var(--muted-foreground)]">
-                      {transaction.value !== null ? `Valor unitário: ${money(transaction.value, investment.currencyCode)}` : ""}
-                      {transaction.netAmount !== null ? `${transaction.value !== null ? " · " : ""}Líquido: ${money(transaction.netAmount, investment.currencyCode)}` : ""}
+                      <PrivateValue>{transaction.value !== null ? `Valor unitário: ${money(transaction.value, investment.currencyCode)}` : ""}</PrivateValue>
+                      <PrivateValue>{transaction.netAmount !== null ? `${transaction.value !== null ? " · " : ""}Líquido: ${money(transaction.netAmount, investment.currencyCode)}` : ""}</PrivateValue>
                       {transaction.agreedRate !== null ? ` · Taxa acordada: ${percentage(transaction.agreedRate)}` : ""}
                       {transaction.brokerageNumber ? ` · Nota: ${transaction.brokerageNumber}` : ""}
                     </p>
                   </div>
                 </div>
                 <strong className="shrink-0 text-xs tabular-nums text-[var(--success)]">
-                  {transaction.amount !== null ? money(transaction.amount, investment.currencyCode) : "—"}
+                  {transaction.amount !== null ? <PrivateValue>{money(transaction.amount, investment.currencyCode)}</PrivateValue> : "—"}
                 </strong>
               </div>
               {Boolean(transaction.expenses) && (
@@ -1372,7 +1373,7 @@ function ProviderMetadataDetails({
     { label: "Produto", value: metadata.productName },
     { label: "Emissor", value: metadata.issuer },
     { label: "Tipo", value: metadata.type },
-    metadata.quantity !== null ? { label: "Quantidade", value: decimal(metadata.quantity) } : null,
+    metadata.quantity !== null ? { label: "Quantidade", value: <PrivateValue>{decimal(metadata.quantity)}</PrivateValue> } : null,
     metadata.subtype ? { label: "Subtipo", value: metadata.subtype } : null,
     metadata.rate !== null ? { label: "rate", value: metadata.rate } : null,
     metadata.rateType ? { label: "rateType", value: metadata.rateType } : null,
@@ -1387,7 +1388,7 @@ function ProviderMetadataDetails({
       ? { label: "Vencimento", value: shortDate(metadata.maturityDate, timeZone) }
       : null,
     metadata.issuerCnpj ? { label: "CNPJ do emissor", value: metadata.issuerCnpj } : null,
-  ].filter((item): item is { label: string; value: string } => item !== null);
+  ].filter((item): item is NonNullable<typeof item> => item !== null);
 
   return (
     <details className="mt-6 border-t pt-4">
@@ -1417,7 +1418,7 @@ function JsonDetails({ title, value, compact = false }: { title: string; value: 
         {entries.map(([key, entry]) => (
           <div key={key} className="text-xs">
             <dt className="text-[var(--muted-foreground)]">{key}</dt>
-            <dd className="break-words font-medium">{typeof entry === "object" ? JSON.stringify(entry) : String(entry)}</dd>
+            <dd className="private-value break-words font-medium">{typeof entry === "object" ? JSON.stringify(entry) : String(entry)}</dd>
           </div>
         ))}
       </dl>
@@ -1442,10 +1443,10 @@ function SummaryCard({
         <span className="grid size-11 place-items-center rounded-xl bg-[var(--primary)]/12 text-[var(--primary)]"><Icon className="size-5" /></span>
         <div>
           <p className="text-xs text-[var(--muted-foreground)]">{label}</p>
-          <p className="mt-1 text-xl font-semibold tabular-nums">{value}</p>
+          <p className="mt-1 text-xl font-semibold tabular-nums"><PrivateValue>{value}</PrivateValue></p>
           {otherCurrencies.length > 0 && (
             <p className="mt-1 text-xs tabular-nums text-[var(--muted-foreground)]">
-              Outras moedas: {otherCurrencies.join(" · ")}
+              Outras moedas: <PrivateValue>{otherCurrencies.join(" · ")}</PrivateValue>
             </p>
           )}
         </div>

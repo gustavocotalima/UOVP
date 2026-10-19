@@ -76,6 +76,27 @@ textarea {
   background: color-mix(in srgb, var(--primary) 35%, transparent);
 }
 
+html[data-private-values="true"] .private-value {
+  filter: blur(8px);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+html[data-private-values="true"] [data-private-editor] .private-value {
+  filter: none;
+  user-select: auto;
+  -webkit-user-select: auto;
+}
+
+/* Tooltip labels/series names and SVG monetary axes need their own markers. */
+html[data-private-values="true"] .private-chart-axis .recharts-cartesian-axis-tick-value,
+html[data-private-values="true"] .private-chart-tooltip .recharts-tooltip-item-value,
+html[data-private-values="true"] .private-chart-tooltip-names .recharts-tooltip-item-name {
+  filter: blur(8px);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
 .surface-grid {
   background-image:
     linear-gradient(color-mix(in srgb, var(--border) 45%, transparent) 1px, transparent 1px),

@@ -29,6 +29,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { InstallProvider } from "@/components/pwa/install-provider";
 import { AutomaticRefreshCoordinator } from "@/components/layout/automatic-refresh-coordinator";
+import { PrivacyToggle } from "@/components/layout/privacy-toggle";
 
 const navigation = [
   {
@@ -131,9 +132,9 @@ function Sidebar({ user, onNavigate }: { user: { name?: string | null; email?: s
       </nav>
 
       <div className="mt-auto space-y-3 border-t border-white/10 pt-4">
-        <div className="flex items-center gap-2">
-          <form action={logoutAction} className="mr-auto">
-            <Button type="submit" variant="ghost" className="justify-start text-white hover:bg-white/10">
+        <div className="flex items-center gap-1">
+          <form action={logoutAction} className="mr-auto shrink-0">
+            <Button type="submit" variant="ghost" className="justify-start px-2 text-white hover:bg-white/10">
               <LogOut className="size-4" /> Sair
             </Button>
           </form>
@@ -141,7 +142,7 @@ function Sidebar({ user, onNavigate }: { user: { name?: string | null; email?: s
             variant="ghost"
             size="icon"
             className={cn(
-              "text-white hover:bg-white/10",
+              "w-9 shrink-0 text-white hover:bg-white/10",
               pathname === "/configuracoes" && "bg-white/10",
             )}
             asChild
@@ -155,11 +156,12 @@ function Sidebar({ user, onNavigate }: { user: { name?: string | null; email?: s
               <Settings className="size-4" />
             </Link>
           </Button>
+          <PrivacyToggle />
           <Button
             type="button"
             variant="ghost"
             size="icon"
-            className="text-white hover:bg-white/10"
+            className="w-9 shrink-0 text-white hover:bg-white/10"
             onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
             aria-label="Alternar tema"
           >
@@ -251,18 +253,20 @@ function MobileMoreMenu({
             <small className="block truncate text-xs text-white/45">{user.email}</small>
           </span>
         </Link>
-        <div className="grid grid-cols-3 gap-2">
-          <Button variant="ghost" className="min-h-12 text-white hover:bg-white/10" asChild>
-            <Link href="/configuracoes" onClick={onNavigate}><Settings className="size-4" /> Ajustes</Link>
-          </Button>
+        <div className="grid grid-cols-2 gap-2">
           <Button
             type="button"
             variant="ghost"
             className="min-h-12 text-white hover:bg-white/10"
             onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
+            aria-label="Alternar tema"
           >
             {themeMounted && resolvedTheme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
             Tema
+          </Button>
+          <PrivacyToggle expanded />
+          <Button variant="ghost" className="min-h-12 text-white hover:bg-white/10" asChild>
+            <Link href="/configuracoes" onClick={onNavigate}><Settings className="size-4" /> Ajustes</Link>
           </Button>
           <form action={logoutAction}>
             <Button type="submit" variant="ghost" className="min-h-12 w-full text-white hover:bg-white/10">

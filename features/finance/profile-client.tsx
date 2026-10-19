@@ -36,7 +36,7 @@ export function ProfileClient({ data }: { data: FinanceData }) {
       {notice && <FinanceNotice type={notice.type}>{notice.text}</FinanceNotice>}
       <Card>
         <CardHeader><CardTitle>Informações Pessoais</CardTitle><p className="text-sm text-[var(--muted-foreground)]">Atualize suas informações de perfil.</p></CardHeader>
-        <CardContent className="space-y-6">
+        <CardContent data-private-editor className="space-y-6">
           <div className="grid size-20 place-items-center rounded-full bg-[var(--primary)]/15 text-xl font-semibold text-[var(--primary)]">{initials}</div>
           <div className="grid gap-5 sm:grid-cols-2">
             <Label>Nome<Input className="mt-2" value={name} onChange={(event) => setName(event.target.value)} placeholder="Digite seu nome" /></Label>

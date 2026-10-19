@@ -69,6 +69,7 @@ export function Dialog({
   dismissible = true,
   initialFocusRef,
   mobileMode = "sheet",
+  privateEditor = false,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -81,6 +82,7 @@ export function Dialog({
   dismissible?: boolean;
   initialFocusRef?: RefObject<HTMLElement | null>;
   mobileMode?: "sheet" | "full";
+  privateEditor?: boolean;
 }) {
   const dialogId = useId();
   const titleId = useId();
@@ -159,6 +161,7 @@ export function Dialog({
       <div
         ref={panelRef}
         role="dialog"
+        data-private-editor={privateEditor ? "true" : undefined}
         tabIndex={-1}
         aria-modal="true"
         aria-labelledby={titleId}

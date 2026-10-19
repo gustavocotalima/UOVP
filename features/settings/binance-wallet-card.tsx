@@ -3,6 +3,7 @@
 import { useState, useTransition, type FormEvent } from "react";
 import Decimal from "decimal.js";
 import { AlertTriangle, Coins, ExternalLink, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
+import { PrivateValue } from "@/components/ui/private-value";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
@@ -174,10 +175,10 @@ export function BinanceWalletCard({ initialStatus }: { initialStatus: BinanceCon
                       <div key={asset.id} className="rounded-xl border p-4">
                         <div className="flex items-start justify-between gap-3">
                           <div><p className="font-semibold">{asset.symbol}</p><p className="text-xs text-[var(--muted-foreground)]">{asset.name ?? "Criptoativo"}</p></div>
-                          <p className="text-sm font-semibold">{quantity(asset.totalQuantity)}</p>
+                          <p className="text-sm font-semibold"><PrivateValue>{quantity(asset.totalQuantity)}</PrivateValue></p>
                         </div>
                         <p className="mt-2 text-xs text-[var(--muted-foreground)]">
-                          Spot {quantity(asset.spotQuantity)} · Funding {quantity(asset.fundingQuantity)} · Earn {quantity(combinedQuantity(asset.earnFlexibleQuantity, asset.earnLockedQuantity))}
+                          Spot <PrivateValue>{quantity(asset.spotQuantity)}</PrivateValue> · Funding <PrivateValue>{quantity(asset.fundingQuantity)}</PrivateValue> · Earn <PrivateValue>{quantity(combinedQuantity(asset.earnFlexibleQuantity, asset.earnLockedQuantity))}</PrivateValue>
                         </p>
                         {asset.valuationSupported === false && (
                           <p className="mt-2 text-xs font-medium text-[var(--danger)]">{asset.valuationError ?? "Sem cotação suportada pela Binance."}</p>
@@ -205,11 +206,11 @@ export function BinanceWalletCard({ initialStatus }: { initialStatus: BinanceCon
                   <div className="divide-y rounded-xl border">
                     {tracked.map((asset) => (
                       <div key={asset.id} className="grid gap-2 p-4 sm:grid-cols-[minmax(0,1fr)_repeat(4,minmax(80px,auto))] sm:items-center">
-                        <div><p className="font-semibold">{asset.symbol}</p><p className="text-xs text-[var(--muted-foreground)]">Total {quantity(asset.totalQuantity)}</p></div>
-                        <p className="text-xs"><span className="text-[var(--muted-foreground)]">Spot</span><br />{quantity(asset.spotQuantity)}</p>
-                        <p className="text-xs"><span className="text-[var(--muted-foreground)]">Funding</span><br />{quantity(asset.fundingQuantity)}</p>
-                        <p className="text-xs"><span className="text-[var(--muted-foreground)]">Earn flexível</span><br />{quantity(asset.earnFlexibleQuantity)}</p>
-                        <p className="text-xs"><span className="text-[var(--muted-foreground)]">Earn bloqueado</span><br />{quantity(asset.earnLockedQuantity)}</p>
+                        <div><p className="font-semibold">{asset.symbol}</p><p className="text-xs text-[var(--muted-foreground)]">Total <PrivateValue>{quantity(asset.totalQuantity)}</PrivateValue></p></div>
+                        <p className="text-xs"><span className="text-[var(--muted-foreground)]">Spot</span><br /><PrivateValue>{quantity(asset.spotQuantity)}</PrivateValue></p>
+                        <p className="text-xs"><span className="text-[var(--muted-foreground)]">Funding</span><br /><PrivateValue>{quantity(asset.fundingQuantity)}</PrivateValue></p>
+                        <p className="text-xs"><span className="text-[var(--muted-foreground)]">Earn flexível</span><br /><PrivateValue>{quantity(asset.earnFlexibleQuantity)}</PrivateValue></p>
+                        <p className="text-xs"><span className="text-[var(--muted-foreground)]">Earn bloqueado</span><br /><PrivateValue>{quantity(asset.earnLockedQuantity)}</PrivateValue></p>
                       </div>
                     ))}
                   </div>
@@ -223,7 +224,7 @@ export function BinanceWalletCard({ initialStatus }: { initialStatus: BinanceCon
                     {ignored.map((asset) => (
                       <div key={asset.id} className="flex items-center justify-between gap-3 p-4">
                         <div><p className="font-semibold">{asset.symbol}</p><p className="text-xs text-[var(--muted-foreground)]">Excluído dos totais da carteira</p></div>
-                        <p className="text-sm font-semibold">{quantity(asset.totalQuantity)}</p>
+                        <p className="text-sm font-semibold"><PrivateValue>{quantity(asset.totalQuantity)}</PrivateValue></p>
                       </div>
                     ))}
                   </div>

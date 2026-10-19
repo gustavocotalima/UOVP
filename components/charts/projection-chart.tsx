@@ -16,8 +16,8 @@ export function ProjectionChart({ rows }: { rows: { contribution: number; values
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={data} margin={{ left: 8, right: 12, top: 8 }}>
           <XAxis dataKey="years" stroke="var(--muted-foreground)" tickLine={false} axisLine={false} fontSize={12} />
-          <YAxis stroke="var(--muted-foreground)" tickLine={false} axisLine={false} fontSize={11} width={48} tickFormatter={(value) => `${Math.round(value / 1_000_000)}M`} />
-          <Tooltip formatter={(value) => formatMoney(Number(value))} contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12 }} />
+          <YAxis className="private-chart-axis" stroke="var(--muted-foreground)" tickLine={false} axisLine={false} fontSize={11} width={48} tickFormatter={(value) => `${Math.round(value / 1_000_000)}M`} />
+          <Tooltip wrapperClassName="private-chart-tooltip private-chart-tooltip-names" formatter={(value) => formatMoney(Number(value))} contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12 }} />
           {selected.map((row, index) => (
             <Line key={row.contribution} type="monotone" dataKey={String(row.contribution)} name={formatMoney(row.contribution)} stroke={colors[index]} strokeWidth={2} dot={{ r: 3 }} />
           ))}

@@ -1,7 +1,10 @@
 import type { Metadata, Viewport } from "next";
+import { cookies } from "next/headers";
 import "./globals.css";
 import { HydrationMarker } from "@/components/layout/hydration-marker";
 import { ThemeProvider } from "@/components/layout/theme-provider";
+import { PrivacyProvider } from "@/components/layout/privacy-provider";
+import { PRIVACY_COOKIE } from "@/lib/privacy";
 
 export const metadata: Metadata = {
   title: { default: "UOVP — Uma Outra Verdade Possível", template: "%s · UOVP" },
@@ -32,13 +35,16 @@ export const viewport: Viewport = {
   ],
 };
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  const valuesHidden = (await cookies()).get(PRIVACY_COOKIE)?.value === "true";
   return (
-    <html lang="pt-BR" suppressHydrationWarning>
+    <html lang="pt-BR" data-private-values={String(valuesHidden)} suppressHydrationWarning>
       <body>
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
-          <HydrationMarker />
-          {children}
+          <PrivacyProvider initialHidden={valuesHidden}>
+            <HydrationMarker />
+            {children}
+          </PrivacyProvider>
         </ThemeProvider>
       </body>
     </html>

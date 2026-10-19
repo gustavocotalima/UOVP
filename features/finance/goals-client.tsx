@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { RotateCcw, Save } from "lucide-react";
+import { PrivateValue } from "@/components/ui/private-value";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BUDGET_CATEGORIES, BUDGET_CATEGORY_META, type BudgetCategoryKey } from "@/features/budget/constants";
@@ -53,7 +54,7 @@ export function GoalsClient({ data }: { data: FinanceData }) {
       {notice && <FinanceNotice type={notice.type}>{notice.text}</FinanceNotice>}
       <Card>
         <CardContent className="flex flex-col gap-5 p-4 sm:p-5 @3xl:flex-row @3xl:items-center @3xl:justify-between">
-          <div><p className="text-sm text-[var(--muted-foreground)]">Renda mensal</p><p className="mt-1 text-2xl font-semibold">{formatMoney(income)}</p><p className="mt-1 text-xs text-[var(--muted-foreground)]">Base usada para calcular os valores das metas</p></div>
+          <div><p className="text-sm text-[var(--muted-foreground)]">Renda mensal</p><p className="mt-1 text-2xl font-semibold"><PrivateValue>{formatMoney(income)}</PrivateValue></p><p className="mt-1 text-xs text-[var(--muted-foreground)]">Base usada para calcular os valores das metas</p></div>
           <div className="grid grid-cols-2 rounded-xl bg-[var(--muted)] p-1">
             <button type="button" onClick={() => setMode("percentage")} className={cn("rounded-lg px-4 py-2 text-sm font-semibold", mode === "percentage" && "bg-[var(--card)] shadow-sm")}>Porcentagem</button>
             <button type="button" onClick={() => setMode("value")} className={cn("rounded-lg px-4 py-2 text-sm font-semibold", mode === "value" && "bg-[var(--card)] shadow-sm")}>Valor (R$)</button>
@@ -69,7 +70,7 @@ export function GoalsClient({ data }: { data: FinanceData }) {
         <CardContent className="grid gap-4 @3xl:grid-cols-2 @6xl:grid-cols-3">
           {DISPLAY_ORDER.map((category) => {
             const meta = BUDGET_CATEGORY_META[category];
-            return <div key={category} className="rounded-xl border p-4"><div className="flex items-center justify-between"><span className="flex items-center gap-2 text-sm font-medium"><span className="size-2.5 rounded-full" style={{ background: meta.color }} />{meta.label}</span><strong>{mode === "percentage" ? formatPercent(goals[category]) : formatMoney(income * goals[category] / 100)}</strong></div></div>;
+            return <div key={category} className="rounded-xl border p-4"><div className="flex items-center justify-between"><span className="flex items-center gap-2 text-sm font-medium"><span className="size-2.5 rounded-full" style={{ background: meta.color }} />{meta.label}</span><strong>{mode === "percentage" ? formatPercent(goals[category]) : <PrivateValue>{formatMoney(income * goals[category] / 100)}</PrivateValue>}</strong></div></div>;
           })}
         </CardContent>
       </Card>

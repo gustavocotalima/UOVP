@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { AlertCircle } from "lucide-react";
+import { PrivateValue } from "@/components/ui/private-value";
 import { Button } from "@/components/ui/button";
 import type { PluggyQuantityChangeDto } from "@/features/portfolio/types";
 import { resolvePluggyQuantityChangeAction } from "./diagram-actions";
@@ -69,9 +70,9 @@ export function InvestmentQuantityChangeNotice({ changes, syncBusy = false }: {
           <strong className="block break-words text-sm">{change.name}{change.ticker && change.name !== change.ticker ? ` · ${change.ticker}` : ""}</strong>
           <p className="text-xs text-[var(--muted-foreground)]">{change.institution}</p>
           <dl className="grid gap-3 text-xs sm:grid-cols-3">
-            <div><dt className="text-[var(--muted-foreground)]">Instituição · anterior</dt><dd className="mt-1 font-semibold">{quantity(change.previousProviderQuantity)}</dd></div>
-            <div><dt className="text-[var(--muted-foreground)]">Instituição · agora</dt><dd className="mt-1 font-semibold">{quantity(change.providerQuantity)}</dd></div>
-            <div><dt className="text-[var(--muted-foreground)]">Quantidade manual em uso</dt><dd className="mt-1 font-semibold">{quantity(change.manualQuantity)}</dd></div>
+            <div><dt className="text-[var(--muted-foreground)]">Instituição · anterior</dt><dd className="mt-1 font-semibold"><PrivateValue>{quantity(change.previousProviderQuantity)}</PrivateValue></dd></div>
+            <div><dt className="text-[var(--muted-foreground)]">Instituição · agora</dt><dd className="mt-1 font-semibold"><PrivateValue>{quantity(change.providerQuantity)}</PrivateValue></dd></div>
+            <div><dt className="text-[var(--muted-foreground)]">Quantidade manual em uso</dt><dd className="mt-1 font-semibold"><PrivateValue>{quantity(change.manualQuantity)}</PrivateValue></dd></div>
           </dl>
           <div className="flex flex-wrap gap-2">
             <Button size="sm" className="h-auto min-h-9 w-full whitespace-normal sm:w-auto" disabled={pending || syncBusy} onClick={() => decide(change, "PROVIDER")}>Usar quantidade da instituição</Button>

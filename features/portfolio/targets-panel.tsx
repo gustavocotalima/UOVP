@@ -64,7 +64,7 @@ export function TargetsPanel({ initialTargets }: { initialTargets: Record<Invest
           </CardContent>
         </Card>
       </div>
-      <Card className="h-fit"><CardHeader><CardTitle>Distribuição-alvo</CardTitle></CardHeader><CardContent><DonutChart data={chartData} centerLabel="Meta total" /><div className="space-y-2">{chartData.map((item) => <div key={item.name} className="flex justify-between text-xs"><span>{item.name}</span><strong>{formatPercent(item.value, 0)}</strong></div>)}</div></CardContent></Card>
+      <Card className="h-fit"><CardHeader><CardTitle>Distribuição-alvo</CardTitle></CardHeader><CardContent><DonutChart privateValues={false} data={chartData} centerLabel="Meta total" /><div className="space-y-2">{chartData.map((item) => <div key={item.name} className="flex justify-between text-xs"><span>{item.name}</span><strong>{formatPercent(item.value, 0)}</strong></div>)}</div></CardContent></Card>
     </div>
   );
 }

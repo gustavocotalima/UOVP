@@ -1,5 +1,8 @@
 "use client";
 
+import { PrivateValue } from "@/components/ui/private-value";
+import { usePrivacy } from "@/components/layout/privacy-provider";
+
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useTransition, type FormEvent, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { AlertTriangle, Bitcoin, Building2, ChartNoAxesCombined, ChevronDown, ChevronRight, Clock3, Download, FileSpreadsheet, Landmark, LoaderCircle, Pencil, Plus, RefreshCw, Search, Trash2, Upload } from "lucide-react";
@@ -153,7 +156,7 @@ function ProviderQuantity({ metadata }: { metadata: AssetHoldingDto["connectedMe
   if (!metadata?.overrideFields.includes("QUANTITY")) return null;
   return (
     <span className="mt-1 block text-[10px] text-[var(--muted-foreground)]">
-      Instituição: {metadata.providerMetadata.quantity === null ? "não informada" : Number(metadata.providerMetadata.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 10 })}
+      Instituição: {metadata.providerMetadata.quantity === null ? "não informada" : <PrivateValue>{Number(metadata.providerMetadata.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 10 })}</PrivateValue>}
     </span>
   );
 }
@@ -278,10 +281,10 @@ function MoneyWithNative({
   const Primary = strong ? "strong" : "span";
   return (
     <span className="block whitespace-nowrap">
-      <Primary>{nativePrimary && native != null && currency ? formatCurrency(native, currency) : unavailable ? "BRL indisponível" : formatMoney(brl)}</Primary>
+      <Primary>{nativePrimary && native != null && currency ? <PrivateValue>{formatCurrency(native, currency)}</PrivateValue> : unavailable ? "BRL indisponível" : <PrivateValue>{formatMoney(brl)}</PrivateValue>}</Primary>
       {native !== null && native !== undefined && currency && currency !== "BRL" && (
         <span className="mt-0.5 block text-[10px] font-normal text-[var(--muted-foreground)]">
-          {nativePrimary ? unavailable ? "Equivalente BRL indisponível" : formatMoney(brl) : formatCurrency(native, currency)}
+          {nativePrimary ? unavailable ? "Equivalente BRL indisponível" : <PrivateValue>{formatMoney(brl)}</PrivateValue> : <PrivateValue>{formatCurrency(native, currency)}</PrivateValue>}
         </span>
       )}
     </span>
@@ -418,22 +421,22 @@ function PluggyReviewSourceData({ review, timeZone }: { review: ReviewForm; time
                     <strong>{transaction.type.replaceAll("_", " ")}</strong>
                     <p className="mt-0.5 text-[var(--muted-foreground)]">
                       {reviewOperationDate(transaction.tradeDate ?? transaction.date)}
-                      {transaction.quantity !== null ? ` · ${reviewDecimal(transaction.quantity)} un.` : ""}
+                      <PrivateValue>{transaction.quantity !== null ? ` · ${reviewDecimal(transaction.quantity)} un.` : ""}</PrivateValue>
                       {transaction.description ? ` · ${transaction.description}` : ""}
                     </p>
                   </div>
-                  <strong>{transaction.amount === null ? "—" : reviewMoney(transaction.amount, review.currencyCode)}</strong>
+                  <strong>{transaction.amount === null ? "—" : <PrivateValue>{reviewMoney(transaction.amount, review.currencyCode)}</PrivateValue>}</strong>
                 </div>
                 <p className="mt-1 text-[var(--muted-foreground)]">
-                  {transaction.value !== null ? `Valor unitário: ${reviewMoney(transaction.value, review.currencyCode)}` : ""}
-                  {transaction.netAmount !== null ? `${transaction.value !== null ? " · " : ""}Líquido: ${reviewMoney(transaction.netAmount, review.currencyCode)}` : ""}
+                  <PrivateValue>{transaction.value !== null ? `Valor unitário: ${reviewMoney(transaction.value, review.currencyCode)}` : ""}</PrivateValue>
+                  <PrivateValue>{transaction.netAmount !== null ? `${transaction.value !== null ? " · " : ""}Líquido: ${reviewMoney(transaction.netAmount, review.currencyCode)}` : ""}</PrivateValue>
                   {transaction.agreedRate !== null ? ` · Taxa acordada: ${reviewPercentage(transaction.agreedRate)}` : ""}
                   {transaction.brokerageNumber ? ` · Nota: ${transaction.brokerageNumber}` : ""}
                 </p>
                 {transaction.expenses !== null && transaction.expenses !== undefined && (
                   <details className="mt-2">
                     <summary className="cursor-pointer text-[var(--primary)]">Despesas brutas</summary>
-                    <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-black/20 p-3 text-[10px]">{JSON.stringify(transaction.expenses, null, 2)}</pre>
+                    <pre className="private-value mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-black/20 p-3 text-[10px]">{JSON.stringify(transaction.expenses, null, 2)}</pre>
                   </details>
                 )}
               </div>
@@ -444,7 +447,7 @@ function PluggyReviewSourceData({ review, timeZone }: { review: ReviewForm; time
       {metadataAvailable && (
         <details className="rounded-xl border bg-[var(--card)]">
           <summary className="cursor-pointer px-4 py-3 text-sm font-semibold">Metadados brutos do Pluggy</summary>
-          <pre className="max-h-80 overflow-auto whitespace-pre-wrap border-t p-4 text-[11px]">{JSON.stringify(review.metadata, null, 2)}</pre>
+          <pre className="private-value max-h-80 overflow-auto whitespace-pre-wrap border-t p-4 text-[11px]">{JSON.stringify(review.metadata, null, 2)}</pre>
         </details>
       )}
     </div>
@@ -583,6 +586,7 @@ export function AssetsPanel({
   initialAnswers: { assetId: string; questionId: string; answer: boolean }[];
   timeZone: string;
 }) {
+  const { valuesHidden } = usePrivacy();
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<InvestmentClassKey | "ALL">("ALL");
   const [instrumentFilter, setInstrumentFilter] = useState<InstrumentTypeKey | "ALL">("ALL");
@@ -1389,7 +1393,7 @@ export function AssetsPanel({
           <CardHeader className="gap-4 @5xl:flex-row @5xl:items-center @5xl:justify-between">
             <div>
               <CardTitle>Seus ativos</CardTitle>
-              <p className="mt-1 text-sm text-[var(--muted-foreground)]">{assets.length} ativos · {formatMoney(total)}{assets.some((asset) => asset.holdings.some((holding) => holding.accountBalanceSource?.valuationUnavailable)) ? " (subtotal conhecido; há saldos sem câmbio)" : ""}</p>
+              <p className="mt-1 text-sm text-[var(--muted-foreground)]">{assets.length} ativos · <PrivateValue>{formatMoney(total)}</PrivateValue>{assets.some((asset) => asset.holdings.some((holding) => holding.accountBalanceSource?.valuationUnavailable)) ? " (subtotal conhecido; há saldos sem câmbio)" : ""}</p>
             </div>
             <div className="hidden flex-wrap gap-2 @5xl:flex">
               <Button
@@ -1499,7 +1503,7 @@ export function AssetsPanel({
                         <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Valor atual</dt><dd className="mt-1"><MoneyWithNative brl={asset.currentValue} native={asset.nativeCurrentValue} currency={asset.nativeCurrency} strong nativePrimary={asset.holdings.some((holding) => !!holding.accountBalanceSource)} unavailable={asset.holdings.some((holding) => holding.accountBalanceSource?.valuationUnavailable)} /></dd></div>
                         <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">% da carteira</dt><dd className="mt-1 font-semibold">{formatPercent(total ? currentValue(asset) / total * 100 : 0)}</dd></div>
                         <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Nota</dt><dd className="mt-1 flex items-center gap-2 font-semibold">{asset.score}{asset.needsScore && <span className="text-[10px] font-normal text-[var(--primary)]">Revisar</span>}</dd></div>
-                        <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">{showsApplicationCount ? "Aplicações" : "Quantidade"}</dt><dd className="mt-1 font-semibold">{showsApplicationCount ? asset.holdings.length : Number(asset.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 10 })}</dd></div>
+                        <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">{showsApplicationCount ? "Aplicações" : "Quantidade"}</dt><dd className="mt-1 font-semibold">{showsApplicationCount ? asset.holdings.length : <PrivateValue>{Number(asset.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 10 })}</PrivateValue>}</dd></div>
                         <div className="col-span-2"><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Atualizado</dt><dd className="mt-1 text-xs">{reviewDate(asset.priceUpdatedAt ?? asset.updatedAt, timeZone)}</dd></div>
                       </dl>
                     </div>
@@ -1515,12 +1519,12 @@ export function AssetsPanel({
                           <div className="space-y-3 rounded-xl border border-[var(--primary)]/35 bg-[var(--primary)]/10 p-3 text-xs">
                             <span className="inline-flex items-center gap-1.5 font-semibold text-[var(--primary)]"><Clock3 className="size-4" /> Aguardando sync</span>
                             {asset.instrumentType === "FIXED_INCOME" ? (
-                              <p>{formatMoney(asset.awaitingSyncContribution.value)}</p>
+                              <p><PrivateValue>{formatMoney(asset.awaitingSyncContribution.value)}</PrivateValue></p>
                             ) : asset.awaitingSyncContribution.paidUnitPrice ? (
-                              <p>{reviewDecimal(asset.awaitingSyncContribution.quantity)} un. · {asset.awaitingSyncContribution.paidUnitPriceNative && asset.awaitingSyncContribution.nativeCurrency ? formatCurrency(asset.awaitingSyncContribution.paidUnitPriceNative, asset.awaitingSyncContribution.nativeCurrency) : formatMoney(asset.awaitingSyncContribution.paidUnitPrice)} cada · {formatMoney(asset.awaitingSyncContribution.value)}</p>
+                              <p><PrivateValue>{reviewDecimal(asset.awaitingSyncContribution.quantity)}</PrivateValue> un. · {asset.awaitingSyncContribution.paidUnitPriceNative && asset.awaitingSyncContribution.nativeCurrency ? <PrivateValue>{formatCurrency(asset.awaitingSyncContribution.paidUnitPriceNative, asset.awaitingSyncContribution.nativeCurrency)}</PrivateValue> : <PrivateValue>{formatMoney(asset.awaitingSyncContribution.paidUnitPrice)}</PrivateValue>} cada · <PrivateValue>{formatMoney(asset.awaitingSyncContribution.value)}</PrivateValue></p>
                             ) : (
                               <div className="grid gap-2">
-                                <span>{reviewDecimal(asset.awaitingSyncContribution.quantity)} un.</span>
+                                <span><PrivateValue>{reviewDecimal(asset.awaitingSyncContribution.quantity)}</PrivateValue> un.</span>
                                 <div className="flex gap-2">
                                   <Input type="number" min="0.00000001" step="any" value={pendingPriceByAsset[asset.id] ?? ""} onChange={(event) => setPendingPriceByAsset((current) => ({ ...current, [asset.id]: event.target.value }))} aria-label={`Preço unitário pago por ${asset.ticker} em ${asset.awaitingSyncContribution.nativeCurrency ?? "BRL"}`} placeholder={`Preço pago (${asset.awaitingSyncContribution.nativeCurrency ?? "R$"})`} className="h-10 bg-[var(--card)]" />
                                   <Button type="button" onClick={() => savePendingContributionPrice(asset.id)} disabled={pending || !(Number(pendingPriceByAsset[asset.id]) > 0)}>Salvar</Button>
@@ -1557,9 +1561,9 @@ export function AssetsPanel({
                                 <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Emissor</dt><dd className="mt-1">{holding.issuer || "—"}</dd></div>
                                 {holding.institution && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Instituição</dt><dd className="mt-1">{holding.institution}</dd></div>}
                                 <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Atual</dt><dd className="mt-1"><MoneyWithNative brl={holding.currentValue} native={holding.nativeCurrentValue} currency={holding.currency} strong nativePrimary={!!holding.accountBalanceSource} unavailable={holding.accountBalanceSource?.valuationUnavailable} /></dd></div>
-                                {holding.investedValue !== null && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Investido</dt><dd className="mt-1">{formatMoney(holding.investedValue)}</dd></div>}
-                                {["STOCK", "ETF", "REAL_ESTATE_FUND", "REIT", "CRYPTO"].includes(asset.instrumentType) && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Quantidade atual</dt><dd className="mt-1">{Number(holding.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 10 })}<ProviderQuantity metadata={holding.connectedMetadata} /></dd></div>}
-                                {displayedAveragePrice !== null && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Preço médio</dt><dd className="mt-1">{formatMoney(displayedAveragePrice)}{displayedAveragePriceCoverage < 0.999 && <span className="block text-[9px] text-[var(--primary)]">Histórico parcial</span>}</dd></div>}
+                                {holding.investedValue !== null && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Investido</dt><dd className="mt-1"><PrivateValue>{formatMoney(holding.investedValue)}</PrivateValue></dd></div>}
+                                {["STOCK", "ETF", "REAL_ESTATE_FUND", "REIT", "CRYPTO"].includes(asset.instrumentType) && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Quantidade atual</dt><dd className="mt-1"><PrivateValue>{Number(holding.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 10 })}</PrivateValue><ProviderQuantity metadata={holding.connectedMetadata} /></dd></div>}
+                                {displayedAveragePrice !== null && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Preço médio</dt><dd className="mt-1"><PrivateValue>{formatMoney(displayedAveragePrice)}</PrivateValue>{displayedAveragePriceCoverage < 0.999 && <span className="block text-[9px] text-[var(--primary)]">Histórico parcial</span>}</dd></div>}
                                 {holdingProfitability(holding) && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Rentabilidade</dt><dd className="mt-1">{holdingProfitability(holding)}</dd></div>}
                                 {holding.purchaseDate && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Compra</dt><dd className="mt-1">{reviewDate(holding.purchaseDate, timeZone)}</dd></div>}
                                 {holding.maturityDate && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Vencimento</dt><dd className="mt-1">{reviewDate(holding.maturityDate, timeZone)}</dd></div>}
@@ -1582,8 +1586,8 @@ export function AssetsPanel({
                                       const operationAmount = transaction.netAmount ?? transaction.amount;
                                       return (
                                         <div key={transaction.id} className="rounded-lg bg-[var(--muted)]/35 p-3 text-xs">
-                                          <div className="flex items-start justify-between gap-3"><span><strong>{operationTypeLabel(transaction.type)}</strong><span className="mt-1 block text-[10px] text-[var(--muted-foreground)]">{reviewOperationDate(transaction.tradeDate ?? transaction.date)}</span></span><strong>{operationAmount === null ? "—" : reviewMoney(operationAmount, holding.currency)}</strong></div>
-                                          <div className="mt-2 flex justify-between gap-3 text-[10px] text-[var(--muted-foreground)]"><span>{transaction.quantity === null ? "Quantidade —" : `${Number(transaction.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 8 })} un.`}</span><span>{transaction.value === null ? "Preço —" : reviewMoney(transaction.value, holding.currency)}</span></div>
+                                          <div className="flex items-start justify-between gap-3"><span><strong>{operationTypeLabel(transaction.type)}</strong><span className="mt-1 block text-[10px] text-[var(--muted-foreground)]">{reviewOperationDate(transaction.tradeDate ?? transaction.date)}</span></span><strong>{operationAmount === null ? "—" : <PrivateValue>{reviewMoney(operationAmount, holding.currency)}</PrivateValue>}</strong></div>
+                                          <div className="mt-2 flex justify-between gap-3 text-[10px] text-[var(--muted-foreground)]"><span><PrivateValue>{transaction.quantity === null ? "Quantidade —" : `${Number(transaction.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 8 })} un.`}</PrivateValue></span><span>{transaction.value === null ? "Preço —" : <PrivateValue>{reviewMoney(transaction.value, holding.currency)}</PrivateValue>}</span></div>
                                         </div>
                                       );
                                     })}
@@ -1684,13 +1688,13 @@ export function AssetsPanel({
                             <span className="grid size-8 place-items-center rounded-full bg-[var(--muted)] font-semibold">{asset.score}</span>
                             {asset.needsScore && <span className="mt-1 block text-[10px] text-[var(--primary)]">Revisar nota</span>}
                           </td>
-                          <td className="whitespace-nowrap px-3">{showsApplicationCount ? `${asset.holdings.length} aplic.` : Number(asset.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 10 })}</td>
+                          <td className="whitespace-nowrap px-3">{showsApplicationCount ? `${asset.holdings.length} aplic.` : <PrivateValue>{Number(asset.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 10 })}</PrivateValue>}</td>
                           <td className="whitespace-nowrap px-3 text-xs text-[var(--muted-foreground)]">
                             <span className="block">{reviewDate(asset.priceUpdatedAt ?? asset.updatedAt, timeZone)}</span>
                             {asset.awaitingSyncContribution && (
                               <span
                                 className="mt-1 inline-flex items-center gap-1 text-[10px] text-[var(--primary)]"
-                                title={asset.instrumentType === "FIXED_INCOME" || asset.awaitingSyncContribution.paidUnitPrice
+                                title={valuesHidden ? undefined : asset.instrumentType === "FIXED_INCOME" || asset.awaitingSyncContribution.paidUnitPrice
                                   ? `Aporte de ${formatMoney(asset.awaitingSyncContribution.value)} aguardando confirmação do provedor.`
                                   : `Aporte de ${reviewDecimal(asset.awaitingSyncContribution.quantity)} unidades aguardando confirmação do provedor. Preço não informado.`
                                 }
@@ -1716,14 +1720,14 @@ export function AssetsPanel({
                                     Aguardando sync
                                   </span>
                                   {asset.instrumentType === "FIXED_INCOME" ? (
-                                    <span className="text-[var(--foreground)]">{formatMoney(asset.awaitingSyncContribution.value)}</span>
+                                    <span className="text-[var(--foreground)]"><PrivateValue>{formatMoney(asset.awaitingSyncContribution.value)}</PrivateValue></span>
                                   ) : asset.awaitingSyncContribution.paidUnitPrice ? (
                                     <span className="text-[var(--foreground)]">
-                                      {reviewDecimal(asset.awaitingSyncContribution.quantity)} un. · {asset.awaitingSyncContribution.paidUnitPriceNative && asset.awaitingSyncContribution.nativeCurrency ? formatCurrency(asset.awaitingSyncContribution.paidUnitPriceNative, asset.awaitingSyncContribution.nativeCurrency) : formatMoney(asset.awaitingSyncContribution.paidUnitPrice)} cada · {formatMoney(asset.awaitingSyncContribution.value)}
+                                      <PrivateValue>{reviewDecimal(asset.awaitingSyncContribution.quantity)}</PrivateValue> un. · {asset.awaitingSyncContribution.paidUnitPriceNative && asset.awaitingSyncContribution.nativeCurrency ? <PrivateValue>{formatCurrency(asset.awaitingSyncContribution.paidUnitPriceNative, asset.awaitingSyncContribution.nativeCurrency)}</PrivateValue> : <PrivateValue>{formatMoney(asset.awaitingSyncContribution.paidUnitPrice)}</PrivateValue>} cada · <PrivateValue>{formatMoney(asset.awaitingSyncContribution.value)}</PrivateValue>
                                     </span>
                                   ) : (
                                     <div className="flex flex-wrap items-center justify-end gap-2">
-                                      <span className="text-[var(--foreground)]">{reviewDecimal(asset.awaitingSyncContribution.quantity)} un.</span>
+                                      <span className="text-[var(--foreground)]"><PrivateValue>{reviewDecimal(asset.awaitingSyncContribution.quantity)}</PrivateValue> un.</span>
                                       <Input
                                         type="number"
                                         min="0.00000001"
@@ -1760,24 +1764,24 @@ export function AssetsPanel({
                                         <tr className="border-b">
                                           <td className="px-3 py-3"><strong className="block max-w-52 truncate" title={holding.typeName}>{holding.typeName}</strong><span className="block max-w-52 truncate text-[var(--muted-foreground)]" title={holding.productName}>{holding.productName}</span></td>
                                           <td className="px-3 py-3">{holding.issuer}</td>
-                                          {holdingColumns.invested && <td className="whitespace-nowrap px-3 py-3">{holding.investedValue == null ? "—" : formatMoney(holding.investedValue)}</td>}
+                                          {holdingColumns.invested && <td className="whitespace-nowrap px-3 py-3">{holding.investedValue == null ? "—" : <PrivateValue>{formatMoney(holding.investedValue)}</PrivateValue>}</td>}
                                           <td className="whitespace-nowrap px-3 py-3">
                                             <MoneyWithNative brl={holding.currentValue} native={holding.nativeCurrentValue} currency={holding.currency} strong nativePrimary={!!holding.accountBalanceSource} unavailable={holding.accountBalanceSource?.valuationUnavailable} />
                                             {holding.accountBalanceSource && holding.currency !== "BRL" && holding.fxRateToBrl && <span className="mt-1 block text-[10px] text-[var(--muted-foreground)]">1 {holding.currency} = {formatMoney(holding.fxRateToBrl)} · {holding.accountBalanceSource.fxSource ?? "Não informado"}{holding.fxUpdatedAt ? ` · ${formatDateOnly(holding.fxUpdatedAt)}` : ""}</span>}
                                             {holding.pricingSource === "YAHOO" && holding.fxRateToBrl && (
                                               <span className="mt-1 block text-[10px] font-normal text-[var(--muted-foreground)]">
-                                                {reviewMoney(holding.unitPrice, holding.currency)} · câmbio {Number(holding.fxRateToBrl).toLocaleString("pt-BR", { maximumFractionDigits: 6 })}
+                                                <PrivateValue>{reviewMoney(holding.unitPrice, holding.currency)}</PrivateValue> · câmbio {Number(holding.fxRateToBrl).toLocaleString("pt-BR", { maximumFractionDigits: 6 })}
                                               </span>
                                             )}
                                           </td>
-                                          {holdingColumns.quantity && <td className="whitespace-nowrap px-3 py-3">{Number(holding.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 10 })}<ProviderQuantity metadata={holding.connectedMetadata} /></td>}
+                                          {holdingColumns.quantity && <td className="whitespace-nowrap px-3 py-3"><PrivateValue>{Number(holding.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 10 })}</PrivateValue><ProviderQuantity metadata={holding.connectedMetadata} /></td>}
                                           {holdingColumns.averagePrice && (
                                             <td className="whitespace-nowrap px-3 py-3">
                                               {displayedAveragePrice === null
                                                 ? movementState?.loading ? "Calculando…" : "—"
                                                 : (
                                                     <>
-                                                      <span>{formatMoney(displayedAveragePrice)}</span>
+                                                      <span><PrivateValue>{formatMoney(displayedAveragePrice)}</PrivateValue></span>
                                                       {displayedAveragePriceCoverage < 0.999 && (
                                                         <span
                                                           className="mt-1 block text-[10px] text-[var(--primary)]"
@@ -1822,9 +1826,9 @@ export function AssetsPanel({
                                                     <div key={transaction.id} className="grid grid-cols-[110px_minmax(110px,1fr)_110px_130px_130px] gap-3 border-b px-3 py-2 last:border-0">
                                                       <span className="whitespace-nowrap">{reviewOperationDate(transaction.tradeDate ?? transaction.date)}</span>
                                                       <span><strong>{operationTypeLabel(transaction.type)}</strong>{transaction.description && <span className="mt-0.5 block truncate text-[10px] text-[var(--muted-foreground)]" title={transaction.description}>{transaction.description}</span>}</span>
-                                                      <span className="whitespace-nowrap">{transaction.quantity === null ? "—" : Number(transaction.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 8 })}</span>
-                                                      <span className="whitespace-nowrap">{transaction.value === null ? "—" : reviewMoney(transaction.value, holding.currency)}</span>
-                                                      <span className="whitespace-nowrap text-right font-semibold">{operationAmount === null ? "—" : reviewMoney(operationAmount, holding.currency)}</span>
+                                                      <span className="whitespace-nowrap">{transaction.quantity === null ? "—" : <PrivateValue>{Number(transaction.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 8 })}</PrivateValue>}</span>
+                                                      <span className="whitespace-nowrap">{transaction.value === null ? "—" : <PrivateValue>{reviewMoney(transaction.value, holding.currency)}</PrivateValue>}</span>
+                                                      <span className="whitespace-nowrap text-right font-semibold">{operationAmount === null ? "—" : <PrivateValue>{reviewMoney(operationAmount, holding.currency)}</PrivateValue>}</span>
                                                     </div>
                                                   );
                                                 })}
@@ -1895,6 +1899,7 @@ export function AssetsPanel({
       />
 
       <Dialog
+        privateEditor
         open={reviewForm !== null}
         mobileMode="full"
         onOpenChange={(open) => !open && setReviewForm(null)}
@@ -1914,7 +1919,7 @@ export function AssetsPanel({
             <div className="rounded-xl border bg-[var(--muted)]/30 p-4">
               <strong className="block">{reviewForm.investmentName}</strong>
               <p className="mt-1 text-sm text-[var(--muted-foreground)]">{reviewForm.institution} · {reviewForm.providerType}{reviewForm.providerSubtype ? ` / ${reviewForm.providerSubtype}` : ""}</p>
-              <p className="mt-2 font-semibold">{formatCurrency(reviewForm.balance, reviewForm.currencyCode)}</p>
+              <p className="mt-2 font-semibold"><PrivateValue>{formatCurrency(reviewForm.balance, reviewForm.currencyCode)}</PrivateValue></p>
               {reviewForm.reviewReason && <p className="mt-3 text-sm text-[var(--primary)]">{reviewForm.reviewReason}</p>}
             </div>
             {reviewForm.source !== "ACCOUNT_BALANCE" && <PluggyReviewSourceData review={reviewForm} timeZone={timeZone} />}
@@ -2018,6 +2023,7 @@ export function AssetsPanel({
       </Dialog>
 
       <Dialog
+        privateEditor
         open={form !== null}
         mobileMode="full"
         onOpenChange={(open) => !open && setForm(null)}
@@ -2352,7 +2358,7 @@ export function AssetsPanel({
                               onChange={(event) => setQuantityForms((current) => current.map((value) => value.linkId === entry.linkId ? { ...value, value: event.target.value } : value))} />
                           </div>
                         )}
-                        <p className="text-xs text-[var(--muted-foreground)]">Instituição: {entry.expectedProviderQuantity === null ? "Não informada" : Number(entry.expectedProviderQuantity).toLocaleString("pt-BR", { maximumFractionDigits: 10 })}</p>
+                        <p className="text-xs text-[var(--muted-foreground)]">Instituição: {entry.expectedProviderQuantity === null ? "Não informada" : <PrivateValue>{Number(entry.expectedProviderQuantity).toLocaleString("pt-BR", { maximumFractionDigits: 10 })}</PrivateValue>}</p>
                         <label className="flex items-center gap-2 text-xs">
                           <input type="checkbox" className="size-4 accent-[var(--primary)]" checked={entry.mode === "CUSTOM"}
                             onChange={(event) => {
@@ -2402,6 +2408,7 @@ export function AssetsPanel({
       </Dialog>
 
       <Dialog
+        privateEditor
         open={fixedGroupForm !== null}
         mobileMode="full"
         onOpenChange={(open) => !open && setFixedGroupForm(null)}
@@ -2447,6 +2454,7 @@ export function AssetsPanel({
       </Dialog>
 
       <Dialog
+        privateEditor
         open={holdingForm !== null && Boolean(holdingAsset)}
         mobileMode="full"
         onOpenChange={(open) => !open && setHoldingForm(null)}

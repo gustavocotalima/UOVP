@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Pencil, ReceiptText, TrendingDown, TrendingUp, WalletCards } from "lucide-react";
+import { PrivateValue } from "@/components/ui/private-value";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
@@ -58,18 +59,18 @@ export function BudgetOverviewClient({ data }: { data: FinanceData }) {
                 <div className="mt-5 grid grid-cols-2 gap-4 text-sm">
                   <div>
                     <p className="text-xs text-[var(--muted-foreground)]">Realizado líquido</p>
-                    <p className="mt-1 font-semibold">{formatMoney(item.spent)}</p>
+                    <p className="mt-1 font-semibold"><PrivateValue>{formatMoney(item.spent)}</PrivateValue></p>
                     {item.appliedIncomeOffsets > 0 && (
                       <p className="mt-1 text-[10px] text-[var(--muted-foreground)]">
-                        {formatMoney(item.expenses)} em saídas − {formatMoney(item.appliedIncomeOffsets)} em entradas compensadas
+                        <PrivateValue>{formatMoney(item.expenses)}</PrivateValue> em saídas − <PrivateValue>{formatMoney(item.appliedIncomeOffsets)}</PrivateValue> em entradas compensadas
                       </p>
                     )}
                   </div>
-                  <div><p className="text-xs text-[var(--muted-foreground)]">Previsto</p><p className="mt-1 font-semibold">{formatMoney(item.target)}</p></div>
+                  <div><p className="text-xs text-[var(--muted-foreground)]">Previsto</p><p className="mt-1 font-semibold"><PrivateValue>{formatMoney(item.target)}</PrivateValue></p></div>
                 </div>
                 <div className="mt-4 h-2 overflow-hidden rounded-full bg-[var(--muted)]"><div className="h-full rounded-full" style={{ width: `${Math.min(100, item.usage)}%`, background: item.exceeded ? "var(--danger)" : item.color }} /></div>
                 <div className="mt-3 flex items-center justify-between gap-3">
-                  <span className={cn("text-xs font-semibold", item.exceeded ? "text-[var(--danger)]" : "text-[var(--success)]")}>{item.exceeded ? "R$ 0,00 restante" : `${formatMoney(item.remaining)} restante`}</span>
+                  <span className={cn("text-xs font-semibold", item.exceeded ? "text-[var(--danger)]" : "text-[var(--success)]")}><PrivateValue>{item.exceeded ? "R$ 0,00 restante" : `${formatMoney(item.remaining)} restante`}</PrivateValue></span>
                   <button type="button" className="text-xs font-semibold text-[var(--primary)] hover:underline" onClick={() => setSelectedCategoryKey(item.category)}>{item.transactions.length} transações</button>
                 </div>
               </CardContent>
@@ -99,9 +100,9 @@ export function BudgetOverviewClient({ data }: { data: FinanceData }) {
                     <p className="mt-1 text-xs text-[var(--muted-foreground)]">{new Intl.DateTimeFormat("pt-BR", { timeZone: data.profile.timeZone }).format(new Date(transaction.date))}</p>
                   </div>
                   <div className="text-right">
-                    <p className={cn("text-sm font-semibold", Number(transaction.amount) > 0 && "text-[var(--success)]")}>{formatCurrency(transaction.amount, transaction.currencyCode)}</p>
+                    <p className={cn("text-sm font-semibold", Number(transaction.amount) > 0 && "text-[var(--success)]")}><PrivateValue>{formatCurrency(transaction.amount, transaction.currencyCode)}</PrivateValue></p>
                     {transaction.currencyCode !== "BRL" && transaction.reportingAmountBrl !== null && (
-                      <p className="mt-0.5 text-[10px] text-[var(--muted-foreground)]">{formatCurrency(transaction.reportingAmountBrl, "BRL")}</p>
+                      <p className="mt-0.5 text-[10px] text-[var(--muted-foreground)]"><PrivateValue>{formatCurrency(transaction.reportingAmountBrl, "BRL")}</PrivateValue></p>
                     )}
                   </div>
                   <Button variant="ghost" size="icon" aria-label="Editar transação" onClick={() => setEditing(transaction)}><Pencil className="size-4" /></Button>
@@ -123,12 +124,12 @@ function SummaryCard({ icon: Icon, label, value, detail, danger = false }: { ico
     <Card>
       <CardContent className="flex items-start gap-4 p-5">
         <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-[var(--primary)]/12 text-[var(--primary)]"><Icon className="size-5" /></span>
-        <div><p className="text-sm text-[var(--muted-foreground)]">{label}</p><p className={cn("mt-1 text-2xl font-semibold", danger && "text-[var(--danger)]")}>{formatMoney(value)}</p><p className="mt-1 text-xs text-[var(--muted-foreground)]">{detail}</p></div>
+        <div><p className="text-sm text-[var(--muted-foreground)]">{label}</p><p className={cn("mt-1 text-2xl font-semibold", danger && "text-[var(--danger)]")}><PrivateValue>{formatMoney(value)}</PrivateValue></p><p className="mt-1 text-xs text-[var(--muted-foreground)]">{detail}</p></div>
       </CardContent>
     </Card>
   );
 }
 
 function MiniSummary({ label, value }: { label: string; value: number }) {
-  return <div className="rounded-xl bg-[var(--muted)] p-3"><p className="text-[11px] text-[var(--muted-foreground)]">{label}</p><p className="mt-1 text-sm font-semibold">{formatMoney(value)}</p></div>;
+  return <div className="rounded-xl bg-[var(--muted)] p-3"><p className="text-[11px] text-[var(--muted-foreground)]">{label}</p><p className="mt-1 text-sm font-semibold"><PrivateValue>{formatMoney(value)}</PrivateValue></p></div>;
 }

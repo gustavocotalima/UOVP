@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { ArrowDownLeft, ArrowUpRight, EyeOff, Tags } from "lucide-react";
+import { PrivateValue } from "@/components/ui/private-value";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DonutChart } from "@/components/charts/donut-chart";
@@ -92,11 +93,11 @@ export function FinanceDashboardClient({ data }: { data: FinanceData }) {
                         <span className="truncate">{tag.name}</span>
                       </span>
                       <span className="shrink-0 text-right">
-                        {tag.value > 0 && <strong className="block">Saída {formatMoney(tag.value)}</strong>}
+                        {tag.value > 0 && <strong className="block">Saída <PrivateValue>{formatMoney(tag.value)}</PrivateValue></strong>}
                         {tag.income > 0 && (
                           <small className="mt-0.5 flex items-center justify-end gap-1 text-[var(--muted-foreground)]">
                             <span className="size-2 rounded-full" style={{ background: lighterTagColor(tag.color) }} />
-                            Entrada {formatMoney(tag.income)}
+                            Entrada <PrivateValue>{formatMoney(tag.income)}</PrivateValue>
                           </small>
                         )}
                       </span>
@@ -152,8 +153,8 @@ export function FinanceDashboardClient({ data }: { data: FinanceData }) {
                 </defs>
                 <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="month" stroke="var(--muted-foreground)" axisLine={false} tickLine={false} />
-                <YAxis stroke="var(--muted-foreground)" axisLine={false} tickLine={false} tickFormatter={(value) => `${Math.round(value / 1000)}k`} />
-                <Tooltip formatter={(value) => formatMoney(Number(value))} contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12 }} />
+                <YAxis className="private-chart-axis" stroke="var(--muted-foreground)" axisLine={false} tickLine={false} tickFormatter={(value) => `${Math.round(value / 1000)}k`} />
+                <Tooltip wrapperClassName="private-chart-tooltip" formatter={(value) => formatMoney(Number(value))} contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12 }} />
                 <Area type="monotone" dataKey="income" name="Entradas líquidas" stroke="#76bc8e" fill="url(#finance-income)" strokeWidth={2.5} />
                 <Area type="monotone" dataKey="spent" name="Despesas líquidas" stroke="#d2ad50" fill="url(#finance-spent)" strokeWidth={2.5} />
               </AreaChart>
@@ -179,8 +180,8 @@ export function FinanceDashboardClient({ data }: { data: FinanceData }) {
                   <div className="h-full rounded-full" style={{ width: `${Math.min(100, item.usage)}%`, background: item.color }} />
                 </div>
                 <p className="mt-1.5 text-xs text-[var(--muted-foreground)]">
-                  Líquido: {formatMoney(item.spent)} de {formatMoney(item.target)}
-                  {item.appliedIncomeOffsets > 0 && ` · ${formatMoney(item.appliedIncomeOffsets)} em entradas compensadas`}
+                  Líquido: <PrivateValue>{formatMoney(item.spent)}</PrivateValue> de <PrivateValue>{formatMoney(item.target)}</PrivateValue>
+                  <PrivateValue>{item.appliedIncomeOffsets > 0 && ` · ${formatMoney(item.appliedIncomeOffsets)} em entradas compensadas`}</PrivateValue>
                 </p>
               </div>
             ))}
@@ -208,9 +209,9 @@ export function FinanceDashboardClient({ data }: { data: FinanceData }) {
                     <p className="truncate text-xs text-[var(--muted-foreground)]">{transaction.accountName} · {categoryLabel(transaction.budgetCategory, transaction.kind)}</p>
                   </div>
                   <div className="text-right">
-                    <p className={cn("text-sm font-semibold tabular-nums", incoming && "text-[var(--success)]")}>{formatCurrency(transaction.amount, transaction.currencyCode)}</p>
+                    <p className={cn("text-sm font-semibold tabular-nums", incoming && "text-[var(--success)]")}><PrivateValue>{formatCurrency(transaction.amount, transaction.currencyCode)}</PrivateValue></p>
                     {transaction.currencyCode !== "BRL" && transaction.reportingAmountBrl !== null && (
-                      <p className="mt-0.5 text-[10px] text-[var(--muted-foreground)]">{formatCurrency(transaction.reportingAmountBrl, "BRL")}</p>
+                      <p className="mt-0.5 text-[10px] text-[var(--muted-foreground)]"><PrivateValue>{formatCurrency(transaction.reportingAmountBrl, "BRL")}</PrivateValue></p>
                     )}
                   </div>
                 </div>
@@ -229,7 +230,7 @@ function Summary({ label, value, tone = "default" }: { label: string; value: num
     <Card>
       <CardContent className="p-5 text-center @2xl:text-left">
         <p className="text-xs text-[var(--muted-foreground)]">{label}</p>
-        <p className={cn("mt-2 text-2xl font-semibold tabular-nums", tone === "success" && "text-[var(--success)]", tone === "danger" && "text-[var(--danger)]")}>{formatMoney(value)}</p>
+        <p className={cn("mt-2 text-2xl font-semibold tabular-nums", tone === "success" && "text-[var(--success)]", tone === "danger" && "text-[var(--danger)]")}><PrivateValue>{formatMoney(value)}</PrivateValue></p>
       </CardContent>
     </Card>
   );

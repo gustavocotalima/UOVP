@@ -222,6 +222,7 @@ function TransactionEditorDialogContent({
 
   return (
     <Dialog
+      privateEditor
       open={open}
       mobileMode="full"
       onOpenChange={onOpenChange}
@@ -444,6 +445,7 @@ function NewTransactionDialogContent({
 
   return (
     <Dialog
+      privateEditor
       open={open}
       mobileMode="full"
       onOpenChange={onOpenChange}

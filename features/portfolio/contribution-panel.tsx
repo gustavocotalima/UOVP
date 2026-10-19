@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Calculator, CheckCircle2, Clock3, DollarSign } from "lucide-react";
+import { PrivateValue } from "@/components/ui/private-value";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
@@ -71,10 +72,10 @@ function MoneyWithNative({
 }) {
   return (
     <span className={`block whitespace-nowrap ${className ?? ""}`}>
-      <span className="block">{formatMoney(brl)}</span>
+      <span className="block"><PrivateValue>{formatMoney(brl)}</PrivateValue></span>
       {native !== null && native !== undefined && currency && currency !== "BRL" && (
         <span className="mt-0.5 block text-[10px] font-normal text-[var(--muted-foreground)]">
-          {formatCurrency(native, currency)}
+          <PrivateValue>{formatCurrency(native, currency)}</PrivateValue>
         </span>
       )}
     </span>
@@ -258,7 +259,7 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
   return (
     <div className="space-y-6">
       <Card>
-        <CardContent className="flex flex-col gap-4 pt-4 sm:pt-5 @3xl:flex-row @3xl:items-end">
+        <CardContent data-private-editor className="flex flex-col gap-4 pt-4 sm:pt-5 @3xl:flex-row @3xl:items-end">
           <div className="w-full max-w-sm space-y-2">
             <Label htmlFor="contribution-value">Valor do aporte</Label>
             <div className="grid grid-cols-[minmax(0,1fr)_96px] gap-2">
@@ -320,8 +321,8 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
                 <div className="mb-5 grid gap-3 rounded-xl border bg-[var(--muted)]/30 p-4 text-sm sm:grid-cols-3">
                   <div>
                     <span className="block text-xs text-[var(--muted-foreground)]">Aporte informado</span>
-                    <strong>{formatCurrency(simulation.inputAmount, "USD")}</strong>
-                    <span className="mt-0.5 block text-xs text-[var(--muted-foreground)]">{formatMoney(simulation.requestedAmount)}</span>
+                    <strong><PrivateValue>{formatCurrency(simulation.inputAmount, "USD")}</PrivateValue></strong>
+                    <span className="mt-0.5 block text-xs text-[var(--muted-foreground)]"><PrivateValue>{formatMoney(simulation.requestedAmount)}</PrivateValue></span>
                   </div>
                   <div>
                     <span className="block text-xs text-[var(--muted-foreground)]">Câmbio congelado</span>
@@ -330,8 +331,8 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
                   </div>
                   <div>
                     <span className="block text-xs text-[var(--muted-foreground)]">Não alocado</span>
-                    <strong>{formatCurrency(simulation.unallocatedInputAmount, "USD")}</strong>
-                    <span className="mt-0.5 block text-xs text-[var(--muted-foreground)]">{formatMoney(simulation.unallocatedAmount)}</span>
+                    <strong><PrivateValue>{formatCurrency(simulation.unallocatedInputAmount, "USD")}</PrivateValue></strong>
+                    <span className="mt-0.5 block text-xs text-[var(--muted-foreground)]"><PrivateValue>{formatMoney(simulation.unallocatedAmount)}</PrivateValue></span>
                   </div>
                 </div>
               )}
@@ -366,7 +367,7 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
                         <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Atual</dt><dd className="mt-1 font-semibold text-[var(--success)]"><MoneyWithNative brl={asset?.currentValue ?? 0} native={asset?.nativeCurrentValue} currency={asset?.nativeCurrency} /></dd></div>
                         <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Preço atual</dt><dd className="mt-1 font-semibold text-[var(--success)]"><MoneyWithNative brl={asset?.unitPrice ?? 0} native={asset?.nativeUnitPrice} currency={asset?.nativeCurrency} /></dd></div>
                         <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Sugestão</dt><dd className="mt-1 font-semibold"><MoneyWithNative brl={item.value} native={item.nativeValue} currency={item.nativeCurrency} /></dd></div>
-                        <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Quantidade</dt><dd className="mt-1 font-semibold">{formatQuantity(item.quantity)}</dd></div>
+                        <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Quantidade</dt><dd className="mt-1 font-semibold"><PrivateValue>{formatQuantity(item.quantity)}</PrivateValue></dd></div>
                         <div className="col-span-2"><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Total após aporte</dt><dd className="mt-1 font-semibold">{formatPercent(item.totalAfterSuggestionPercentage)}</dd></div>
                       </dl>
                       <div className="mt-4">
@@ -408,7 +409,7 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
                           <td className="px-4 py-4 text-center font-semibold">{asset?.score ?? 0}</td>
                           <td className="px-4 py-4 text-center font-semibold">{formatPercent(item.totalAfterSuggestionPercentage)}</td>
                           <td className="px-4 py-4 text-center font-semibold text-[var(--success)]"><MoneyWithNative brl={item.value} native={item.nativeValue} currency={item.nativeCurrency} /></td>
-                          <td className="px-4 py-4 text-center font-semibold">{formatQuantity(item.quantity)}</td>
+                          <td className="px-4 py-4 text-center font-semibold"><PrivateValue>{formatQuantity(item.quantity)}</PrivateValue></td>
                           <td className="px-4 py-4 text-center">
                             {item.executed
                               ? <span className="inline-flex items-center gap-1 text-xs text-[var(--success)]"><CheckCircle2 className="size-4" /> Registrado</span>
@@ -428,6 +429,7 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
       )}
 
       <Dialog
+        privateEditor
         open={Boolean(contributionModal && selectedSuggestion && selectedAsset)}
         mobileMode="full"
         onOpenChange={(open) => !open && setContributionModal(undefined)}
@@ -444,7 +446,7 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
             </div>
             <div>
               <p className="font-semibold text-[var(--primary)]">{isFixedIncome ? "Valor atual do grupo:" : "Unidades em carteira:"}</p>
-              <p className="mt-2 text-xl font-bold">{isFixedIncome ? formatMoney(selectedAsset.currentValue) : formatQuantity(selectedAsset.quantity)}</p>
+              <p className="mt-2 text-xl font-bold">{isFixedIncome ? <PrivateValue>{formatMoney(selectedAsset.currentValue)}</PrivateValue> : <PrivateValue>{formatQuantity(selectedAsset.quantity)}</PrivateValue>}</p>
             </div>
             <div className="space-y-3">
               <Label htmlFor="contribution-quantity" className="text-xs font-semibold text-[var(--primary)]">{isFixedIncome ? "Valor a ser aportado:" : "Quantidade a ser aportada:"}</Label>
@@ -475,14 +477,14 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
                 </div>
               )}
               {isFixedIncome ? (
-                <p className="text-xs font-semibold">Valor sugerido: {formatMoney(selectedSuggestion.value)}</p>
+                <p className="text-xs font-semibold">Valor sugerido: <PrivateValue>{formatMoney(selectedSuggestion.value)}</PrivateValue></p>
               ) : (
                 <div className="space-y-1 text-xs font-semibold">
-                  <p>Quantidade sugerida: {formatQuantity(selectedSuggestion.quantity)}</p>
+                  <p>Quantidade sugerida: <PrivateValue>{formatQuantity(selectedSuggestion.quantity)}</PrivateValue></p>
                   {selectedSuggestion.nativeCurrency ? (
-                    <p>Valor informado: {formatCurrency(selectedEquivalentNative, selectedSuggestion.nativeCurrency)} · {formatMoney(selectedEquivalentBrl)}</p>
+                    <p>Valor informado: <PrivateValue>{formatCurrency(selectedEquivalentNative, selectedSuggestion.nativeCurrency)}</PrivateValue> · <PrivateValue>{formatMoney(selectedEquivalentBrl)}</PrivateValue></p>
                   ) : (
-                    <p>Valor informado: {formatMoney(selectedEquivalentBrl)}</p>
+                    <p>Valor informado: <PrivateValue>{formatMoney(selectedEquivalentBrl)}</PrivateValue></p>
                   )}
                   {selectedSuggestion.nativeCurrency && selectedSuggestion.fxRateToBrl && (
                     <p className="font-normal text-white/70">Câmbio da simulação: 1 {selectedSuggestion.nativeCurrency} = {formatMoney(selectedSuggestion.fxRateToBrl)}</p>

@@ -2,6 +2,7 @@
 
 import { useState, useTransition, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import { PrivateValue } from "@/components/ui/private-value";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -220,6 +221,7 @@ export function InvestmentMetadataEditor({
   return (
     <>
       <Dialog
+        privateEditor
         open={open}
         mobileMode="full"
         onOpenChange={onOpenChange}
@@ -270,7 +272,7 @@ export function InvestmentMetadataEditor({
                   aria-describedby="metadata-quantity-help"
                 />
                 <p className="text-xs text-[var(--muted-foreground)]">
-                  Quantidade informada pela instituição: {metadata.providerMetadata.quantity === null ? "Não informada" : Number(metadata.providerMetadata.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 10 })}
+                  Quantidade informada pela instituição: {metadata.providerMetadata.quantity === null ? "Não informada" : <PrivateValue>{Number(metadata.providerMetadata.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 10 })}</PrivateValue>}
                 </p>
                 <FieldMode
                   checked={form.quantity.mode === "CUSTOM"}

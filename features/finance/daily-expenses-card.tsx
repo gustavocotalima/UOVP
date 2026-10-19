@@ -1,6 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
+import { usePrivacy } from "@/components/layout/privacy-provider";
+import { PrivateValue } from "@/components/ui/private-value";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
 import { formatCalendarDate, formatDateOnly } from "@/lib/calendar";
@@ -24,6 +26,7 @@ function formatDayAmount(cents: number) {
 }
 
 export function DailyExpensesCard({ data }: { data: FinanceData }) {
+  const { valuesHidden } = usePrivacy();
   const [selection, setSelection] = useState<number | "outside" | null>(null);
   const calendar = useMemo(
     () => calculateDailyExpenses(data.transactions, data.year, data.month, data.profile.timeZone),
@@ -46,7 +49,7 @@ export function DailyExpensesCard({ data }: { data: FinanceData }) {
         <CardTitle>Saídas por dia</CardTitle>
         <p className="text-sm text-[var(--muted-foreground)]">{monthLabel} · saídas brutas por data da transação</p>
         <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-          <p className="text-2xl font-semibold tabular-nums" data-testid="daily-expenses-total">{formatMoney(calendar.totalCents / 100)}</p>
+          <p className="text-2xl font-semibold tabular-nums" data-testid="daily-expenses-total"><PrivateValue>{formatMoney(calendar.totalCents / 100)}</PrivateValue></p>
           <span className="text-xs text-[var(--muted-foreground)]">
             em {calendar.daysWithExpenses} {calendar.daysWithExpenses === 1 ? "dia com saída" : "dias com saída"}
           </span>
@@ -71,7 +74,7 @@ export function DailyExpensesCard({ data }: { data: FinanceData }) {
                 aria-label={label}
                 aria-haspopup="dialog"
                 aria-expanded={selection === day.day}
-                title={label}
+                title={valuesHidden ? undefined : label}
                 onClick={() => setSelection(day.day)}
                 style={day.totalCents > 0 ? {
                   background: `color-mix(in srgb, var(--danger) ${Math.round(12 + intensity * 40)}%, var(--card))`,
@@ -83,16 +86,16 @@ export function DailyExpensesCard({ data }: { data: FinanceData }) {
               >
                 <span className="text-[10px]">{day.day}</span>
                 <span className={cn("whitespace-nowrap text-[9px] font-semibold tabular-nums @md:text-[10px] @2xl:text-xs", day.totalCents === 0 && "text-[var(--muted-foreground)]")}>
-                  {day.totalCents > 0 ? <><span className="hidden @2xl:inline">R$ </span>{formatDayAmount(day.totalCents)}</> : "–"}
+                  {day.totalCents > 0 ? <><span className="hidden @2xl:inline">R$ </span><PrivateValue>{formatDayAmount(day.totalCents)}</PrivateValue></> : "–"}
                 </span>
               </button>
             );
           })}
         </div>
         <div className="mt-4 grid grid-cols-2 gap-3 border-t pt-3 @md:grid-cols-3">
-          <Statistic label="Média por dia" value={formatMoney(calendar.averageCents / 100)} />
+          <Statistic label="Média por dia" value={<PrivateValue>{formatMoney(calendar.averageCents / 100)}</PrivateValue>} />
           <Statistic label="Maior dia" value={calendar.peakDay
-            ? `${String(calendar.peakDay.day).padStart(2, "0")}/${String(data.month).padStart(2, "0")} · ${formatMoney(calendar.peakDay.totalCents / 100)}`
+            ? <>{String(calendar.peakDay.day).padStart(2, "0")}/{String(data.month).padStart(2, "0")} · <PrivateValue>{formatMoney(calendar.peakDay.totalCents / 100)}</PrivateValue></>
             : "Sem saídas"} />
           <Statistic label="Dias sem saída" value={String(calendar.daysWithoutExpenses)} />
         </div>
@@ -102,7 +105,7 @@ export function DailyExpensesCard({ data }: { data: FinanceData }) {
         {calendar.outsideEntries.length > 0 && (
           <div className="mt-3 rounded-xl border bg-[var(--muted)]/30 p-3 text-xs leading-relaxed" data-testid="daily-expenses-outside">
             <p>
-              {formatMoney(calendar.outsideCents / 100)} em {calendar.outsideEntries.length} {calendar.outsideEntries.length === 1 ? "lançamento com data fora deste mês" : "lançamentos com data fora deste mês"}.
+              <PrivateValue>{formatMoney(calendar.outsideCents / 100)}</PrivateValue> em {calendar.outsideEntries.length} {calendar.outsideEntries.length === 1 ? "lançamento com data fora deste mês" : "lançamentos com data fora deste mês"}.
               {" "}Contam no total do período, mas não na grade nem na média diária, como parcelas de cartão ou lançamentos com mês de referência ajustado.
             </p>
             <button type="button" aria-haspopup="dialog" onClick={() => setSelection("outside")} className="mt-1 min-h-11 text-left font-semibold text-[var(--primary)] underline-offset-4 hover:underline">
@@ -122,7 +125,7 @@ export function DailyExpensesCard({ data }: { data: FinanceData }) {
         footer={
           <div className="flex w-full flex-wrap items-center justify-between gap-2">
             <span className="text-xs text-[var(--muted-foreground)]">{countLabel} · total bruto</span>
-            <strong className="whitespace-nowrap text-[var(--danger)] tabular-nums">{formatMoney(selectedTotal > 0 ? -selectedTotal / 100 : 0)}</strong>
+            <strong className="whitespace-nowrap text-[var(--danger)] tabular-nums"><PrivateValue>{formatMoney(selectedTotal > 0 ? -selectedTotal / 100 : 0)}</PrivateValue></strong>
           </div>
         }
       >
@@ -136,7 +139,7 @@ export function DailyExpensesCard({ data }: { data: FinanceData }) {
   );
 }
 
-function Statistic({ label, value }: { label: string; value: string }) {
+function Statistic({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="min-w-0">
       <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">{label}</p>
@@ -162,9 +165,9 @@ function ExpenseRow({ entry: { transaction, grossCents }, showDate, timeZone }: 
         {transaction.tags.length > 0 && <p className="mt-1 break-words text-xs text-[var(--muted-foreground)]">{transaction.tags.map((tag) => tag.name).join(" · ")}</p>}
       </div>
       <div className="max-w-full text-right">
-        <p className="whitespace-nowrap text-sm font-semibold text-[var(--danger)] tabular-nums">{formatMoney(grossCents > 0 ? -grossCents / 100 : 0)}</p>
+        <p className="whitespace-nowrap text-sm font-semibold text-[var(--danger)] tabular-nums"><PrivateValue>{formatMoney(grossCents > 0 ? -grossCents / 100 : 0)}</PrivateValue></p>
         {transaction.currencyCode !== "BRL" && (
-          <p className="mt-1 text-xs text-[var(--muted-foreground)]">Original: {formatCurrency(transaction.amount, transaction.currencyCode)}</p>
+          <p className="mt-1 text-xs text-[var(--muted-foreground)]">Original: <PrivateValue>{formatCurrency(transaction.amount, transaction.currencyCode)}</PrivateValue></p>
         )}
       </div>
     </li>

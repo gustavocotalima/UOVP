@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { Pencil, Plus, Trash2 } from "lucide-react";
+import { PrivateValue } from "@/components/ui/private-value";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useConfirmDialog } from "@/components/ui/dialog";
@@ -44,13 +45,13 @@ export function BalanceSheetPanel({ entries }: { entries: Entry[] }) {
   function renderSide(side: "asset" | "liability") {
     return (
       <Card>
-        <CardHeader className="flex-row items-center justify-between"><CardTitle className={side === "asset" ? "text-[var(--success)]" : "text-[var(--danger)]"}>{side === "asset" ? "Ativos" : "Passivos"}</CardTitle><strong className="text-xl">{formatMoney(side === "asset" ? assets : liabilities)}</strong></CardHeader>
+        <CardHeader className="flex-row items-center justify-between"><CardTitle className={side === "asset" ? "text-[var(--success)]" : "text-[var(--danger)]"}>{side === "asset" ? "Ativos" : "Passivos"}</CardTitle><strong className="text-xl"><PrivateValue>{formatMoney(side === "asset" ? assets : liabilities)}</PrivateValue></strong></CardHeader>
         <CardContent className="space-y-5">
           {BALANCE_CATEGORIES.filter((category) => BALANCE_META[category].side === side).map((category) => (
             <section key={category}>
               <div className="mb-2 flex items-center justify-between"><h3 className="font-semibold">{BALANCE_META[category].label}</h3><Button variant="ghost" size="icon" onClick={() => setEditing({ category, name: "", value: 0 })} aria-label={`Adicionar em ${BALANCE_META[category].label}`}><Plus className="size-5" /></Button></div>
-              <div className="space-y-2">{entries.filter((entry) => entry.category === category).map((entry) => <div key={entry.id} className="flex items-center gap-2 rounded-xl border p-3 text-sm"><span className="flex-1">{entry.name}</span><strong>{formatMoney(entry.value)}</strong><Button variant="ghost" size="icon" onClick={() => setEditing({ id: entry.id, category, name: entry.name, value: Number(entry.value) })} aria-label={`Editar ${entry.name}`}><Pencil className="size-4" /></Button><Button variant="ghost" size="icon" onClick={() => removeEntry(entry)} disabled={pending} aria-label={`Excluir ${entry.name}`}><Trash2 className="size-4 text-[var(--danger)]" /></Button></div>)}</div>
-              {editing?.category === category && <form onSubmit={(event) => { event.preventDefault(); startTransition(async () => { try { await saveBalanceEntryAction(editing); setEditing(undefined); setMessage("Lançamento salvo."); } catch (error) { setMessage(error instanceof Error ? error.message : "Não foi possível salvar."); } }); }} className="mt-3 grid gap-2 rounded-xl bg-[var(--muted)] p-3 sm:grid-cols-[1fr_150px_auto]"><div><Label className="sr-only" htmlFor={`entry-name-${category}`}>Nome</Label><Input id={`entry-name-${category}`} value={editing.name} onChange={(event) => setEditing({ ...editing, name: event.target.value })} placeholder="Nome" required /></div><div><Label className="sr-only" htmlFor={`entry-value-${category}`}>Valor</Label><Input id={`entry-value-${category}`} type="number" min="0" step="0.01" value={editing.value} onChange={(event) => setEditing({ ...editing, value: Number(event.target.value) })} required /></div><div className="flex gap-1"><Button disabled={pending}>Salvar</Button><Button type="button" variant="ghost" onClick={() => setEditing(undefined)}>Cancelar</Button></div></form>}
+              <div className="space-y-2">{entries.filter((entry) => entry.category === category).map((entry) => <div key={entry.id} className="flex items-center gap-2 rounded-xl border p-3 text-sm"><span className="flex-1">{entry.name}</span><strong><PrivateValue>{formatMoney(entry.value)}</PrivateValue></strong><Button variant="ghost" size="icon" onClick={() => setEditing({ id: entry.id, category, name: entry.name, value: Number(entry.value) })} aria-label={`Editar ${entry.name}`}><Pencil className="size-4" /></Button><Button variant="ghost" size="icon" onClick={() => removeEntry(entry)} disabled={pending} aria-label={`Excluir ${entry.name}`}><Trash2 className="size-4 text-[var(--danger)]" /></Button></div>)}</div>
+              {editing?.category === category && <form data-private-editor onSubmit={(event) => { event.preventDefault(); startTransition(async () => { try { await saveBalanceEntryAction(editing); setEditing(undefined); setMessage("Lançamento salvo."); } catch (error) { setMessage(error instanceof Error ? error.message : "Não foi possível salvar."); } }); }} className="mt-3 grid gap-2 rounded-xl bg-[var(--muted)] p-3 sm:grid-cols-[1fr_150px_auto]"><div><Label className="sr-only" htmlFor={`entry-name-${category}`}>Nome</Label><Input id={`entry-name-${category}`} value={editing.name} onChange={(event) => setEditing({ ...editing, name: event.target.value })} placeholder="Nome" required /></div><div><Label className="sr-only" htmlFor={`entry-value-${category}`}>Valor</Label><Input id={`entry-value-${category}`} type="number" min="0" step="0.01" value={editing.value} onChange={(event) => setEditing({ ...editing, value: Number(event.target.value) })} required /></div><div className="flex gap-1"><Button disabled={pending}>Salvar</Button><Button type="button" variant="ghost" onClick={() => setEditing(undefined)}>Cancelar</Button></div></form>}
             </section>
           ))}
         </CardContent>
@@ -60,7 +61,7 @@ export function BalanceSheetPanel({ entries }: { entries: Entry[] }) {
 
   return (
     <div className="space-y-6">
-      <Card className="mx-auto max-w-sm text-center"><CardContent className="pt-6"><p className="text-sm text-[var(--muted-foreground)]">Patrimônio Líquido</p><strong className={`mt-2 block text-3xl ${netWorth >= 0 ? "text-[var(--success)]" : "text-[var(--danger)]"}`}>{formatMoney(netWorth)}</strong></CardContent></Card>
+      <Card className="mx-auto max-w-sm text-center"><CardContent className="pt-6"><p className="text-sm text-[var(--muted-foreground)]">Patrimônio Líquido</p><strong className={`mt-2 block text-3xl ${netWorth >= 0 ? "text-[var(--success)]" : "text-[var(--danger)]"}`}><PrivateValue>{formatMoney(netWorth)}</PrivateValue></strong></CardContent></Card>
       {message && <p role="status" className="rounded-xl border bg-[var(--card)] p-3 text-sm">{message}</p>}
       <div className="grid gap-4 @5xl:grid-cols-2 @5xl:gap-6">{renderSide("asset")}{renderSide("liability")}</div>
       {confirmationDialog}

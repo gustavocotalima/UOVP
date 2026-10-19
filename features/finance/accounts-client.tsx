@@ -22,6 +22,7 @@ import {
   Trash2,
   WalletCards,
 } from "lucide-react";
+import { PrivateValue } from "@/components/ui/private-value";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
@@ -371,7 +372,7 @@ export function AccountsClient({ data }: { data: FinanceData }) {
         </div>
       </Dialog>
 
-      <Dialog open={formOpen} onOpenChange={setFormOpen} dismissible={!busy} title={editing ? "Editar conta" : form.type === "BANK_ACCOUNT" ? "Adicionar conta bancária" : "Adicionar cartão"} footer={<Button onClick={saveAccount} disabled={busy || form.name.trim().length < 2 || (accountFxRequired && !(Number(form.manualFxRateToBrl) > 0))}>{editing ? "Salvar alterações" : "Adicionar"}</Button>}>
+      <Dialog privateEditor open={formOpen} onOpenChange={setFormOpen} dismissible={!busy} title={editing ? "Editar conta" : form.type === "BANK_ACCOUNT" ? "Adicionar conta bancária" : "Adicionar cartão"} footer={<Button onClick={saveAccount} disabled={busy || form.name.trim().length < 2 || (accountFxRequired && !(Number(form.manualFxRateToBrl) > 0))}>{editing ? "Salvar alterações" : "Adicionar"}</Button>}>
         {editing?.source === "PLUGGY" && <div className="mb-5 rounded-xl bg-[var(--muted)] p-3 text-sm text-[var(--muted-foreground)]">O nome e a preferência da Carteira podem ser alterados. Saldos, limites, moeda e datas continuam sendo atualizados pela instituição.</div>}
         {accountFxRequired && <FinanceNotice type="error">Não foi possível obter USD/BRL automaticamente. Informe a cotação manual para continuar.</FinanceNotice>}
         <AccountFormFields
@@ -422,7 +423,7 @@ function AccountLogo({ account }: { account: FinancialAccountDto }) {
 }
 
 function AccountSummary({ label, value, icon: Icon, danger = false }: { label: string; value: number; icon: typeof Landmark; danger?: boolean }) {
-  return <Card><CardContent className="flex items-center gap-4 p-5"><span className="grid size-11 place-items-center rounded-xl bg-[var(--primary)]/12 text-[var(--primary)]"><Icon className="size-5" /></span><div><p className="text-xs text-[var(--muted-foreground)]">{label}</p><p className={cn("mt-1 text-xl font-semibold", danger && "text-[var(--danger)]")}>{formatMoney(value)}</p></div></CardContent></Card>;
+  return <Card><CardContent className="flex items-center gap-4 p-5"><span className="grid size-11 place-items-center rounded-xl bg-[var(--primary)]/12 text-[var(--primary)]"><Icon className="size-5" /></span><div><p className="text-xs text-[var(--muted-foreground)]">{label}</p><p className={cn("mt-1 text-xl font-semibold", danger && "text-[var(--danger)]")}><PrivateValue>{formatMoney(value)}</PrivateValue></p></div></CardContent></Card>;
 }
 
 function AccountSection({ title, accounts, view, timeZone, onEdit, onDelete }: { title: string; accounts: FinancialAccountDto[]; view: "cards" | "list"; timeZone: string; onEdit: (account: FinancialAccountDto) => void; onDelete: (account: FinancialAccountDto) => void }) {
@@ -438,7 +439,7 @@ function AccountSection({ title, accounts, view, timeZone, onEdit, onDelete }: {
           <div className="grid gap-4 @3xl:grid-cols-2 lg:hidden">
             {accounts.map((account) => <AccountCard key={account.id} account={account} timeZone={timeZone} onEdit={onEdit} onDelete={onDelete} />)}
           </div>
-          <Card className="hidden overflow-hidden lg:block"><div className="overflow-x-auto"><table className="w-full min-w-[820px] text-left text-sm"><thead className="border-b text-[11px] uppercase tracking-wide text-[var(--muted-foreground)]"><tr><th className="p-4">Conta</th><th>Tipo</th><th>Agência / Conta</th><th>Saldo</th><th>Sincronização</th><th className="pr-4 text-right">Ações</th></tr></thead><tbody className="divide-y">{accounts.map((account) => <tr key={account.id}><td className="p-4"><div className="flex items-center gap-3"><AccountLogo account={account} /><div><p className="font-semibold">{account.name}</p><p className="text-xs text-[var(--muted-foreground)]">{account.institutionName}</p></div></div></td><td>{accountSubtypeLabel(account.subtype, account.type)}</td><td>{account.type === "CREDIT_CARD" ? `•••• ${account.numberLastFour || "—"}` : `${account.agency ? `Ag ${account.agency} · ` : ""}${account.accountNumber || "—"}`}</td><td><p className="font-semibold">{formatCurrency(account.balance, account.currencyCode)}</p><AccountBrlEquivalent account={account} /></td><td className="text-xs text-[var(--muted-foreground)]">{account.providerUpdatedAt ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone }).format(new Date(account.providerUpdatedAt)) : "Manual"}</td><td className="pr-4"><div className="flex justify-end gap-1"><Button variant="ghost" size="icon" onClick={() => onEdit(account)} aria-label="Editar conta"><Pencil className="size-4" /></Button><Button variant="ghost" size="icon" onClick={() => onDelete(account)} aria-label="Excluir conta"><Trash2 className="size-4" /></Button></div></td></tr>)}</tbody></table></div></Card>
+          <Card className="hidden overflow-hidden lg:block"><div className="overflow-x-auto"><table className="w-full min-w-[820px] text-left text-sm"><thead className="border-b text-[11px] uppercase tracking-wide text-[var(--muted-foreground)]"><tr><th className="p-4">Conta</th><th>Tipo</th><th>Agência / Conta</th><th>Saldo</th><th>Sincronização</th><th className="pr-4 text-right">Ações</th></tr></thead><tbody className="divide-y">{accounts.map((account) => <tr key={account.id}><td className="p-4"><div className="flex items-center gap-3"><AccountLogo account={account} /><div><p className="font-semibold">{account.name}</p><p className="text-xs text-[var(--muted-foreground)]">{account.institutionName}</p></div></div></td><td>{accountSubtypeLabel(account.subtype, account.type)}</td><td>{account.type === "CREDIT_CARD" ? `•••• ${account.numberLastFour || "—"}` : `${account.agency ? `Ag ${account.agency} · ` : ""}${account.accountNumber || "—"}`}</td><td><p className="font-semibold"><PrivateValue>{formatCurrency(account.balance, account.currencyCode)}</PrivateValue></p><AccountBrlEquivalent account={account} /></td><td className="text-xs text-[var(--muted-foreground)]">{account.providerUpdatedAt ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone }).format(new Date(account.providerUpdatedAt)) : "Manual"}</td><td className="pr-4"><div className="flex justify-end gap-1"><Button variant="ghost" size="icon" onClick={() => onEdit(account)} aria-label="Editar conta"><Pencil className="size-4" /></Button><Button variant="ghost" size="icon" onClick={() => onDelete(account)} aria-label="Excluir conta"><Trash2 className="size-4" /></Button></div></td></tr>)}</tbody></table></div></Card>
         </>
       )}
       {!accounts.length && <Card><CardContent className="py-10 text-center text-sm text-[var(--muted-foreground)]">Nenhuma conta nesta categoria.</CardContent></Card>}
@@ -473,7 +474,7 @@ function AccountCard({ account, timeZone, onEdit, onDelete }: { account: Financi
         {account.type === "BANK_ACCOUNT" ? (
           <>
             <p className="text-xs text-[var(--muted-foreground)]">Saldo disponível</p>
-            <p className="mt-1 text-2xl font-semibold">{formatCurrency(account.balance, account.currencyCode)}</p>
+            <p className="mt-1 text-2xl font-semibold"><PrivateValue>{formatCurrency(account.balance, account.currencyCode)}</PrivateValue></p>
             <AccountBrlEquivalent account={account} className="mt-1" />
             <AccountFxDetails account={account} timeZone={timeZone} />
             <p className="mt-4 text-xs text-[var(--muted-foreground)]">
@@ -495,11 +496,11 @@ function AccountCard({ account, timeZone, onEdit, onDelete }: { account: Financi
             <div className="mt-5 grid grid-cols-2 gap-4">
               <div>
                 <p className="text-xs text-[var(--muted-foreground)]">Limite Total</p>
-                <p className="mt-1 font-semibold">{limit == null ? "•••" : formatCurrency(limit, account.currencyCode)}</p>
+                <p className="mt-1 font-semibold">{limit == null ? "•••" : <PrivateValue>{formatCurrency(limit, account.currencyCode)}</PrivateValue>}</p>
               </div>
               <div>
                 <p className="text-xs text-[var(--muted-foreground)]">Utilizado</p>
-                <p className="mt-1 font-semibold">{formatCurrency(used, account.currencyCode)}</p>
+                <p className="mt-1 font-semibold"><PrivateValue>{formatCurrency(used, account.currencyCode)}</PrivateValue></p>
                 <AccountBrlEquivalent account={account} className="mt-1" />
               </div>
             </div>
@@ -645,7 +646,7 @@ function AccountBrlEquivalent({
     <p className={cn("text-xs text-[var(--muted-foreground)]", className)}>
       {account.balanceBrl === null
         ? "Conversão para BRL pendente"
-        : `Equivale a ${formatCurrency(account.balanceBrl, "BRL")}`}
+        : <>Equivale a <PrivateValue>{formatCurrency(account.balanceBrl, "BRL")}</PrivateValue></>}
     </p>
   );
 }

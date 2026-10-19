@@ -19,6 +19,7 @@ import {
   Trash2,
   Undo2,
 } from "lucide-react";
+import { PrivateValue } from "@/components/ui/private-value";
 import { ActionMenu } from "@/components/ui/action-menu";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -429,9 +430,9 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
                         <span className="mt-1 block text-xs text-[var(--muted-foreground)]">{new Intl.DateTimeFormat("pt-BR", { timeZone: data.profile.timeZone }).format(new Date(transaction.date))} · {transaction.accountName}</span>
                       </button>
                       <div className="text-right">
-                        <strong className={cn("whitespace-nowrap text-sm", transaction.kind === "INCOME" && "text-[var(--success)]")}>{formatCurrency(transaction.amount, transaction.currencyCode)}</strong>
+                        <strong className={cn("whitespace-nowrap text-sm", transaction.kind === "INCOME" && "text-[var(--success)]")}><PrivateValue>{formatCurrency(transaction.amount, transaction.currencyCode)}</PrivateValue></strong>
                         {transaction.currencyCode !== "BRL" && transaction.reportingAmountBrl !== null && (
-                          <span className="mt-1 block text-[10px] text-[var(--muted-foreground)]">{formatCurrency(transaction.reportingAmountBrl, "BRL")}</span>
+                          <span className="mt-1 block text-[10px] text-[var(--muted-foreground)]"><PrivateValue>{formatCurrency(transaction.reportingAmountBrl, "BRL")}</PrivateValue></span>
                         )}
                         <ChevronDown className={cn("ml-auto mt-2 size-4 transition", expanded && "rotate-180")} aria-hidden="true" />
                       </div>
@@ -449,8 +450,8 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
                       <dl className="grid grid-cols-2 gap-3 text-xs">
                         <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Mês de referência</dt><dd className="mt-1 capitalize">{new Intl.DateTimeFormat("pt-BR", { month: "long" }).format(new Date(transaction.referenceYear, transaction.referenceMonth - 1, 1))}</dd></div>
                         <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Instituição</dt><dd className="mt-1">{transaction.institutionName}</dd></div>
-                        {transaction.originalAmount && transaction.originalCurrencyCode && transaction.originalCurrencyCode !== transaction.currencyCode && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Valor original</dt><dd className="mt-1">{formatCurrency(transaction.originalAmount, transaction.originalCurrencyCode)}</dd></div>}
-                        {transaction.reportingAmountBrl !== null && transaction.currencyCode !== "BRL" && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Valor em BRL</dt><dd className="mt-1">{formatCurrency(transaction.reportingAmountBrl, "BRL")}</dd></div>}
+                        {transaction.originalAmount && transaction.originalCurrencyCode && transaction.originalCurrencyCode !== transaction.currencyCode && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Valor original</dt><dd className="mt-1"><PrivateValue>{formatCurrency(transaction.originalAmount, transaction.originalCurrencyCode)}</PrivateValue></dd></div>}
+                        {transaction.reportingAmountBrl !== null && transaction.currencyCode !== "BRL" && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Valor em BRL</dt><dd className="mt-1"><PrivateValue>{formatCurrency(transaction.reportingAmountBrl, "BRL")}</PrivateValue></dd></div>}
                       </dl>
                       <div className="grid gap-3">
                         <Label className="text-xs">Meta
@@ -519,15 +520,15 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
                     <td className="py-3 pr-3"><input type="checkbox" aria-label={`Selecionar ${transaction.description}`} checked={selected.includes(transaction.id)} onChange={(event) => setSelected(event.target.checked ? [...selected, transaction.id] : selected.filter((id) => id !== transaction.id))} /></td>
                     <td className="max-w-[280px] py-3 pr-4"><p className="truncate font-medium">{transaction.description}</p><button type="button" className="mt-1 text-[11px] text-[var(--primary)] hover:underline" onClick={() => { setNoting(transaction); setNote(transaction.note ?? ""); }}>{transaction.note ? transaction.note : "+ Adicionar observação"}</button></td>
                     <td className={cn("py-3 pr-4 font-semibold", transaction.kind === "INCOME" && "text-[var(--success)]")}>
-                      <span>{formatCurrency(transaction.amount, transaction.currencyCode)}</span>
+                      <span><PrivateValue>{formatCurrency(transaction.amount, transaction.currencyCode)}</PrivateValue></span>
                       {transaction.originalAmount
                         && transaction.originalCurrencyCode
                         && transaction.originalCurrencyCode !== transaction.currencyCode && (
                           <small className="mt-1 block font-normal text-[var(--muted-foreground)]">
-                            Original: {formatCurrency(
+                            Original: <PrivateValue>{formatCurrency(
                               transaction.originalAmount,
                               transaction.originalCurrencyCode,
-                            )}
+                            )}</PrivateValue>
                           </small>
                         )}
                       {transaction.reportingAmountBrl === null ? (
@@ -536,7 +537,7 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
                         </small>
                       ) : transaction.currencyCode !== "BRL" ? (
                         <small className="mt-1 block font-normal text-[var(--muted-foreground)]">
-                          BRL: {formatCurrency(transaction.reportingAmountBrl, "BRL")}
+                          BRL: <PrivateValue>{formatCurrency(transaction.reportingAmountBrl, "BRL")}</PrivateValue>
                         </small>
                       ) : null}
                     </td>
@@ -688,7 +689,7 @@ function AssignmentSource({ source }: { source: FinanceTransactionDto["budgetCat
 }
 
 function MiniTotal({ label, value, tone }: { label: string; value: number; tone: "success" | "danger" | "default" }) {
-  return <div className="min-w-0 rounded-xl bg-[var(--muted)] px-3 py-2"><p className="text-[10px] text-[var(--muted-foreground)]">{label}</p><p className={cn("mt-1 whitespace-nowrap text-[13px] font-semibold tabular-nums sm:text-sm", tone === "success" && "text-[var(--success)]", tone === "danger" && "text-[var(--danger)]")}>{formatMoney(value)}</p></div>;
+  return <div className="min-w-0 rounded-xl bg-[var(--muted)] px-3 py-2"><p className="text-[10px] text-[var(--muted-foreground)]">{label}</p><p className={cn("mt-1 whitespace-nowrap text-[13px] font-semibold tabular-nums sm:text-sm", tone === "success" && "text-[var(--success)]", tone === "danger" && "text-[var(--danger)]")}><PrivateValue>{formatMoney(value)}</PrivateValue></p></div>;
 }
 
 function SortHeader({ label, active, direction, onClick }: { label: string; active: boolean; direction: "asc" | "desc"; onClick: () => void }) {
