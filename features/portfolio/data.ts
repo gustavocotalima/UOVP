@@ -185,7 +185,11 @@ export async function getPortfolioData(userId: string) {
               quantity: holding.quantity.toString(),
               investedValue: holding.investedValue?.toString(),
               amountOriginal: holding.pluggyDiagramLink?.investment.amountOriginal?.toString(),
-              transactions: [],
+              purchaseSummary: holding.pluggyDiagramLink ? {
+                version: holding.pluggyDiagramLink.investment.purchaseSummaryVersion,
+                quantity: holding.pluggyDiagramLink.investment.purchaseQuantityTotal.toString(),
+                cost: holding.pluggyDiagramLink.investment.purchaseCostTotal.toString(),
+              } : undefined,
             })
           : { price: null, coverage: 0 },
       );

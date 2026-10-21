@@ -153,7 +153,7 @@ export function FinanceDashboardClient({ data }: { data: FinanceData }) {
                 </defs>
                 <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="month" stroke="var(--muted-foreground)" axisLine={false} tickLine={false} />
-                <YAxis className="private-chart-axis" stroke="var(--muted-foreground)" axisLine={false} tickLine={false} tickFormatter={(value) => `${Math.round(value / 1000)}k`} />
+                <YAxis className="private-chart-axis" tick={{ className: "private-chart-axis-value" }} stroke="var(--muted-foreground)" axisLine={false} tickLine={false} tickFormatter={(value) => `${Math.round(value / 1000)}k`} />
                 <Tooltip wrapperClassName="private-chart-tooltip" formatter={(value) => formatMoney(Number(value))} contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12 }} />
                 <Area type="monotone" dataKey="income" name="Entradas líquidas" stroke="#76bc8e" fill="url(#finance-income)" strokeWidth={2.5} />
                 <Area type="monotone" dataKey="spent" name="Despesas líquidas" stroke="#d2ad50" fill="url(#finance-spent)" strokeWidth={2.5} />

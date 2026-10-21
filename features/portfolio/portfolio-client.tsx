@@ -51,10 +51,12 @@ const sectionOptions = [
 
 export function PortfolioClient({
   portfolio,
+  snapshotRevision,
   questions,
   answers,
 }: {
   portfolio: PortfolioDto;
+  snapshotRevision: string;
   questions: DiagramQuestionDto[];
   answers: { assetId: string; questionId: string; answer: boolean }[];
 }) {
@@ -75,7 +77,7 @@ export function PortfolioClient({
     <div className="space-y-6">
       <InvestmentQuantityChangeNotice changes={portfolio.quantityChanges} />
       <SegmentedTabs value={section} onValueChange={changeSection} ariaLabel="Seções da carteira" options={sectionOptions} />
-      {visitedSections.has("assets") && <section id="portfolio-panel-assets" role="tabpanel" aria-labelledby="portfolio-tab-assets" hidden={section !== "assets"}><MemoAssetsPanel assets={portfolio.assets} fixedIncomeFamilies={portfolio.fixedIncomeFamilies} catalog={portfolio.catalog} integrationReview={portfolio.integrationReview} questions={questions} initialAnswers={answers} timeZone={portfolio.timeZone} /></section>}
+      {visitedSections.has("assets") && <section id="portfolio-panel-assets" role="tabpanel" aria-labelledby="portfolio-tab-assets" hidden={section !== "assets"}><MemoAssetsPanel snapshotRevision={snapshotRevision} assets={portfolio.assets} fixedIncomeFamilies={portfolio.fixedIncomeFamilies} catalog={portfolio.catalog} integrationReview={portfolio.integrationReview} questions={questions} initialAnswers={answers} timeZone={portfolio.timeZone} /></section>}
       {visitedSections.has("targets") && <section id="portfolio-panel-targets" role="tabpanel" aria-labelledby="portfolio-tab-targets" hidden={section !== "targets"}><MemoTargetsPanel initialTargets={portfolio.targets} /></section>}
       {visitedSections.has("contribution") && <section id="portfolio-panel-contribution" role="tabpanel" aria-labelledby="portfolio-tab-contribution" hidden={section !== "contribution"}><MemoContributionPanel assets={portfolio.assets} catalog={portfolio.catalog} /></section>}
       {visitedSections.has("questions") && <section id="portfolio-panel-questions" role="tabpanel" aria-labelledby="portfolio-tab-questions" hidden={section !== "questions"}><MemoQuestionsPanel questions={questions} /></section>}

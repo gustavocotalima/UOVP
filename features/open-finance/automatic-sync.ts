@@ -1,10 +1,10 @@
-import { shouldSyncPluggyItems } from "@/lib/automatic-refresh-policy";
+import { selectPluggyItemsForAutomaticSync } from "@/lib/automatic-refresh-policy";
 import {
   OperationInProgressError,
   withUserOperationLease,
 } from "@/lib/operation-security";
 import { prisma } from "@/lib/prisma";
-import { syncAllPluggyItemsForUser } from "./sync";
+import { syncSelectedPluggyItemsForUser } from "./sync";
 
 export type AutomaticPluggySyncResult = {
   status: "SKIPPED" | "UPDATED" | "PARTIAL" | "FAILED";
@@ -22,22 +22,24 @@ export async function syncStalePluggyItemsForUser(
   const items = await prisma.pluggyItem.findMany({
     where: { userId, status: { not: "DELETED" } },
     select: {
+      pluggyItemId: true,
       syncPending: true,
       lastSyncAt: true,
     },
   });
-  if (!shouldSyncPluggyItems(items)) {
+  const selectedItems = selectPluggyItemsForAutomaticSync(items);
+  if (!selectedItems.length) {
     return {
       status: "SKIPPED",
       changed: false,
       reason: null,
-      requestedConnections: items.length,
+      requestedConnections: selectedItems.length,
       updatedConnections: 0,
       failedConnections: 0,
       message: null,
     };
   }
-  const reason = items.some((item) => item.syncPending)
+  const reason = selectedItems.some((item) => item.syncPending)
     ? "WEBHOOK_PENDING"
     : "AUTOMATIC_STALE";
   try {
@@ -46,16 +48,27 @@ export async function syncStalePluggyItemsForUser(
       operation: "pluggy-bootstrap",
       leaseMs: 12 * 60_000,
       action: async () => {
-        const result = await syncAllPluggyItemsForUser(userId);
+        const result = await syncSelectedPluggyItemsForUser(
+          userId,
+          selectedItems.map((item) => item.pluggyItemId),
+          { automatic: true },
+        );
         const changed = result.succeededItemCount > 0;
+        const selectedReason = !result.itemCount
+          ? null
+          : result.pendingItemCount
+            ? "WEBHOOK_PENDING" as const
+            : "AUTOMATIC_STALE" as const;
         return {
-          status: result.failedItemCount
-            ? changed ? "PARTIAL" as const : "FAILED" as const
-            : result.partialItemCount
-              ? "PARTIAL" as const
-              : "UPDATED" as const,
+          status: !result.itemCount
+            ? "SKIPPED" as const
+            : result.failedItemCount
+              ? changed ? "PARTIAL" as const : "FAILED" as const
+              : result.partialItemCount
+                ? "PARTIAL" as const
+                : "UPDATED" as const,
           changed,
-          reason,
+          reason: selectedReason,
           requestedConnections: result.itemCount,
           updatedConnections: result.succeededItemCount,
           failedConnections: result.failedItemCount,
@@ -73,7 +86,7 @@ export async function syncStalePluggyItemsForUser(
         status: "SKIPPED",
         changed: false,
         reason,
-        requestedConnections: items.length,
+        requestedConnections: selectedItems.length,
         updatedConnections: 0,
         failedConnections: 0,
         message: null,
@@ -83,9 +96,9 @@ export async function syncStalePluggyItemsForUser(
       status: "FAILED",
       changed: false,
       reason,
-      requestedConnections: items.length,
+      requestedConnections: selectedItems.length,
       updatedConnections: 0,
-      failedConnections: items.length,
+      failedConnections: selectedItems.length,
       message: error instanceof Error ? error.message : "Não foi possível sincronizar o Open Finance.",
     };
   }

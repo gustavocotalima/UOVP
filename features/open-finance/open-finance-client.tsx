@@ -3,7 +3,7 @@
 import Script from "next/script";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AlertCircle,
   ArrowDownLeft,
@@ -29,6 +29,7 @@ import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { InstitutionLogo } from "@/components/ui/institution-logo";
 import { SegmentedTabs } from "@/components/ui/segmented-tabs";
+import { beginDataRefreshDeferral, requestDataRefresh } from "@/lib/client-data-refresh";
 import { cn } from "@/lib/utils";
 import type { OpenFinanceData } from "./data";
 import { InvestmentMetadataEditor } from "./investment-metadata-editor";
@@ -40,6 +41,8 @@ import {
   setShowSoldInvestmentsAction,
 } from "./diagram-actions";
 import { pluggyConnectErrorMessage } from "./pluggy-connect-error";
+import { createSnapshotRequests } from "./snapshot-requests";
+import { usePluggySyncStatus } from "./use-pluggy-sync-status";
 
 type Tab = "connections" | "accounts" | "transactions" | "investments";
 type PluggySuccessPayload = { id?: string; item?: { id?: string } };
@@ -123,7 +126,10 @@ function nonBrlAmounts(values: Record<string, number>) {
     .map(([currency, value]) => money(value, currency));
 }
 
-export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
+export function OpenFinanceClient({ data, snapshotRevision }: {
+  data: OpenFinanceData;
+  snapshotRevision: string;
+}) {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("connections");
   const [expandedInvestment, setExpandedInvestment] = useState<string | null>(null);
@@ -140,7 +146,8 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
   const [investmentTransactionPages, setInvestmentTransactionPages] = useState<
     Record<string, { page: number; total: number }>
   >({});
-  const [investmentTransactionsLoading, setInvestmentTransactionsLoading] = useState<string | null>(null);
+  const [investmentTransactionsLoading, setInvestmentTransactionsLoading] = useState<Set<string>>(() => new Set());
+  const investmentRequests = useRef(createSnapshotRequests(snapshotRevision));
   const [showSoldInvestments, setShowSoldInvestments] = useState(data.showSoldInvestments);
   const [scriptReady, setScriptReady] = useState(false);
   const [scriptFailed, setScriptFailed] = useState(false);
@@ -156,7 +163,7 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
   >(null);
   const [connectionDisplayName, setConnectionDisplayName] = useState("");
   const [renameStatus, setRenameStatus] = useState<string | null>(null);
-  const [pluggySyncStatus, setPluggySyncStatus] = useState({ active: false, automatic: false });
+  const { status: pluggySyncStatus, beginLocalSync } = usePluggySyncStatus();
   const [resolvedDisconnections, setResolvedDisconnections] = useState<Set<string>>(() => new Set());
   const keepManualFocusRef = useRef<HTMLSpanElement>(null);
   const pendingDisconnection = data.pendingDisconnections.find(
@@ -166,49 +173,16 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
   const actionsBusy = busy !== null || pluggySyncStatus.active;
 
   useEffect(() => {
-    let cancelled = false;
-    let checking = false;
-    let wasActive = false;
-    const checkSyncStatus = async () => {
-      if (checking || document.visibilityState === "hidden") return;
-      checking = true;
-      try {
-        const response = await fetch("/api/pluggy/sync-status", {
-          credentials: "same-origin",
-          cache: "no-store",
-        });
-        if (!response.ok) return;
-        const status = await response.json() as { active?: unknown; automatic?: unknown };
-        if (cancelled || typeof status.active !== "boolean" || typeof status.automatic !== "boolean") return;
-        setPluggySyncStatus({ active: status.active, automatic: status.automatic });
-        if (wasActive && !status.active) router.refresh();
-        wasActive = status.active;
-      } catch {
-        // Keep the last known state until the next check.
-      } finally {
-        checking = false;
-      }
-    };
-    void checkSyncStatus();
-    const interval = window.setInterval(() => void checkSyncStatus(), 2_000);
-    const onVisibilityChange = () => {
-      if (document.visibilityState === "visible") void checkSyncStatus();
-    };
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-    };
-  }, [router]);
-
-  useEffect(() => {
     if (tab !== "transactions") return;
-    let cancelled = false;
+    const controller = new AbortController();
+    let correctingPage = false;
     queueMicrotask(() => {
-      if (!cancelled) setTransactionsLoading(true);
+      if (!controller.signal.aborted) setTransactionsLoading(true);
     });
-    fetch(`/api/open-finance/transactions?page=${transactionPage}&pageSize=${transactionPageSize}`)
+    fetch(`/api/open-finance/transactions?page=${transactionPage}&pageSize=${transactionPageSize}`, {
+      cache: "no-store",
+      signal: controller.signal,
+    })
       .then(async (response) => {
         const payload = await response.json() as {
           error?: string;
@@ -216,13 +190,19 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
           transactions: OpenFinanceData["transactions"];
         };
         if (!response.ok) throw new Error(payload.error || "Não foi possível carregar as transações.");
-        if (!cancelled) {
+        if (!controller.signal.aborted) {
+          const lastPage = Math.max(1, Math.ceil(payload.total / transactionPageSize));
+          if (transactionPage > lastPage) {
+            correctingPage = true;
+            setTransactionPage(lastPage);
+            return;
+          }
           setTransactions(payload.transactions);
           setTransactionTotal(payload.total);
         }
       })
       .catch((error) => {
-        if (!cancelled) {
+        if (!controller.signal.aborted) {
           setNotice({
             type: "error",
             text: error instanceof Error ? error.message : "Não foi possível carregar as transações.",
@@ -230,19 +210,22 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
         }
       })
       .finally(() => {
-        if (!cancelled) setTransactionsLoading(false);
+        if (!controller.signal.aborted && !correctingPage) setTransactionsLoading(false);
       });
     return () => {
-      cancelled = true;
+      controller.abort();
     };
-  }, [tab, transactionPage]);
+  }, [tab, transactionPage, snapshotRevision]);
 
-  async function loadInvestmentTransactions(id: string, page: number) {
-    if (investmentTransactionsLoading === id) return;
-    setInvestmentTransactionsLoading(id);
+  const loadInvestmentTransactions = useCallback(async (id: string, page: number) => {
+    const requests = investmentRequests.current;
+    const controller = requests.start(id, snapshotRevision);
+    if (!controller) return;
+    setInvestmentTransactionsLoading((current) => new Set(current).add(id));
     try {
       const response = await fetch(
         `/api/open-finance/investments/${encodeURIComponent(id)}/transactions?page=${page}&pageSize=25`,
+        { cache: "no-store", signal: controller.signal },
       );
       const payload = await response.json() as {
         error?: string;
@@ -251,6 +234,7 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
         transactions: OpenFinanceData["investments"][number]["transactions"];
       };
       if (!response.ok) throw new Error(payload.error || "Não foi possível carregar as movimentações.");
+      if (!requests.isCurrent(id, controller)) return;
       setInvestmentTransactions((current) => ({
         ...current,
         [id]: page === 1
@@ -262,23 +246,54 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
         [id]: { page: payload.page, total: payload.total },
       }));
     } catch (error) {
-      setNotice({
-        type: "error",
-        text: error instanceof Error ? error.message : "Não foi possível carregar as movimentações.",
-      });
+      if (requests.isCurrent(id, controller)) {
+        setNotice({
+          type: "error",
+          text: error instanceof Error ? error.message : "Não foi possível carregar as movimentações.",
+        });
+      }
     } finally {
-      setInvestmentTransactionsLoading(null);
+      if (requests.finish(id, controller)) {
+        setInvestmentTransactionsLoading((current) => {
+          const next = new Set(current);
+          next.delete(id);
+          return next;
+        });
+      }
     }
-  }
+  }, [snapshotRevision]);
 
-  async function toggleInvestment(id: string) {
-    if (expandedInvestment === id) {
-      setExpandedInvestment(null);
-      return;
-    }
-    setExpandedInvestment(id);
-    if (investmentTransactions[id]) return;
-    await loadInvestmentTransactions(id, 1);
+  useEffect(() => {
+    const requests = investmentRequests.current;
+    if (!requests.reset(snapshotRevision)) return;
+    let cancelled = false;
+    // Keep the mounted editor and tab state; only discard data from the old server snapshot.
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setInvestmentTransactions({});
+      setInvestmentTransactionPages({});
+      setInvestmentTransactionsLoading(new Set());
+    });
+    return () => { cancelled = true; };
+  }, [snapshotRevision]);
+
+  useEffect(() => {
+    if (tab !== "investments" || !expandedInvestment || investmentTransactions[expandedInvestment]) return;
+    if (!data.investments.some((investment) => investment.id === expandedInvestment)) return;
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) void loadInvestmentTransactions(expandedInvestment, 1);
+    });
+    return () => { cancelled = true; };
+  }, [tab, expandedInvestment, investmentTransactions, snapshotRevision, data.investments, loadInvestmentTransactions]);
+
+  useEffect(() => {
+    const requests = investmentRequests.current;
+    return () => requests.clear();
+  }, []);
+
+  function toggleInvestment(id: string) {
+    setExpandedInvestment((current) => current === id ? null : id);
   }
 
   async function requestJson(url: string, body: object) {
@@ -299,6 +314,8 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
   async function sync(itemId?: string) {
     setBusy(itemId ?? "all");
     setNotice(null);
+    const releaseRefresh = beginDataRefreshDeferral();
+    const endLocalSync = beginLocalSync();
     try {
       const result = await requestJson("/api/pluggy/sync", itemId ? { itemId } : {});
       setNotice({
@@ -306,10 +323,12 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
         text: result.warning
           ?? (itemId ? "Instituição sincronizada." : "Todas as conexões foram sincronizadas."),
       });
-      router.refresh();
+      requestDataRefresh(() => router.refresh(), { pluggyCompleted: true });
     } catch (error) {
       setNotice({ type: "error", text: error instanceof Error ? error.message : "Falha na sincronização." });
     } finally {
+      endLocalSync();
+      releaseRefresh();
       setBusy(null);
     }
   }
@@ -337,12 +356,17 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
             setNotice({ type: "error", text: "A conexão terminou sem identificar a instituição." });
             return;
           }
+          const releaseRefresh = beginDataRefreshDeferral();
+          const endLocalSync = beginLocalSync();
           try {
             await requestJson("/api/pluggy/items", { itemId: connectedItemId });
             setNotice({ type: "success", text: itemId ? "Instituição atualizada e sincronizada." : "Instituição conectada e sincronizada." });
-            router.refresh();
+            requestDataRefresh(() => router.refresh(), { pluggyCompleted: true });
           } catch (error) {
             setNotice({ type: "error", text: error instanceof Error ? error.message : "Falha ao salvar a conexão." });
+          } finally {
+            endLocalSync();
+            releaseRefresh();
           }
         },
         onError: async (error) => {
@@ -755,7 +779,7 @@ export function OpenFinanceClient({ data }: { data: OpenFinanceData }) {
             onToggle={(id) => void toggleInvestment(id)}
             loadedTransactions={investmentTransactions}
             transactionPages={investmentTransactionPages}
-            loadingInvestmentId={investmentTransactionsLoading}
+            loadingInvestmentIds={investmentTransactionsLoading}
             onLoadMore={(id, page) => void loadInvestmentTransactions(id, page)}
             onEditMetadata={setMetadataEditor}
             disabled={actionsBusy}
@@ -1025,7 +1049,7 @@ function InvestmentPortfolio({
   onToggle,
   loadedTransactions,
   transactionPages,
-  loadingInvestmentId,
+  loadingInvestmentIds,
   onLoadMore,
   onEditMetadata,
   disabled,
@@ -1040,7 +1064,7 @@ function InvestmentPortfolio({
   onToggle: (id: string) => void;
   loadedTransactions: Record<string, OpenFinanceData["investments"][number]["transactions"]>;
   transactionPages: Record<string, { page: number; total: number }>;
-  loadingInvestmentId: string | null;
+  loadingInvestmentIds: ReadonlySet<string>;
   onLoadMore: (id: string, page: number) => void;
   onEditMetadata: (metadata: NonNullable<Investment["connectedMetadata"]>) => void;
   disabled: boolean;
@@ -1158,7 +1182,7 @@ function InvestmentPortfolio({
                         ...investment,
                         transactions: loadedTransactions[investment.id] ?? [],
                       }}
-                      loading={loadingInvestmentId === investment.id}
+                      loading={loadingInvestmentIds.has(investment.id)}
                       loadedTotal={transactionPages[investment.id]?.total ?? investment.transactionCount}
                       timeZone={timeZone}
                       onLoadMore={() => onLoadMore(

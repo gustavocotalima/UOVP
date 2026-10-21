@@ -61,6 +61,9 @@ export default defineConfig({
     video: false,
     setupNodeEvents(on) {
       on("before:run", cleanupCypressUsers);
+      // Each spec creates its own users. Isolate fixtures and registration limits
+      // so a full run does not exhaust production rate limits across specs.
+      on("before:spec", cleanupCypressUsers);
       on("after:run", cleanupCypressUsers);
       on("task", {
         async invalidateContributionSimulations({ email }: { email: string }) {

@@ -9,9 +9,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { saveFinanceProfileAction } from "./actions";
 import { FinanceNotice, runFinanceAction } from "./shared";
-import type { FinanceData } from "./types";
+import type { FinanceProfilePageData } from "./types";
 
-export function ProfileClient({ data }: { data: FinanceData }) {
+export function ProfileClient({ data }: { data: FinanceProfilePageData }) {
   const router = useRouter();
   const [name, setName] = useState(data.user.name ?? "");
   const [income, setIncome] = useState(data.profile.monthlyIncome);

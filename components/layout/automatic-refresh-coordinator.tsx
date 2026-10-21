@@ -7,6 +7,7 @@ import {
   AUTOMATIC_REFRESH_BACKGROUND_MS,
 } from "@/lib/automatic-refresh-policy";
 import type { BootstrapRefreshResponse } from "@/lib/bootstrap-refresh";
+import { beginDataRefreshDeferral, requestDataRefresh } from "@/lib/client-data-refresh";
 import { cn } from "@/lib/utils";
 
 const SESSION_KEY = "uovp:bootstrap-refresh:last-check";
@@ -50,6 +51,7 @@ export function AutomaticRefreshCoordinator() {
     }
 
     runningRef.current = true;
+    const releaseRefresh = beginDataRefreshDeferral();
     const loadingTimer = window.setTimeout(() => {
       setNotice({ kind: "loading", text: "Atualizando cotações, câmbio, Open Finance e Binance…" });
     }, 400);
@@ -65,7 +67,7 @@ export function AutomaticRefreshCoordinator() {
         throw new Error("Não foi possível concluir a atualização automática.");
       }
       if (payload.market.changed || payload.accounts.changed || payload.pluggy.changed || payload.binanceWallet.changed) {
-        router.refresh();
+        requestDataRefresh(() => router.refresh(), { pluggyCompleted: payload.pluggy.changed });
       }
       const failed = [payload.market, payload.accounts, payload.pluggy, payload.binanceWallet].filter((result) =>
         result.status === "FAILED" || result.status === "PARTIAL"
@@ -92,6 +94,7 @@ export function AutomaticRefreshCoordinator() {
     } finally {
       window.clearTimeout(loadingTimer);
       runningRef.current = false;
+      releaseRefresh();
     }
   }, [clearNoticeLater, router]);
 

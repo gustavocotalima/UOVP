@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { PageHeader } from "@/components/ui/page-header";
 import { getOpenFinanceData } from "@/features/open-finance/data";
 import { OpenFinanceClient } from "@/features/open-finance/open-finance-client";
@@ -15,7 +16,7 @@ export default async function OpenFinancePage() {
         title="Open Finance"
         description="Centralize contas, cartões, transações e investimentos conectados pela Pluggy."
       />
-      <OpenFinanceClient data={data} />
+      <OpenFinanceClient data={data} snapshotRevision={randomUUID()} />
     </div>
   );
 }

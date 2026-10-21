@@ -90,11 +90,18 @@ html[data-private-values="true"] [data-private-editor] .private-value {
 
 /* Tooltip labels/series names and SVG monetary axes need their own markers. */
 html[data-private-values="true"] .private-chart-axis .recharts-cartesian-axis-tick-value,
+html[data-private-values="true"] .private-chart-axis-value,
 html[data-private-values="true"] .private-chart-tooltip .recharts-tooltip-item-value,
 html[data-private-values="true"] .private-chart-tooltip-names .recharts-tooltip-item-name {
   filter: blur(8px);
   user-select: none;
   -webkit-user-select: none;
+}
+
+html[data-private-values="true"] [data-private-editor] .private-chart-axis-value {
+  filter: none;
+  user-select: auto;
+  -webkit-user-select: auto;
 }
 
 .surface-grid {

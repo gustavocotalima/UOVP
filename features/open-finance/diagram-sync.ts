@@ -258,11 +258,14 @@ function applyMetadataOverrides(
 async function confirmAwaitingSuggestions(
   tx: Prisma.TransactionClient,
   userId: string,
+  assetIds?: readonly string[],
 ) {
+  if (assetIds && !assetIds.length) return;
   const suggestions = await tx.contributionSuggestion.findMany({
     where: {
       executionStatus: "AWAITING_SYNC",
       simulation: { userId },
+      ...(assetIds ? { assetId: { in: [...assetIds] } } : {}),
     },
     orderBy: [{ awaitingSyncAt: "asc" }, { id: "asc" }],
     include: {
@@ -405,6 +408,7 @@ async function confirmAwaitingSuggestions(
 export async function reconcilePluggyInvestmentsForUser(
   userId: string,
   lease?: UserOperationLeaseContext,
+  scope?: { pluggyItemDbId: string },
 ) {
   const portfolio = lease
     ? await lease.runFencedTransaction((tx) => tx.portfolio.upsert({
@@ -418,7 +422,8 @@ export async function reconcilePluggyInvestmentsForUser(
         create: { userId },
       });
   const investments = await prisma.pluggyInvestment.findMany({
-    where: { item: { userId } },
+    // Include removed/unavailable positions so their old holdings are retired.
+    where: { item: { userId }, ...(scope ? { pluggyItemDbId: scope.pluggyItemDbId } : {}) },
     include: {
       item: { select: { connectorName: true, institutionName: true, status: true, disconnectedAt: true } },
       diagramLink: { include: { holding: { include: { asset: true } } } },
@@ -502,6 +507,7 @@ export async function reconcilePluggyInvestmentsForUser(
   );
 
   const reconcile = async (tx: Prisma.TransactionClient) => {
+    const affectedAssetIds = new Set<string>();
     for (const investment of investments) {
       const existingLink = await tx.pluggyInvestmentDiagramLink.findUnique({
         where: { pluggyInvestmentDbId: investment.id },
@@ -511,6 +517,7 @@ export async function reconcilePluggyInvestmentsForUser(
           },
         },
       });
+      if (existingLink?.holding) affectedAssetIds.add(existingLink.holding.assetId);
       // A pending disconnection keeps its last effective position until the
       // user chooses manual conversion or removal. Never recreate it here.
       if (investment.item.status === "DELETED" || investment.item.disconnectedAt != null) continue;
@@ -764,6 +771,8 @@ export async function reconcilePluggyInvestmentsForUser(
         }
       }
 
+      affectedAssetIds.add(asset.id);
+
       if (
         classification.instrumentType === "FIXED_INCOME"
         && !existingLink?.holding
@@ -957,7 +966,9 @@ export async function reconcilePluggyInvestmentsForUser(
       mapped += 1;
     }
 
-    await confirmAwaitingSuggestions(tx, userId);
+    // Restrict the suggestions, never their holdings: a contribution baseline
+    // can span several Pluggy connections holding the same asset.
+    await confirmAwaitingSuggestions(tx, userId, scope ? [...affectedAssetIds] : undefined);
     if (changed) {
       await tx.portfolio.update({
         where: { id: portfolio.id },

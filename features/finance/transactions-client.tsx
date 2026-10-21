@@ -1,6 +1,6 @@
 "use client";
 
-import { useDeferredValue, useEffect, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowDown,
@@ -44,23 +44,21 @@ import {
 import { isReportable } from "./calculations";
 import { FinanceNotice, runFinanceAction } from "./shared";
 import { NewTransactionDialog, TransactionEditorDialog } from "./transaction-dialogs";
-import type { FinanceData, FinanceTransactionDto } from "./types";
+import {
+  EMPTY_TRANSACTION_FILTERS as EMPTY_FILTERS,
+  financeTransactionQueryKey,
+  validFinanceTransactionPage,
+  type FinanceTransactionFilters as Filters,
+  type FinanceTransactionQuery,
+} from "./transaction-query";
+import type { FinanceTransactionsPageData, FinanceTransactionDto, FinanceTransactionPageDto } from "./types";
 
-type Filters = {
-  min: string;
-  max: string;
-  kind: "" | "INCOME" | "EXPENSE";
-  category: "" | "NONE" | BudgetCategoryKey;
-  tagId: "" | "NONE" | string;
-  assignmentSource: "" | FinanceTransactionDto["budgetCategorySource"];
-  accountId: string;
-  ignored: "" | "yes" | "no";
-  internal: "" | "yes" | "no";
-};
-
-const EMPTY_FILTERS: Filters = { min: "", max: "", kind: "", category: "", tagId: "", assignmentSource: "", accountId: "", ignored: "", internal: "no" };
-
-export function TransactionsClient({ data }: { data: FinanceData }) {
+export function TransactionsClient({ data, initialPage, initialQueryKey, snapshotRevision }: {
+  data: FinanceTransactionsPageData;
+  initialPage: FinanceTransactionPageDto;
+  initialQueryKey: string;
+  snapshotRevision: string;
+}) {
   const router = useRouter();
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
@@ -83,69 +81,83 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
   const [sort, setSort] = useState<{ key: "description" | "amount" | "date" | "account"; direction: "asc" | "desc" }>({ key: "date", direction: "desc" });
   const [reviewingAllPeriods, setReviewingAllPeriods] = useState(false);
   const [reviewingDeletions, setReviewingDeletions] = useState(false);
-  const [transactions, setTransactions] = useState(data.transactions);
-  const [transactionTotal, setTransactionTotal] = useState(data.transactions.length);
-  const [transactionTotals, setTransactionTotals] = useState(() => ({
-    income: 0,
-    spent: 0,
-    balance: 0,
-  }));
-  const [tableRevision, setTableRevision] = useState(0);
-  const [tableLoading, setTableLoading] = useState(false);
+  const [pageResult, setPageResult] = useState<{
+    queryKey: string;
+    revision: string;
+    source: "server" | "request";
+    payload: FinanceTransactionPageDto;
+  }>({
+    queryKey: initialQueryKey,
+    revision: snapshotRevision,
+    source: "server",
+    payload: initialPage,
+  });
+  const [requestError, setRequestError] = useState<{ queryKey: string; revision: string } | null>(null);
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const deferredSearch = useDeferredValue(search);
+  const queryKey = useMemo(() => {
+    const query: FinanceTransactionQuery = {
+      year: data.year, month: data.month, page, pageSize,
+      mode: reviewingDeletions ? "DELETIONS" : reviewingAllPeriods ? "UNCLASSIFIED" : "MONTH",
+      sortKey: sort.key, sortDirection: sort.direction, search: deferredSearch,
+      min: filters.min === "" ? undefined : Number(filters.min),
+      max: filters.max === "" ? undefined : Number(filters.max),
+      kind: filters.kind || undefined, category: filters.category || undefined,
+      tagId: filters.tagId || undefined, assignmentSource: filters.assignmentSource || undefined,
+      accountId: filters.accountId || undefined,
+      ignored: filters.ignored || undefined, internal: filters.internal || undefined,
+    };
+    return financeTransactionQueryKey(query);
+  }, [data.year, data.month, page, pageSize, reviewingDeletions, reviewingAllPeriods, sort, deferredSearch, filters]);
+  const matchesResult = pageResult.queryKey === queryKey && pageResult.revision === snapshotRevision;
+  // A new RSC snapshot can satisfy the initial query without a duplicate GET.
+  // Once another query has loaded in this revision, returning to page 1 refetches
+  // rather than resurrecting an older server snapshot after a concurrent deletion.
+  const matchesServerSnapshot = queryKey === initialQueryKey
+    && (pageResult.revision !== snapshotRevision || pageResult.source === "server");
+  const resolvedPage = matchesServerSnapshot ? initialPage : matchesResult ? pageResult.payload : null;
+  const tableLoading = resolvedPage === null
+    && !(requestError?.queryKey === queryKey && requestError.revision === snapshotRevision);
+
   useEffect(() => {
     const controller = new AbortController();
-    const params = new URLSearchParams({
-      year: String(data.year),
-      month: String(data.month),
-      page: String(page),
-      pageSize: String(pageSize),
-      mode: reviewingDeletions ? "DELETIONS" : reviewingAllPeriods ? "UNCLASSIFIED" : "MONTH",
-      sortKey: sort.key,
-      sortDirection: sort.direction,
-    });
-    if (deferredSearch.trim()) params.set("search", deferredSearch.trim());
-    for (const [key, value] of Object.entries(filters)) {
-      if (value) params.set(key, value);
-    }
     queueMicrotask(() => {
-      if (!controller.signal.aborted) setTableLoading(true);
+      if (!controller.signal.aborted) {
+        setSelected([]);
+        setExpandedMobile(null);
+        setMenu(null);
+      }
     });
-    fetch(`/api/finance/transactions?${params.toString()}`, { signal: controller.signal })
+    if (matchesServerSnapshot || matchesResult) return () => controller.abort();
+    fetch(`/api/finance/transactions?${queryKey}`, { signal: controller.signal })
       .then(async (response) => {
-        const payload = await response.json() as {
-          error?: string;
-          total: number;
-          transactions: FinanceTransactionDto[];
-          totals: { grossIncome: number; spent: number; balance: number };
-        };
+        const payload = await response.json() as FinanceTransactionPageDto & { error?: string };
+        if (controller.signal.aborted) return;
         if (!response.ok) throw new Error(payload.error || "Não foi possível carregar as transações.");
-        setTransactions(payload.transactions);
-        setTransactionTotal(payload.total);
-        setTransactionTotals({
-          income: payload.totals.grossIncome,
-          spent: payload.totals.spent,
-          balance: payload.totals.balance,
-        });
+        setPageResult({ queryKey, revision: snapshotRevision, source: "request", payload });
+        setRequestError(null);
+        const validPage = validFinanceTransactionPage(page, payload.total, pageSize);
+        if (validPage !== page) setPage(validPage);
       })
       .catch((error) => {
-        if (error instanceof DOMException && error.name === "AbortError") return;
+        if (controller.signal.aborted) return;
+        setRequestError({ queryKey, revision: snapshotRevision });
         setNotice({
           type: "error",
           text: error instanceof Error ? error.message : "Não foi possível carregar as transações.",
         });
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setTableLoading(false);
       });
     return () => controller.abort();
-  }, [data.month, data.year, deferredSearch, filters, page, pageSize, reviewingAllPeriods, reviewingDeletions, sort, tableRevision]);
+  }, [queryKey, snapshotRevision, matchesResult, matchesServerSnapshot, page, pageSize]);
+  const transactionTotal = resolvedPage?.total ?? pageResult.payload.total;
   const totalPages = Math.max(1, Math.ceil(transactionTotal / pageSize));
-  const safePage = Math.min(page, totalPages);
-  const visible = transactions;
-  const totals = transactionTotals;
+  const visible = resolvedPage?.transactions ?? [];
+  const totals = {
+    income: resolvedPage?.totals.grossIncome ?? 0,
+    spent: resolvedPage?.totals.spent ?? 0,
+    balance: resolvedPage?.totals.balance ?? 0,
+  };
   const activeFilterCount = (Object.keys(filters) as Array<keyof Filters>)
     .filter((key) => filters[key] !== EMPTY_FILTERS[key])
     .length;
@@ -154,14 +166,8 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
     setSort((current) => ({ key, direction: current.key === key && current.direction === "asc" ? "desc" : "asc" }));
   }
 
-  function reloadTransactions() {
-    setTableRevision((current) => current + 1);
-    router.refresh();
-  }
-
   async function updateCategory(transaction: FinanceTransactionDto, category: string) {
-    const ok = await runFinanceAction(() => updateFinanceTransactionCategoryAction(transaction.id, (category || null) as BudgetCategoryKey | null), setPending, setNotice, "Meta atualizada.");
-    if (ok) reloadTransactions();
+    await runFinanceAction(() => updateFinanceTransactionCategoryAction(transaction.id, (category || null) as BudgetCategoryKey | null), setPending, setNotice, "Meta atualizada.");
   }
 
   async function saveTags() {
@@ -169,7 +175,6 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
     const ok = await runFinanceAction(() => updateFinanceTransactionTagsAction(tagging.id, tagSelection), setPending, setNotice, "Tags atualizadas.");
     if (ok) {
       setTagging(null);
-      reloadTransactions();
     }
   }
 
@@ -178,7 +183,6 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
     const ok = await runFinanceAction(() => saveFinanceTransactionNoteAction(noting.id, note), setPending, setNotice, "Observação salva.");
     if (ok) {
       setNoting(null);
-      reloadTransactions();
     }
   }
 
@@ -186,7 +190,6 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
     const ok = await runFinanceAction(() => setFinanceTransactionsIgnoredAction(ids, ignored), setPending, setNotice, ignored ? "Transações ocultadas dos relatórios." : "Transações incluídas nos relatórios.");
     if (ok) {
       setSelected([]);
-      reloadTransactions();
     }
   }
 
@@ -194,7 +197,6 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
     const ok = await runFinanceAction(() => toggleFinanceInternalTransferAction(transaction.id), setPending, setNotice, transaction.internalTransfer ? "Marcação de transferência removida." : "Marcada como transferência interna.");
     if (ok) {
       setMenu(null);
-      reloadTransactions();
     }
   }
 
@@ -208,7 +210,6 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
     );
     if (ok) {
       setApplyingSimilar(null);
-      reloadTransactions();
     }
   }
 
@@ -217,7 +218,6 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
     const ok = await runFinanceAction(() => deleteFinanceTransactionAction(deleting.id), setPending, setNotice, "Transação removida.");
     if (ok) {
       setDeleting(null);
-      reloadTransactions();
     }
   }
 
@@ -235,7 +235,6 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
     );
     if (ok) {
       setMenu(null);
-      reloadTransactions();
     }
   }
 
@@ -263,7 +262,8 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
           : "Transações importadas e atualizadas."),
       });
       setImportOpen(false);
-      reloadTransactions();
+      // A Route Handler cannot deliver a refreshed RSC snapshot like a server action.
+      router.refresh();
     } catch (error) {
       setNotice({ type: "error", text: error instanceof Error ? error.message : "Não foi possível importar as transações." });
     } finally {
@@ -366,7 +366,7 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card data-testid="transaction-results" aria-busy={tableLoading}>
         <CardHeader className="gap-4 @5xl:flex-row @5xl:items-center @5xl:justify-between">
           <div><CardTitle>Transações</CardTitle><p className="mt-1 text-sm text-[var(--muted-foreground)]">Um total de {transactionTotal} transações encontradas</p></div>
           <div className="grid grid-cols-3 gap-2 sm:min-w-[450px]">
@@ -381,7 +381,7 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
               aria-label="Ocultar transações selecionadas dos relatórios"
               disabled={!selected.length || pending}
               checked={selected.length > 0 && selected.every((id) => {
-                const transaction = transactions.find((item) => item.id === id);
+                const transaction = visible.find((item) => item.id === id);
                 return transaction ? !isReportable(transaction) : false;
               })}
               onCheckedChange={(checked) => setIgnored(selected, checked)}
@@ -630,8 +630,8 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
           </div>
 
           <div className="mt-5 flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-xs text-[var(--muted-foreground)]">Mostrando {transactionTotal ? (safePage - 1) * pageSize + 1 : 0}-{Math.min(safePage * pageSize, transactionTotal)} de {transactionTotal}</p>
-            <div className="flex items-center gap-2"><Label htmlFor="transactions-page-size" className="text-xs text-[var(--muted-foreground)]">Itens por página:</Label><Select id="transactions-page-size" className="h-9" value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }}><option value={25}>25</option><option value={50}>50</option><option value={100}>100</option></Select><Button variant="ghost" size="icon" aria-label="Página anterior" disabled={safePage <= 1 || tableLoading} onClick={() => setPage(safePage - 1)}><ChevronLeft className="size-4" /></Button><span className="text-xs" aria-live="polite">Página {safePage} de {totalPages}</span><Button variant="ghost" size="icon" aria-label="Próxima página" disabled={safePage >= totalPages || tableLoading} onClick={() => setPage(safePage + 1)}><ChevronRight className="size-4" /></Button></div>
+            <p className="text-xs text-[var(--muted-foreground)]">Mostrando {transactionTotal ? (page - 1) * pageSize + 1 : 0}-{Math.min(page * pageSize, transactionTotal)} de {transactionTotal}</p>
+            <div className="flex items-center gap-2"><Label htmlFor="transactions-page-size" className="text-xs text-[var(--muted-foreground)]">Itens por página:</Label><Select id="transactions-page-size" className="h-9" value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }}><option value={25}>25</option><option value={50}>50</option><option value={100}>100</option></Select><Button variant="ghost" size="icon" aria-label="Página anterior" disabled={page <= 1 || tableLoading} onClick={() => setPage(page - 1)}><ChevronLeft className="size-4" /></Button><span className="text-xs" aria-live="polite">Página {page} de {totalPages}</span><Button variant="ghost" size="icon" aria-label="Próxima página" disabled={page >= totalPages || tableLoading} onClick={() => setPage(page + 1)}><ChevronRight className="size-4" /></Button></div>
           </div>
         </CardContent>
       </Card>
@@ -649,8 +649,8 @@ export function TransactionsClient({ data }: { data: FinanceData }) {
         </div>
       </Dialog>
 
-      <NewTransactionDialog accounts={data.accounts} tags={data.tags} year={data.year} month={data.month} timeZone={data.profile.timeZone} open={newOpen} onOpenChange={setNewOpen} onSaved={reloadTransactions} />
-      <TransactionEditorDialog transaction={editing} accounts={data.accounts} tags={data.tags} timeZone={data.profile.timeZone} open={Boolean(editing)} onOpenChange={(open) => !open && setEditing(null)} onSaved={reloadTransactions} />
+      <NewTransactionDialog accounts={data.accounts} tags={data.tags} year={data.year} month={data.month} timeZone={data.profile.timeZone} open={newOpen} onOpenChange={setNewOpen} />
+      <TransactionEditorDialog transaction={editing} accounts={data.accounts} tags={data.tags} timeZone={data.profile.timeZone} open={Boolean(editing)} onOpenChange={(open) => !open && setEditing(null)} />
 
       <Dialog open={Boolean(tagging)} onOpenChange={(open) => !open && setTagging(null)} title="Selecionar tags" footer={<Button onClick={saveTags} disabled={pending}>Salvar</Button>}>
         <div className="grid gap-2 sm:grid-cols-2">{data.tags.map((tag) => <label key={tag.id} className="flex items-center gap-3 rounded-xl border p-3 text-sm"><input type="checkbox" checked={tagSelection.includes(tag.id)} onChange={(event) => setTagSelection(event.target.checked ? [...tagSelection, tag.id] : tagSelection.filter((id) => id !== tag.id))} /><span className="size-3 rounded-full" style={{ background: tag.color }} />{tag.name}</label>)}</div>

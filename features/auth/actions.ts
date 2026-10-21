@@ -12,7 +12,7 @@ import { checkRegistrationRateLimit } from "@/lib/auth-security";
 import { requireUserId } from "@/lib/current-user";
 import { DEFAULT_TARGETS, INVESTMENT_CLASSES } from "@/features/portfolio/constants";
 import { DEFAULT_QUESTIONS, defaultQuestionTemplateKey } from "@/features/portfolio/questions";
-import { AUVP_FINANCE_GOALS, AUVP_FINANCE_TAGS } from "@/features/finance/data";
+import { AUVP_FINANCE_GOALS, AUVP_FINANCE_TAGS } from "@/features/finance/setup";
 import { BUDGET_CATEGORIES } from "@/features/budget/constants";
 import { consumeRegistrationInviteInTransaction } from "./invitations";
 import { safeLoginCallback } from "@/lib/auth-callback";

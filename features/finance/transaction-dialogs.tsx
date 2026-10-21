@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import { ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
@@ -136,7 +135,6 @@ function TransactionEditorDialogContent({
 }: Omit<TransactionEditorDialogProps, "transaction"> & {
   transaction: FinanceTransactionDto;
 }) {
-  const router = useRouter();
   const [description, setDescription] = useState(transaction.description);
   const [accountId, setAccountId] = useState(transaction.accountId);
   const [amount, setAmount] = useState(String(Math.abs(Number(transaction.amount))));
@@ -207,8 +205,8 @@ function TransactionEditorDialogContent({
           });
       }
       setNotice({ type: "success", text: "Transação atualizada." });
+      // The server action revalidates the active route and returns its new RSC snapshot.
       onSaved?.();
-      router.refresh();
       onOpenChange(false);
     } catch (error) {
       setNotice({
@@ -377,7 +375,6 @@ function NewTransactionDialogContent({
   onOpenChange,
   onSaved,
 }: NewTransactionDialogProps) {
-  const router = useRouter();
   const [kind, setKind] = useState<"INCOME" | "EXPENSE">("EXPENSE");
   const [description, setDescription] = useState("");
   const [accountId, setAccountId] = useState(accounts[0]?.id ?? "");
@@ -431,7 +428,6 @@ function NewTransactionDialogContent({
       setNote("");
       setTagIds([]);
       onSaved?.();
-      router.refresh();
       onOpenChange(false);
     } catch (error) {
       setNotice({

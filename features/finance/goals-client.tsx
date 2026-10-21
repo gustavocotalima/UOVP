@@ -11,7 +11,7 @@ import { formatMoney, formatPercent } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import { resetFinanceGoalsAction, saveFinanceGoalsAction } from "./actions";
 import { FinanceNotice, runFinanceAction } from "./shared";
-import type { FinanceData, FinanceGoalRecord } from "./types";
+import type { FinanceGoalsPageData, FinanceGoalRecord } from "./types";
 
 const DISPLAY_ORDER: BudgetCategoryKey[] = [
   "FINANCIAL_FREEDOM",
@@ -22,7 +22,7 @@ const DISPLAY_ORDER: BudgetCategoryKey[] = [
   "KNOWLEDGE",
 ];
 
-export function GoalsClient({ data }: { data: FinanceData }) {
+export function GoalsClient({ data }: { data: FinanceGoalsPageData }) {
   const router = useRouter();
   const income = Number(data.profile.monthlyIncome);
   const [mode, setMode] = useState<"percentage" | "value">("percentage");

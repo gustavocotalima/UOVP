@@ -35,8 +35,10 @@ describe("privacidade dos valores", () => {
     cy.get(total).should("contain.text", "1.220,00").and("have.css", "filter", hiddenFilter)
       .and("have.css", "user-select", "none");
     cy.getCookie(privacyCookie).its("value").should("eq", "true");
-    cy.get('button[data-date="2026-09-08"]').should("not.have.attr", "title").click();
-    cy.get('[role="dialog"]').should("not.have.attr", "data-private-editor").within(() => {
+    cy.get('button[data-date="2026-09-08"]').should("not.have.attr", "title");
+    cy.get('button[data-date="2026-09-08"]').click();
+    cy.get('[role="dialog"]').should("not.have.attr", "data-private-editor");
+    cy.get('[role="dialog"]').within(() => {
       cy.contains("Despesa do dia").should("have.css", "filter", "none");
       cy.get(".private-value").first().should("have.css", "filter", hiddenFilter);
       cy.get('button[aria-label="Fechar"]').click();
@@ -127,7 +129,7 @@ describe("privacidade dos valores", () => {
 
   it("desfoca eixos e tooltips monetários, preservando os gráficos, percentuais e resultados", () => {
     togglePrivacy();
-    cy.get(".private-chart-axis .recharts-cartesian-axis-tick-value").first().should("have.css", "filter", hiddenFilter);
+    cy.get(".private-chart-axis-value").first().should("have.css", "filter", hiddenFilter);
     cy.get('[data-testid="expense-tags"] .recharts-sector').first().trigger("mouseover", { force: true });
     cy.get('[data-testid="expense-tags"] .private-chart-tooltip .recharts-tooltip-item-value')
       .first().should("be.visible").and("have.css", "filter", hiddenFilter);
@@ -138,18 +140,21 @@ describe("privacidade dos valores", () => {
       .and("not.have.descendants", ".private-value");
     cy.visit("/ferramentas");
     cy.waitForHydration();
-    cy.get("#annual-rate").clear().type("8");
-    cy.get("#initial-value").clear().type("10000");
-    cy.get("#desired-value").clear().type("1000000");
+    cy.get("#annual-rate").type("{selectall}8").should("have.value", "8");
+    cy.get("#initial-value").type("{selectall}10000").should("have.value", "10000");
+    cy.get("#desired-value").type("{selectall}1000000").should("have.value", "1000000");
     cy.contains("button", "Calcular").click();
     cy.contains("tr", "R$ 50,00").should(($row) => {
       expect($row.text().replace(/\u00a0/g, " ")).to.contain("R$ 30.595,46");
     }).find(".private-value").first().should("have.css", "filter", hiddenFilter);
     cy.get(".recharts-line-curve").first().should("have.css", "filter", "none");
-    cy.get(".private-chart-axis .recharts-cartesian-axis-tick-value").first().should("have.css", "filter", hiddenFilter);
-    cy.get(".recharts-wrapper").then(($chart) => {
+    cy.get(".private-chart-axis-value").first().should("have.css", "filter", hiddenFilter);
+    cy.get(".recharts-wrapper").scrollIntoView().should("be.visible").then(($chart) => {
       const rect = $chart[0].getBoundingClientRect();
-      cy.wrap($chart).trigger("mousemove", { clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2 });
+      cy.wrap($chart).trigger("mousemove", {
+        eventConstructor: "MouseEvent", scrollBehavior: false,
+        clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2,
+      });
     });
     cy.get(".private-chart-tooltip-names .recharts-tooltip-item-name").first().should("have.css", "filter", hiddenFilter);
   });

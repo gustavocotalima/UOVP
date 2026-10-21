@@ -1064,6 +1064,10 @@ model PluggyInvestment {
   amountProfit         Decimal?                      @db.Decimal(30, 2)
   amountWithdrawal     Decimal?                      @db.Decimal(30, 2)
   amountOriginal       Decimal?                      @db.Decimal(30, 2)
+  // Raw BUY totals maintained transactionally by the database trigger.
+  purchaseQuantityTotal Decimal                      @default(0) @db.Decimal(65, 20)
+  purchaseCostTotal     Decimal                      @default(0) @db.Decimal(65, 20)
+  purchaseSummaryVersion Int                         @default(1)
   lastMonthRate        Decimal?                      @db.Decimal(20, 8)
   annualRate           Decimal?                      @db.Decimal(20, 8)
   lastTwelveMonthsRate Decimal?                      @db.Decimal(20, 8)

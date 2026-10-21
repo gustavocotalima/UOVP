@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { selectPluggyItemsForAutomaticSync } from "@/lib/automatic-refresh-policy";
 import { projectAccountInvestment } from "@/features/finance/account-investments";
 import { prisma } from "@/lib/prisma";
 import {
@@ -6,6 +7,7 @@ import {
   withUserOperationLease,
 } from "@/lib/operation-security";
 import { resolveFinancialReference } from "@/features/finance/calculations";
+import { writeFinancialReferenceBatches } from "@/features/finance/financial-reference";
 import { resolvePluggyTransactionAmounts } from "@/features/open-finance/transaction-amount";
 import { ensureHistoricalFxRates, resolveTransactionFx } from "@/features/finance/fx";
 import { fetchYahooFxRates } from "@/features/portfolio/yahoo-finance";
@@ -744,16 +746,6 @@ async function syncPluggyItemForUserUnlocked(
       connectorImageUrl,
       institutionName,
     };
-    const [financialMonthStart, timeZone] = await Promise.all([
-      prisma.financeProfile.findUnique({
-        where: { userId },
-        select: { financialMonthStart: true },
-      }).then((profile) => profile?.financialMonthStart ?? 1),
-      prisma.userPreference.findUnique({
-        where: { userId },
-        select: { timeZone: true },
-      }).then((preference) => preference?.timeZone ?? "America/Sao_Paulo"),
-    ]);
     const foreignAccountCurrencies = [...new Set(accounts
       .map((account) => (account.currencyCode ?? "BRL").trim().toUpperCase())
       .filter((currency) => currency !== "BRL"))];
@@ -807,20 +799,22 @@ async function syncPluggyItemForUserUnlocked(
         lease,
         transactions.map((transaction) => (tx) => transactionOperation(tx, storedAccount.id, transaction)),
       );
-      await writeInBatches(
+      await writeFinancialReferenceBatches(
         lease,
-        transactions.map((transaction) => (tx) =>
+        userId,
+        transactions.map((transaction) => (tx, settings) =>
           financeTransactionOperation(
             tx,
             userId,
             financialAccount.id,
             financialAccount.currencyCode,
             transaction,
-            financialMonthStart,
-            timeZone,
+            settings.financialMonthStart,
+            settings.timeZone,
             historicalFxByDate.get((asDate(transaction.date) ?? new Date(0)).toISOString().slice(0, 10)),
           ),
         ),
+        WRITE_BATCH_SIZE,
       );
       const externalIds = transactions.map((transaction) => transaction.id);
       const removedAt = new Date();
@@ -929,7 +923,7 @@ async function syncPluggyItemForUserUnlocked(
       for (const account of inactiveAccounts) await projectAccountInvestment(tx, account.id);
     });
 
-    const diagram = await reconcilePluggyInvestmentsForUser(userId, lease);
+    const diagram = await reconcilePluggyInvestmentsForUser(userId, lease, { pluggyItemDbId: stored.id });
 
     return {
       accountCount: accounts.length,
@@ -978,13 +972,27 @@ export async function syncPluggyItemForUser(userId: string, pluggyItemId: string
   }
 }
 
-export async function syncAllPluggyItemsForUser(userId: string) {
-  const items = await prisma.pluggyItem.findMany({
-    where: { userId, status: { not: "DELETED" } },
-    select: { pluggyItemId: true },
+async function syncPluggyItemsForUser(
+  userId: string,
+  options: { pluggyItemIds?: readonly string[]; automatic?: boolean } = {},
+) {
+  // Resolve caller-supplied IDs again: neither another user's item nor a
+  // disconnected item can enter the work queue from an earlier snapshot.
+  const candidates = await prisma.pluggyItem.findMany({
+    where: {
+      userId,
+      status: { not: "DELETED" },
+      ...(options.pluggyItemIds ? { pluggyItemId: { in: [...new Set(options.pluggyItemIds)] } } : {}),
+    },
+    select: { pluggyItemId: true, syncPending: true, lastSyncAt: true },
+    orderBy: { id: "asc" },
   });
+  const items = options.automatic
+    ? selectPluggyItemsForAutomaticSync(candidates)
+    : candidates;
   const totals = {
     itemCount: items.length,
+    pendingItemCount: items.filter((item) => item.syncPending).length,
     succeededItemCount: 0,
     failedItemCount: 0,
     partialItemCount: 0,
@@ -1020,4 +1028,16 @@ export async function syncAllPluggyItemsForUser(userId: string) {
     }
   }
   return totals;
+}
+
+export async function syncSelectedPluggyItemsForUser(
+  userId: string,
+  pluggyItemIds: readonly string[],
+  options: { automatic?: boolean } = {},
+) {
+  return syncPluggyItemsForUser(userId, { ...options, pluggyItemIds });
+}
+
+export async function syncAllPluggyItemsForUser(userId: string) {
+  return syncPluggyItemsForUser(userId);
 }

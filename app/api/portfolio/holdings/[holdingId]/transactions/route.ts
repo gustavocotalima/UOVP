@@ -38,7 +38,12 @@ export async function GET(
         select: {
           pluggyInvestmentDbId: true,
           investment: {
-            select: { amountOriginal: true },
+            select: {
+              amountOriginal: true,
+              purchaseQuantityTotal: true,
+              purchaseCostTotal: true,
+              purchaseSummaryVersion: true,
+            },
           },
         },
       },
@@ -51,7 +56,18 @@ export async function GET(
   }
 
   const where = { pluggyInvestmentDbId: investmentId };
-  const [rows, total, averagePriceTransactions] = await Promise.all([
+  const averagePrice = calculateHoldingAveragePrice({
+    positionSource: holding.positionSource,
+    quantity: holding.quantity.toString(),
+    investedValue: holding.investedValue?.toString(),
+    amountOriginal: pluggyDiagramLink.investment.amountOriginal?.toString(),
+    purchaseSummary: {
+      version: pluggyDiagramLink.investment.purchaseSummaryVersion,
+      quantity: pluggyDiagramLink.investment.purchaseQuantityTotal.toString(),
+      cost: pluggyDiagramLink.investment.purchaseCostTotal.toString(),
+    },
+  });
+  const [rows, total] = await Promise.all([
     prisma.pluggyInvestmentTransaction.findMany({
       where,
       orderBy: [{ date: "desc" }, { createdAt: "desc" }],
@@ -72,24 +88,7 @@ export async function GET(
       },
     }),
     prisma.pluggyInvestmentTransaction.count({ where }),
-    prisma.pluggyInvestmentTransaction.findMany({
-      where,
-      select: {
-        type: true,
-        quantity: true,
-        value: true,
-        amount: true,
-        netAmount: true,
-      },
-    }),
   ]);
-  const averagePrice = calculateHoldingAveragePrice({
-    positionSource: holding.positionSource,
-    quantity: holding.quantity.toString(),
-    investedValue: holding.investedValue?.toString(),
-    amountOriginal: pluggyDiagramLink.investment.amountOriginal?.toString(),
-    transactions: averagePriceTransactions,
-  });
 
   return NextResponse.json({
     page: parsedQuery.data.page,

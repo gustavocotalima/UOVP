@@ -111,6 +111,19 @@ export type FinanceTransactionDto = {
 
 export type FinanceGoalRecord = Record<BudgetCategoryKey, number>;
 
+export type FinanceTransactionPageDto = {
+  page: number;
+  pageSize: number;
+  total: number;
+  transactions: FinanceTransactionDto[];
+  totals: {
+    grossIncome: number;
+    spent: number;
+    balance: number;
+    missingFxCount: number;
+  };
+};
+
 export type FinanceHistoryPointDto = {
   year: number;
   month: number;
@@ -119,20 +132,66 @@ export type FinanceHistoryPointDto = {
   balance: number;
 };
 
+export type FinanceUserDto = {
+  name: string | null;
+  email: string | null;
+  image: string | null;
+};
+
+export type FinanceProfileDto = {
+  monthlyIncome: string;
+  financialMonthStart: number;
+  timeZone: string;
+  objectives: string | null;
+};
+
+export type FinancePluggyDto = {
+  configured: boolean;
+  itemCount: number;
+  pendingCount: number;
+  lastSyncAt: string | null;
+};
+
+export type FinanceProfilePageData = {
+  user: FinanceUserDto;
+  profile: FinanceProfileDto;
+};
+
+export type FinanceGoalsPageData = {
+  profile: Pick<FinanceProfileDto, "monthlyIncome">;
+  goals: FinanceGoalRecord;
+};
+
+export type FinanceTagsPageData = {
+  tags: FinanceTagDto[];
+  classificationRules: FinanceClassificationRuleDto[];
+};
+
+export type FinanceAccountsPageData = {
+  accounts: FinancialAccountDto[];
+  profile: Pick<FinanceProfileDto, "timeZone">;
+  pluggy: FinancePluggyDto;
+};
+
+export type FinanceInvoicesPageData = {
+  accounts: FinancialAccountDto[];
+  historyTransactions: FinanceTransactionDto[];
+  profile: Pick<FinanceProfileDto, "timeZone">;
+};
+
+export type FinanceTransactionsPageData = FinanceAccountsPageData & {
+  year: number;
+  month: number;
+  tags: FinanceTagDto[];
+  unclassifiedTransactionCount: number;
+  pendingDeletionCount: number;
+};
+
 export type FinanceData = {
   year: number;
   month: number;
-  user: {
-    name: string | null;
-    email: string | null;
-    image: string | null;
-  };
-  profile: {
-    monthlyIncome: string;
-    financialMonthStart: number;
-    timeZone: string;
-    objectives: string | null;
-  };
+  user: FinanceUserDto;
+  profile: FinanceProfileDto;
   goals: FinanceGoalRecord;
   accounts: FinancialAccountDto[];
   transactions: FinanceTransactionDto[];
@@ -144,10 +203,5 @@ export type FinanceData = {
   unclassifiedTransactionCount: number;
   pendingFxTransactionCount: number;
   pendingDeletionCount: number;
-  pluggy: {
-    configured: boolean;
-    itemCount: number;
-    pendingCount: number;
-    lastSyncAt: string | null;
-  };
+  pluggy: FinancePluggyDto;
 };

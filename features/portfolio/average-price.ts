@@ -2,6 +2,17 @@ import Decimal from "decimal.js";
 
 type DecimalValue = Decimal.Value | null | undefined;
 
+export const PURCHASE_SUMMARY_VERSION = 1;
+// Accumulate raw database-scale totals without rounding each BUY at the default
+// 20 significant digits. Final prices still use the existing Decimal precision.
+const PurchaseDecimal = Decimal.clone({ precision: 65 });
+
+export type PurchaseSummary = {
+  version: number;
+  quantity: DecimalValue;
+  cost: DecimalValue;
+};
+
 export type AveragePriceTransaction = {
   type: string;
   quantity: DecimalValue;
@@ -15,6 +26,7 @@ export type HoldingAveragePriceInput = {
   quantity: Decimal.Value;
   investedValue: DecimalValue;
   amountOriginal?: DecimalValue;
+  purchaseSummary?: PurchaseSummary;
   transactions?: AveragePriceTransaction[];
 };
 
@@ -26,7 +38,30 @@ export type AveragePriceResult = {
 function positive(value: DecimalValue) {
   if (value == null) return null;
   const decimal = new Decimal(value).abs();
-  return decimal.gt(0) ? decimal : null;
+  return decimal.isFinite() && decimal.gt(0) ? decimal : null;
+}
+
+function costFromUnitPrice(value: DecimalValue, quantity: Decimal) {
+  const unitPrice = positive(value);
+  return unitPrice ? new PurchaseDecimal(unitPrice).mul(quantity) : null;
+}
+
+/** Same raw BUY contribution as uovp_purchase_summary_entry in PostgreSQL. */
+export function summarizePurchaseTransactions(transactions: AveragePriceTransaction[]): PurchaseSummary {
+  let quantity = new PurchaseDecimal(0);
+  let cost = new PurchaseDecimal(0);
+  for (const transaction of transactions) {
+    if (transaction.type.toUpperCase() !== "BUY") continue;
+    const purchasedQuantity = positive(transaction.quantity);
+    if (!purchasedQuantity) continue;
+    const amount = positive(transaction.netAmount)
+      ?? positive(transaction.amount)
+      ?? costFromUnitPrice(transaction.value, purchasedQuantity);
+    if (!amount) continue;
+    quantity = quantity.add(purchasedQuantity);
+    cost = cost.add(amount);
+  }
+  return { version: PURCHASE_SUMMARY_VERSION, quantity, cost };
 }
 
 export function calculateHoldingAveragePrice(input: HoldingAveragePriceInput): AveragePriceResult {
@@ -42,20 +77,11 @@ export function calculateHoldingAveragePrice(input: HoldingAveragePriceInput): A
   }
 
   if (input.positionSource !== "MANUAL") {
-    let purchasedQuantity = new Decimal(0);
-    let purchasedCost = new Decimal(0);
-    for (const transaction of input.transactions ?? []) {
-      if (transaction.type.toUpperCase() !== "BUY") continue;
-      const quantity = positive(transaction.quantity);
-      if (!quantity) continue;
-      const amount = positive(transaction.netAmount)
-        ?? positive(transaction.amount)
-        ?? (positive(transaction.value)?.mul(quantity) ?? null);
-      if (!amount) continue;
-      purchasedQuantity = purchasedQuantity.add(quantity);
-      purchasedCost = purchasedCost.add(amount);
-    }
-    if (purchasedQuantity.gt(0) && purchasedCost.gt(0)) {
+    const summary = input.purchaseSummary ?? summarizePurchaseTransactions(input.transactions ?? []);
+    if (summary.version !== PURCHASE_SUMMARY_VERSION) return { price: null, coverage: 0 };
+    const purchasedQuantity = positive(summary.quantity);
+    const purchasedCost = positive(summary.cost);
+    if (purchasedQuantity && purchasedCost) {
       return {
         price: purchasedCost.div(purchasedQuantity),
         coverage: Decimal.min(1, purchasedQuantity.div(currentQuantity)).toNumber(),

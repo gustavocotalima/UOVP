@@ -4,6 +4,7 @@ import {
   isAutomaticRefreshStale,
   shouldRefreshMarketHoldings,
   shouldSyncPluggyItems,
+  selectPluggyItemsForAutomaticSync,
   shouldSyncBinanceConnection,
 } from "@/lib/automatic-refresh-policy";
 
@@ -29,7 +30,7 @@ describe("política de atualização automática", () => {
     expect(shouldRefreshMarketHoldings([], now)).toBe(false);
   });
 
-  it("sincroniza todas as conexões se uma estiver pendente, ausente ou vencida", () => {
+  it("identifica conexões pendentes, ausentes ou vencidas", () => {
     const recent = new Date(now.getTime() - 60_000);
     expect(shouldSyncPluggyItems([
       { syncPending: false, lastSyncAt: recent },
@@ -41,6 +42,20 @@ describe("política de atualização automática", () => {
     expect(shouldSyncPluggyItems([
       { syncPending: false, lastSyncAt: new Date(now.getTime() - AUTOMATIC_REFRESH_STALE_MS) },
     ], now)).toBe(true);
+  });
+
+  it("seleciona somente os itens pendentes ou vencidos em uma lista mista", () => {
+    const items = [
+      { id: "recent", syncPending: false, lastSyncAt: now },
+      { id: "pending", syncPending: true, lastSyncAt: now },
+      { id: "missing", syncPending: false, lastSyncAt: null },
+      { id: "stale", syncPending: false, lastSyncAt: new Date(now.getTime() - AUTOMATIC_REFRESH_STALE_MS) },
+      { id: "invalid", syncPending: false, lastSyncAt: "invalid" },
+    ];
+    expect(selectPluggyItemsForAutomaticSync(items, now).map((item) => item.id)).toEqual([
+      "pending", "missing", "stale", "invalid",
+    ]);
+    expect(items).toHaveLength(5);
   });
 
   it("não sincroniza Pluggy recente e sem pendências", () => {

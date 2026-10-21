@@ -12,7 +12,8 @@ import {
   learnFinanceClassificationRule,
 } from "./classification-service";
 import { normalizeFinanceRuleValue } from "./classification";
-import { ensureFinanceSetup } from "./data";
+import { AUVP_FINANCE_GOALS, ensureFinanceSetup } from "./setup";
+import { updateFinancialReferenceSettings } from "./financial-reference";
 import {
   financialFxRequired,
   resolveCurrentFinancialFx,
@@ -117,38 +118,24 @@ export async function saveFinanceProfileAction(input: {
     })
     .parse(input);
   await ensureFinanceSetup(userId);
-  await prisma.$transaction([
-    prisma.user.update({ where: { id: userId }, data: { name: parsed.name } }),
-    prisma.financeProfile.update({
-      where: { userId },
-      data: {
-        monthlyIncome: parsed.monthlyIncome,
-        financialMonthStart: parsed.financialMonthStart,
-        objectives: parsed.objectives || null,
+  await prisma.$transaction(async (tx) => {
+    await updateFinancialReferenceSettings(
+      tx,
+      userId,
+      { financialMonthStart: parsed.financialMonthStart },
+      async () => {
+        await tx.user.update({ where: { id: userId }, data: { name: parsed.name } });
+        await tx.financeProfile.update({
+          where: { userId },
+          data: {
+            monthlyIncome: parsed.monthlyIncome,
+            financialMonthStart: parsed.financialMonthStart,
+            objectives: parsed.objectives || null,
+          },
+        });
       },
-    }),
-    prisma.$executeRaw`
-      UPDATE "FinanceTransaction"
-      SET
-        "referenceYear" = EXTRACT(
-          YEAR FROM CASE
-            WHEN EXTRACT(DAY FROM "date") < ${parsed.financialMonthStart}
-            THEN "date" - INTERVAL '1 month'
-            ELSE "date"
-          END
-        )::INTEGER,
-        "referenceMonth" = EXTRACT(
-          MONTH FROM CASE
-            WHEN EXTRACT(DAY FROM "date") < ${parsed.financialMonthStart}
-            THEN "date" - INTERVAL '1 month'
-            ELSE "date"
-          END
-        )::INTEGER,
-        "updatedAt" = CURRENT_TIMESTAMP
-      WHERE "userId" = ${userId}
-        AND "referenceOverridden" = false
-    `,
-  ]);
+    );
+  });
   revalidateFinance();
 }
 
@@ -171,14 +158,7 @@ export async function saveFinanceGoalsAction(goals: Record<BudgetCategoryKey, nu
 }
 
 export async function resetFinanceGoalsAction() {
-  return saveFinanceGoalsAction({
-    FIXED_COSTS: 30,
-    COMFORT: 15,
-    GOALS: 15,
-    PLEASURES: 10,
-    FINANCIAL_FREEDOM: 25,
-    KNOWLEDGE: 5,
-  });
+  return saveFinanceGoalsAction(AUVP_FINANCE_GOALS);
 }
 
 export async function createFinanceTagAction(input: { name: string; color: string }) {
@@ -719,12 +699,15 @@ export async function updateFinanceTransactionTagsAction(
 
 export async function setFinanceTransactionsIgnoredAction(ids: string[], ignored: boolean) {
   const userId = await requireUserId();
-  const parsedIds = z.array(idSchema).min(1).max(500).parse(ids);
-  const result = await prisma.financeTransaction.updateMany({
-    where: { userId, id: { in: parsedIds }, deleted: false },
-    data: { ignored: z.boolean().parse(ignored) },
+  const parsedIds = [...new Set(z.array(idSchema).min(1).max(500).parse(ids))];
+  const parsedIgnored = z.boolean().parse(ignored);
+  await prisma.$transaction(async (tx) => {
+    const result = await tx.financeTransaction.updateMany({
+      where: { userId, id: { in: parsedIds }, deleted: false },
+      data: { ignored: parsedIgnored },
+    });
+    if (result.count !== parsedIds.length) throw new Error("Uma ou mais transações são inválidas.");
   });
-  if (result.count !== new Set(parsedIds).size) throw new Error("Uma ou mais transações são inválidas.");
   revalidateFinance();
 }
 

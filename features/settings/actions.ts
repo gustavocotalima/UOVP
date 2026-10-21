@@ -5,6 +5,7 @@ import { z } from "zod";
 import { requireUserId } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { validTimeZone } from "@/lib/calendar";
+import { updateFinancialReferenceSettings } from "@/features/finance/financial-reference";
 
 const supportedTimeZones = [
   "America/Sao_Paulo",
@@ -18,10 +19,13 @@ export async function saveTimeZoneAction(value: string) {
   const userId = await requireUserId();
   const timeZone = z.enum(supportedTimeZones).parse(value);
   if (validTimeZone(timeZone) !== timeZone) throw new Error("Fuso horário inválido.");
-  await prisma.userPreference.upsert({
-    where: { userId },
-    update: { timeZone },
-    create: { userId, timeZone },
+  await prisma.$transaction(async (tx) => {
+    await updateFinancialReferenceSettings(tx, userId, { timeZone }, () =>
+      tx.userPreference.upsert({
+        where: { userId },
+        update: { timeZone },
+        create: { userId, timeZone },
+      }));
   });
   revalidatePath("/", "layout");
   return { timeZone };

@@ -41,7 +41,7 @@ import { accountSubtypeLabel } from "./account-labels";
 import { financialAccountCurrencySymbol } from "./account-currency";
 import { calculateAccountTotals } from "./calculations";
 import { FinanceNotice, runFinanceAction } from "./shared";
-import type { FinanceData, FinancialAccountDto } from "./types";
+import type { FinanceAccountsPageData, FinancialAccountDto } from "./types";
 import { pluggyConnectErrorMessage } from "@/features/open-finance/pluggy-connect-error";
 
 type AccountForm = {
@@ -84,7 +84,7 @@ function emptyForm(type: AccountForm["type"]): AccountForm {
   };
 }
 
-export function AccountsClient({ data }: { data: FinanceData }) {
+export function AccountsClient({ data }: { data: FinanceAccountsPageData }) {
   const router = useRouter();
   const totals = useMemo(() => calculateAccountTotals(data.accounts), [data.accounts]);
   const [view, setView] = useState<"cards" | "list">("cards");

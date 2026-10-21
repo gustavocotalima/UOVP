@@ -9,9 +9,9 @@ import { Select } from "@/components/ui/select";
 import { formatCurrency, formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import { calculateInvoices, categoryLabel } from "./calculations";
-import type { FinanceData } from "./types";
+import type { FinanceInvoicesPageData } from "./types";
 
-export function InvoicesClient({ data }: { data: FinanceData }) {
+export function InvoicesClient({ data }: { data: FinanceInvoicesPageData }) {
   const cards = data.accounts.filter((account) => account.type === "CREDIT_CARD");
   const [accountId, setAccountId] = useState(cards[0]?.id ?? "");
   const [expanded, setExpanded] = useState<string | null>(null);
