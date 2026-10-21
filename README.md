@@ -250,6 +250,18 @@ pnpm build
 - `pnpm cypress:open` opens the interactive runner; `pnpm test:watch` runs Vitest in watch mode.
 - `pnpm build` generates Prisma Client and builds Next.js; it does not apply migrations or seed the database.
 
+### Continuous integration and deployment
+
+GitHub Actions runs typecheck, lint, unit tests, integration tests, a production build, and Cypress on pushes to `dev`/`main` and pull requests targeting either branch. Integration and browser jobs use disposable PostgreSQL 18.4 and Redis 7.2.15 services, migrated and seeded independently. CI generates temporary authentication/encryption secrets and rejects skipped integration tests.
+
+Cypress tests the built app through a temporary local HTTPS proxy at `https://uovp-ci.test:8443`, preserving production security validation. Failed browser checks upload screenshots and server logs.
+
+The `CI passed` check requires every validation job to succeed. Protection on `main` requires a pull request, this check against an up-to-date base, and resolved review conversations; force pushes and branch deletion are disabled. No additional reviewer approval is required.
+
+Dev deploys only after CI passes on `dev`. Coolify's direct push deployment is disabled. The deployment job pins the tested commit before invoking the checked-in copy of Gustavo's `coolify-deploy` CLI, waits for completion, and checks dev health. Superseded commits are skipped. Production keeps its existing Coolify deployment on `main` after a protected merge.
+
+The GitHub `development` environment only allows the `dev` branch. It contains `COOLIFY_URL` and `COOLIFY_DEV_APP_UUID` variables and a `COOLIFY_TOKEN` secret with Coolify `read`, `write`, and `deploy` permissions. Write access is required to pin the exact commit because the installed restart API does not accept a commit parameter. The token is available only to the deployment job; pull request validation uses no deployment credentials. Rotate it before expiry.
+
 ## Production and maintenance
 
 Deploy through Coolify with the application's public HTTPS origin and private PostgreSQL/Redis services. The included Compose file runs only the local data services, not the application.

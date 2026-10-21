@@ -246,6 +246,18 @@ pnpm build
 - `pnpm cypress:open` abre o executor interativo; `pnpm test:watch` executa o Vitest em modo de observação.
 - `pnpm build` gera o Prisma Client e compila o Next.js; não aplica migrations nem executa o seed.
 
+### Integração contínua e deploy
+
+O GitHub Actions executa typecheck, lint, testes unitários, testes de integração, build de produção e Cypress nos pushes para `dev`/`main` e nos pull requests destinados a essas branches. Os jobs de integração e navegador usam PostgreSQL 18.4 e Redis 7.2.15 descartáveis, com migrations e seed independentes. O CI gera segredos temporários de autenticação/criptografia e rejeita testes de integração pulados.
+
+O Cypress testa o app compilado por um proxy HTTPS local temporário em `https://uovp-ci.test:8443`, preservando a validação de segurança de produção. Falhas nos testes de navegador disponibilizam capturas de tela e logs do servidor.
+
+O check `CI passed` exige sucesso em todos os jobs de validação. A proteção de `main` exige pull request, esse check com a base atualizada e conversas de revisão resolvidas; force push e exclusão da branch ficam bloqueados. Não é exigida aprovação adicional de outro revisor.
+
+O dev só recebe deploy depois que o CI passa em `dev`. O deploy direto por push do Coolify fica desativado. O job fixa o commit testado antes de chamar a cópia versionada do CLI `coolify-deploy` do Gustavo, aguarda a conclusão e verifica a saúde do dev. Commits substituídos por versões mais novas são ignorados. Produção mantém seu deploy existente pelo Coolify em `main`, após merge protegido.
+
+O environment `development` do GitHub só permite a branch `dev`. Ele contém as variáveis `COOLIFY_URL` e `COOLIFY_DEV_APP_UUID` e o secret `COOLIFY_TOKEN`, com permissões Coolify `read`, `write` e `deploy`. A escrita é necessária para fixar o commit exato, pois a API de restart instalada não aceita um commit como parâmetro. O token só fica disponível no job de deploy; a validação de pull requests não usa credenciais de deploy. Renove o token antes do vencimento.
+
 ## Produção e manutenção
 
 Faça o deploy pelo Coolify com a origem HTTPS pública do app e serviços privados de PostgreSQL/Redis. O Compose incluído executa apenas os serviços locais de dados, não a aplicação.
