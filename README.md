@@ -166,8 +166,8 @@ The manifest includes standard/maskable icons and starts at `/home?source=pwa`. 
 - Prisma 6 with PostgreSQL; optional Redis.
 - Auth.js credentials authentication, Lucide, Recharts, Leaflet, and React Leaflet.
 - Vitest for unit/integration tests and Cypress for browser tests.
-- Node.js **22 or newer**, **pnpm 10.13.1**, and PostgreSQL 16 or compatible.
-- Optional Docker Compose for the included PostgreSQL 16 and Redis 8 services.
+- Node.js 22 or newer, pnpm 10.13.1, and PostgreSQL 18.4.
+- Optional Docker Compose for PostgreSQL 18.4 and Redis 7.2.15, matching the development and production services.
 
 ## Local setup
 
@@ -187,6 +187,8 @@ The manifest includes standard/maskable icons and starts at `/home?source=pwa`. 
    Set `CREDENTIAL_ENCRYPTION_KEYS="v1:<generated-key>"` and `CREDENTIAL_ENCRYPTION_ACTIVE_KEY="v1"`. Keep database/Redis passwords consistent with their URLs; URL-encode special characters in connection strings.
 
 3. Start local services, or configure external ones:
+
+   Existing PostgreSQL 16 installations need a logical backup from the old service and a restore into PostgreSQL 18.4. Compose uses the separate `uovp_postgres18` volume mounted at `/var/lib/postgresql`, following the [PostgreSQL 18 image layout](https://github.com/docker-library/docs/blob/master/postgres/README.md#pgdata). Keep the old `uovp_postgres` volume until the restore is verified. Changing the image or running Prisma migrations does not upgrade PostgreSQL 16 data files.
 
    ```bash
    docker compose up -d postgres redis
