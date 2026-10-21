@@ -264,6 +264,7 @@ export async function saveAssetAction(input: AssetInput) {
     ? parsed.marketRegion === "INTERNATIONAL" ? "YAHOO" : "BRAPI"
     : null;
   const mustResolveMarketQuote = !parsed.id
+    || existingPositions.some((holding) => holding.positionSource === "MANUAL" && holding.ticker !== parsed.ticker)
     || Boolean(selectedPricingSource && existingQuoteHolding?.pricingSource !== selectedPricingSource);
   if (mustResolveMarketQuote && usesBrapiQuotes(parsed.investmentClass, instrumentType, parsed.marketRegion)) {
     const apiKey = await requireBrapiApiKey(userId);
@@ -312,7 +313,7 @@ export async function saveAssetAction(input: AssetInput) {
       throw new Error(`O Yahoo Finance não retornou o câmbio de ${yahooQuote.currency} para BRL.`);
     }
   }
-  if (!parsed.id && usesBinanceQuotes(parsed.investmentClass, instrumentType)) {
+  if (mustResolveMarketQuote && usesBinanceQuotes(parsed.investmentClass, instrumentType)) {
     const matches = await searchBinanceAssets({ query: parsed.ticker });
     binanceMatch = matches.find((match) => match.symbol === parsed.ticker);
     if (!binanceMatch) {
@@ -360,7 +361,7 @@ export async function saveAssetAction(input: AssetInput) {
           : binanceQuote ? "BINANCE"
             : existingHolding?.pricingSource ?? "MANUAL"
     ) as "BRAPI" | "YAHOO" | "BINANCE" | "MANUAL",
-    ticker: brapiQuote?.symbol ?? yahooQuote?.symbol ?? binanceQuote?.symbol ?? existingHolding?.ticker ?? ticker,
+    ticker,
     providerSymbol: binanceQuote?.pair ?? binanceMatch?.pair ?? existingHolding?.providerSymbol ?? null,
     brapiAssetType: brapiMatch?.assetType ?? existingHolding?.brapiAssetType ?? null,
     brapiSubType: brapiMatch?.subType ?? existingHolding?.brapiSubType ?? null,
@@ -478,6 +479,32 @@ export async function saveAssetAction(input: AssetInput) {
           || (parsed.manualValue != null && !totalValue.equals(parsed.manualValue))) {
           throw new Error("Este ativo possui mais de uma posição manual. Edite as posições pelo ID da aplicação na planilha.");
         }
+        // Share the asset identity and resolved quote, never aggregate position values.
+        await tx.assetHolding.updateMany({
+          where: { assetId: parent.id, positionSource: "MANUAL", includedInTotals: true },
+          data: {
+            ticker,
+            fractional: holdingData.fractional,
+            ...(brapiQuote || yahooQuote || binanceQuote ? {
+              pricingSource: holdingData.pricingSource,
+              unitPrice,
+              currentValue: null,
+              currency: holdingData.currency,
+              fxRateToBrl: brapiQuote || binanceQuote?.currency === "BRL" ? null : fxRateToBrl,
+              fxUpdatedAt: yahooFx?.asOf ?? null,
+              providerSymbol: binanceQuote?.pair ?? binanceMatch?.pair ?? null,
+              brapiAssetType: brapiMatch?.assetType ?? null,
+              brapiSubType: brapiMatch?.subType ?? null,
+              marketExchange: binanceQuote ? "BINANCE" : yahooMatch?.exchange ?? yahooQuote?.exchange ?? null,
+              marketQuoteType: binanceQuote ? "SPOT" : yahooMatch?.quoteType ?? yahooQuote?.quoteType ?? null,
+              marketSector: yahooMatch?.sector ?? null,
+              marketIndustry: yahooMatch?.industry ?? null,
+              logoUrl: brapiLogoMetadata?.status === "VERIFIED" ? brapiLogoMetadata.logoUrl
+                : yahooLogoMetadata?.status === "VERIFIED" ? yahooLogoMetadata.logoUrl : null,
+              priceUpdatedAt: holdingData.priceUpdatedAt,
+            } : {}),
+          },
+        });
       } else if (manualHoldings[0]) {
         await tx.assetHolding.update({ where: { id: manualHoldings[0].id }, data: holdingData });
       } else {
