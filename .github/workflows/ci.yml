@@ -120,6 +120,7 @@ jobs:
       REDIS_URL: redis://127.0.0.1:6379
       UOVP_TEST_REDIS_URL: redis://127.0.0.1:6379
       CYPRESS_BASE_URL: https://uovp-ci.test:8443
+      CYPRESS_DEFAULT_COMMAND_TIMEOUT: '15000'
     services:
       postgres:
         image: postgres:18.4-alpine

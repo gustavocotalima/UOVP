@@ -87,7 +87,8 @@ describe("invalidação e paginação das transações", () => {
         cy.get('[role="dialog"]').contains("button", "Deletar").click();
         cy.contains("Transação removida.").should("be.visible");
         cy.get('[data-testid="transaction-results"]:visible').should("have.attr", "aria-busy", "true");
-        cy.then(() => { expect(releasePageOne).to.be.a("function"); releasePageOne!(); });
+        cy.wrap(null).should(() => { expect(releasePageOne).to.be.a("function"); })
+          .then(() => releasePageOne!());
         cy.contains("Página 1 de 1").should("be.visible");
         cy.get("table tbody tr").should("have.length", 25);
         cy.get('[data-testid="transaction-results"]:visible').should("have.attr", "aria-busy", "false");

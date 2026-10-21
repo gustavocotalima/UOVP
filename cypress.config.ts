@@ -282,8 +282,9 @@ export default defineConfig({
             await prisma.$disconnect();
           }
         },
-        async seedYahooMarketLogo({ email }: { email: string }) {
+        async seedYahooMarketLogo({ email, quantity = 1 }: { email: string; quantity?: number }) {
           if (!/^cypress-[^@]+@example\.com$/.test(email)) throw new Error("Only Cypress users may be seeded");
+          if (!Number.isFinite(quantity) || quantity <= 0) throw new Error("Invalid fixture quantity");
           const prisma = new PrismaClient();
           try {
             const user = await prisma.user.findUniqueOrThrow({ where: { email } });
@@ -292,7 +293,7 @@ export default defineConfig({
               portfolioId: portfolio.id, investmentClass: "INTERNATIONAL_STOCKS", instrumentType: "STOCK", ticker: "AAPL", name: "Apple Inc.",
               holdings: { create: {
                 issuer: "Apple Inc.", productName: "Apple Inc.", pricingSource: "YAHOO", ticker: "AAPL", currency: "USD",
-                quantity: 1, unitPrice: 200, fxRateToBrl: 5, fractional: true,
+                quantity, unitPrice: 200, fxRateToBrl: 5, fractional: true,
                 logoUrl: "https://s.yimg.com/uc/finance/logos/AAPL.svg", priceUpdatedAt: new Date(), fxUpdatedAt: new Date(),
               } },
             } });
