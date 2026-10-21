@@ -265,6 +265,8 @@ The `CI passed` check requires every validation job to succeed. Protection on `m
 
 Dev deploys only after CI passes on `dev`. Coolify's direct push deployment is disabled. The deployment job pins the tested commit before invoking the checked-in copy of Gustavo's `coolify-deploy` CLI, waits for completion, and checks dev health. Superseded commits are skipped. Production keeps its existing Coolify deployment on `main` after a protected merge.
 
+After a `dev` → `main` PR merges, `Sync dev after merge` moves `dev` to the same commit as `main`, including after squash merges. It skips if either branch has advanced and uses an exact `--force-with-lease` to protect concurrent dev pushes. If main advances during the push, the workflow reports a failure and withholds CI dispatch until the branches are reconciled. Otherwise it explicitly dispatches CI on `dev`; deployment still waits for all checks. A failed dispatch can be retried from Actions using the merged PR number. The workflow runs only trusted main code and does not change main protection. Before resuming local work after synchronization, save local changes and align your local `dev` with `origin/dev`; do not push its old history back.
+
 The GitHub `development` environment only allows the `dev` branch. It contains `COOLIFY_URL` and `COOLIFY_DEV_APP_UUID` variables and a `COOLIFY_TOKEN` secret with Coolify `read`, `write`, and `deploy` permissions. Write access is required to pin the exact commit because the installed restart API does not accept a commit parameter. The token is available only to the deployment job; pull request validation uses no deployment credentials. Rotate it before expiry.
 
 ## Production and maintenance
