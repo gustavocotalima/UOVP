@@ -100,13 +100,14 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/setup
       - run: pnpm build
+      - name: Preserve build dependency links
+        run: |
+          mkdir -p work
+          tar --exclude='.next/cache' -czf work/production-build.tar.gz .next
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: production-build
-          path: |
-            .next/
-            !.next/cache/**
-          include-hidden-files: true
+          path: work/production-build.tar.gz
           retention-days: 1
           if-no-files-found: error
 
@@ -144,7 +145,9 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: production-build
-          path: .next
+          path: work
+      - name: Restore build dependency links
+        run: tar -xzf work/production-build.tar.gz
       - run: node scripts/ci/check-services.mjs
       - run: pnpm exec prisma migrate deploy
       - run: pnpm db:seed
