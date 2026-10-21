@@ -85,12 +85,83 @@ describe("câmbio de contas manuais", () => {
       transactionDate: new Date("2026-08-03T12:00:00.000Z"),
       existing: {
         currencyCode: "USD",
+        transactionDate: new Date("2026-08-03T12:00:00.000Z"),
         rateToBrl: new Prisma.Decimal("5.31"),
         rateDate: new Date("2026-08-03T00:00:00.000Z"),
         source: "MANUAL",
       },
     });
     expect(result?.rateToBrl.toString()).toBe("5.31");
+    expect(result?.source).toBe("MANUAL");
+    expect(mocks.ensureHistoricalFxRates).not.toHaveBeenCalled();
+  });
+
+  it("preserva a cotação de sexta ao editar descrição de uma compra no sábado", async () => {
+    // A newer shared-cache value must not replace an already frozen close.
+    mocks.ensureHistoricalFxRates.mockResolvedValue(new Map([["2026-08-01", {
+      rateDate: new Date("2026-07-31T00:00:00.000Z"),
+      rateToBrl: new Prisma.Decimal("5.99"),
+    }]]));
+    const result = await resolveHistoricalFinancialFx({
+      currencyCode: "USD",
+      transactionDate: new Date("2026-08-01T12:00:00.000Z"),
+      existing: {
+        currencyCode: "USD",
+        transactionDate: new Date("2026-08-01T12:00:00.000Z"),
+        rateToBrl: new Prisma.Decimal("5.28"),
+        rateDate: new Date("2026-07-31T00:00:00.000Z"),
+        source: "YAHOO",
+      },
+    });
+    expect(result?.rateToBrl.toString()).toBe("5.28");
+    expect(result?.rateDate.toISOString().slice(0, 10)).toBe("2026-07-31");
+    expect(result?.source).toBe("YAHOO");
+    expect(mocks.ensureHistoricalFxRates).not.toHaveBeenCalled();
+  });
+
+  it("resolve novamente quando a data da transação muda mesmo compartilhando o fechamento", async () => {
+    mocks.ensureHistoricalFxRates.mockResolvedValue(new Map([["2026-08-02", {
+      rateDate: new Date("2026-07-31T00:00:00.000Z"),
+      rateToBrl: new Prisma.Decimal("5.30"),
+    }]]));
+    const result = await resolveHistoricalFinancialFx({
+      currencyCode: "USD",
+      transactionDate: new Date("2026-08-02T12:00:00.000Z"),
+      existing: {
+        currencyCode: "USD",
+        transactionDate: new Date("2026-08-01T12:00:00.000Z"),
+        rateToBrl: new Prisma.Decimal("5.28"),
+        rateDate: new Date("2026-07-31T00:00:00.000Z"),
+        source: "YAHOO",
+      },
+    });
+    expect(mocks.ensureHistoricalFxRates).toHaveBeenCalledWith("USD", [new Date("2026-08-02T12:00:00.000Z")]);
+    expect(result?.rateToBrl.toString()).toBe("5.3");
+  });
+
+  it("não reutiliza a taxa antiga quando a moeda da conta muda", async () => {
+    const transactionDate = new Date("2026-08-01T12:00:00.000Z");
+    const result = await resolveHistoricalFinancialFx({
+      currencyCode: "USD", transactionDate,
+      existing: {
+        currencyCode: "BRL", transactionDate,
+        rateToBrl: new Prisma.Decimal(1), rateDate: transactionDate, source: "NATIVE",
+      },
+    });
+    expect(result).toBeNull();
+    expect(mocks.ensureHistoricalFxRates).toHaveBeenCalledWith("USD", [transactionDate]);
+  });
+
+  it("permite uma taxa manual explícita substituir a cotação congelada", async () => {
+    const transactionDate = new Date("2026-08-01T12:00:00.000Z");
+    const result = await resolveHistoricalFinancialFx({
+      currencyCode: "USD", transactionDate, manualRateToBrl: 5.45,
+      existing: {
+        currencyCode: "USD", transactionDate,
+        rateToBrl: new Prisma.Decimal("5.28"), rateDate: new Date("2026-07-31T00:00:00.000Z"), source: "YAHOO",
+      },
+    });
+    expect(result?.rateToBrl.toString()).toBe("5.45");
     expect(result?.source).toBe("MANUAL");
     expect(mocks.ensureHistoricalFxRates).not.toHaveBeenCalled();
   });

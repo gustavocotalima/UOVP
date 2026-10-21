@@ -50,7 +50,7 @@ const holdingSelect = {
   id: true, assetId: true, catalogItemId: true, customTypeName: true,
   issuer: true, productName: true, pricingSource: true, positionSource: true,
   currency: true, quantity: true, unitPrice: true, fxRateToBrl: true, fxUpdatedAt: true,
-  investedValue: true, currentValue: true, providerCurrentValue: true,
+  investedValue: true, investedValueCurrency: true, currentValue: true, providerCurrentValue: true,
   includedInTotals: true, supersededAt: true, fractional: true,
   rateConvention: true, benchmark: true, rateValue: true, purchaseDate: true,
   maturityDate: true, priceUpdatedAt: true, updatedAt: true,
@@ -148,6 +148,8 @@ export function analysisHoldingValuation(holding: Pick<Holding,
 
 function holdingDto(holding: Holding) {
   const valuation = analysisHoldingValuation(holding);
+  const investedValueCurrency = holding.investedValue === null
+    ? null : holding.investedValueCurrency?.trim().toUpperCase() ?? null;
   const link = holding.pluggyDiagramLink;
   const provider = link?.investment;
   const institution = provider ? resolvePluggyInvestmentIssuer(
@@ -180,7 +182,11 @@ function holdingDto(holding: Holding) {
     currentValueBrl: valuation.valueBrl,
     valuationSource: valuation.valueSource,
     valuationIssue: valuation.issue,
-    investedValueNative: holding.investedValue?.toString() ?? null,
+    investedValue: holding.investedValue?.toString() ?? null,
+    investedValueCurrency,
+    investedValueNative: investedValueCurrency === holding.currency.trim().toUpperCase()
+      ? holding.investedValue?.toString() ?? null : null,
+    costBasisIssue: holding.investedValue !== null && !investedValueCurrency ? "UNKNOWN_COST_CURRENCY" : null,
     fx: { rateToBrl: holding.fxRateToBrl?.toString() ?? null, updatedAt: iso(holding.fxUpdatedAt), source: holding.accountInvestmentLink?.account.balanceFxSource ?? "STORED_HOLDING_FX" },
     priceUpdatedAt: iso(holding.priceUpdatedAt),
     updatedAt: iso(holding.updatedAt),

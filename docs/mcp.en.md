@@ -41,6 +41,8 @@ If the server-configuration warning is displayed, an administrator must complete
 
 A client ID is an identifier, not a password or authorization. Permission checks apply to every request and record lookup; clients cannot select another UOVP user.
 
+`get_financial_summary` and the discovery document `summary:YYYY-MM` require `finance:read`. The `currentAccountTotals` field is queried and populated only when the connection also has `accounts:read`; otherwise it is `null`, not a zero balance. In that case, `complete` covers only permitted financial values, and warnings do not disclose FX or overlap information about omitted accounts. An `accounts:read`-only connection may use `list_accounts`, but cannot retrieve the financial summary. Missing permission is not treated as missing data.
+
 ## Codex
 
 For a compatible Codex CLI, add the remote server and start OAuth login:
@@ -77,6 +79,7 @@ There is no API-key or fixed bearer-token input for users, and a browser login c
 
 - Reports consolidate in BRL. Foreign-currency accounts and positions include native values and the relevant BRL equivalents.
 - Transaction reporting rates stay historical; current account FX is not substituted into past transactions.
+- Position costs expose `investedValue` and `investedValueCurrency` separately from the quote currency. `investedValueNative` is populated only when the cost currency matches the holding's native currency; ambiguous legacy costs have a `null` currency and `costBasisIssue: "UNKNOWN_COST_CURRENCY"`. Current FX does not reconstruct unknown historical costs.
 - Summaries and goal progress use UOVP's existing same-goal, same-month net compensation. Calendar transactions retain full reporting amounts; tag flows represent actual entries and exits.
 - Report exclusions, internal transfers, missing FX, provider availability, and review/tracking states retain the application's rules.
 - Effective investment metadata is distinguished from the latest original provider metadata. Missing history does not imply a complete return calculation.
@@ -113,6 +116,12 @@ Keep PostgreSQL private and do not cache private financial responses in shared R
 Discovery is exposed at `/.well-known/oauth-authorization-server` and `/.well-known/oauth-protected-resource/api/mcp` (with a root protected-resource alias). Authorization uses `/mcp/authorize`; token exchange and revocation use `/api/mcp/oauth/token` and `/api/mcp/oauth/revoke`.
 
 Authorization codes expire after five minutes. Access tokens expire after 15 minutes; refresh tokens rotate and expire after 30 days. MCP requests are limited to 60 per user per minute and 120 per user/client pair per minute. List pages default to 50 records and allow at most 100; detailed queries span at most 12 months. Minimal access audit entries have a 30-day retention window, with expired entries cleaned up during subsequent activity.
+
+Ended OAuth records also have a 30-day retention window after the family's latest expiration or revocation. Consumed codes and rotated refresh tokens remain while any descendant can authenticate or refresh, preserving replay-triggered revocation. After consent and token issuance/rotation, bounded maintenance removes at most 100 tokens, 100 codes, and 100 grants per run. It respects the user's lock, skips an ongoing issuance, and never deletes client registrations.
+
+For inactive-user backlog, run `pnpm exec tsx scripts/cleanup-mcp-oauth.ts --user-id=ID` to preview the next eligible batch without writes. Add `--apply` to delete eligible records; `--max-batches=100` caps total work. Omitting `--user-id` traverses users with grants by cursor. Preview does not count records that become eligible only after earlier batches are removed; busy users remain untouched and can be retried later.
+
+When the global limit is reached, resume with `--after-user-id=ID` using the summary's `resumeAfterUserId`. A user with unfinished batches does not advance that cursor, so subsequent runs continue its backlog before moving on.
 
 ## Troubleshooting
 

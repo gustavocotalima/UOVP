@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { financeTools } from "@/features/mcp/finance-tools";
 import { readAnalysis } from "@/features/mcp/query";
-import type { McpContext } from "@/features/mcp/types";
+import type { McpContext, McpScope } from "@/features/mcp/types";
 
 const suite = process.env.DATABASE_URL ? describe : describe.skip;
 
@@ -16,8 +16,8 @@ suite("MCP financial queries and database read-only enforcement", () => {
   const period = { year: 2098, month: 8 };
   const range = { fromYear: 2098, fromMonth: 8, toYear: 2098, toMonth: 8 };
 
-  function execute(name: string, input: Record<string, unknown>) {
-    return financeTools.find((definition) => definition.name === name)!.execute(context, input);
+  function execute(name: string, input: Record<string, unknown>, scopedContext = context) {
+    return financeTools.find((definition) => definition.name === name)!.execute(scopedContext, input);
   }
 
   beforeAll(async () => {
@@ -68,6 +68,36 @@ suite("MCP financial queries and database read-only enforcement", () => {
       currentAccountTotals: { bankBalance: "2850.38" }, missingFxCount: 1, complete: false,
     });
     expect(JSON.stringify(output)).not.toContain("Other private");
+  });
+
+  it.each<{
+    scopes: McpScope[]; summaryAllowed: boolean; accountsAllowed: boolean;
+  }>([
+    { scopes: ["finance:read"], summaryAllowed: true, accountsAllowed: false },
+    { scopes: ["accounts:read"], summaryAllowed: false, accountsAllowed: true },
+    { scopes: ["finance:read", "accounts:read"], summaryAllowed: true, accountsAllowed: true },
+    { scopes: [], summaryAllowed: false, accountsAllowed: false },
+  ])("respects separately granted financial/account data: $scopes", async ({ scopes, summaryAllowed, accountsAllowed }) => {
+    const scopedContext = { ...context, scopes };
+    if (summaryAllowed) {
+      const summary = await execute("get_financial_summary", { year: 2098, month: 9 }, scopedContext);
+      expect(summary.data).toMatchObject({
+        currentAccountTotals: accountsAllowed ? { bankBalance: "2850.38" } : null,
+        complete: true,
+      });
+      if (!accountsAllowed) {
+        expect(summary.warnings).toEqual([]);
+        expect(JSON.stringify(summary)).not.toContain("2850.38");
+      }
+    } else {
+      expect(() => execute("get_financial_summary", period, scopedContext)).toThrow("This connection does not permit this analysis.");
+    }
+    if (accountsAllowed) {
+      const accounts = await execute("list_accounts", {}, scopedContext);
+      expect(accounts.data).toMatchObject({ accounts: [{ id: accountId }], totals: { bankBalance: "2850.38" } });
+    } else {
+      expect(() => execute("list_accounts", {}, scopedContext)).toThrow("This connection does not permit this analysis.");
+    }
   });
 
   it("rejects by-ID access to another user's transaction", async () => {

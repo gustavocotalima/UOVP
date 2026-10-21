@@ -6,12 +6,11 @@ import { connectedInvestmentMetadataDto } from "@/features/open-finance/investme
 import { pluggyQuantityChangeDto } from "@/features/open-finance/investment-quantity-change-dto";
 import { INVESTMENT_CLASSES, type InvestmentClassKey } from "./constants";
 import { aggregateHoldingValue, holdingCurrentValue, holdingCurrentValueNative, holdingUnitPriceBrl } from "./asset-groups";
-import { aggregateAveragePrices, calculateHoldingAveragePrice } from "./average-price";
+import { aggregateAveragePrices, aggregateInvestedValues, calculateHoldingAveragePrice } from "./average-price";
 import { normalizeBrapiSymbol } from "./brapi";
 import { normalizeYahooSymbol } from "./yahoo-finance";
 import { usableBrapiLogoUrl } from "./market-logo";
 import { readMarketMetadata } from "./market-metadata";
-import { DEFAULT_QUESTIONS, defaultQuestionTemplateKey } from "./questions";
 import { allowsFractionalUnits } from "./fractional-assets";
 
 const BRAPI_INSTRUMENTS = new Set(["STOCK", "ETF", "REAL_ESTATE_FUND"]);
@@ -184,6 +183,8 @@ export async function getPortfolioData(userId: string) {
               positionSource: holding.positionSource,
               quantity: holding.quantity.toString(),
               investedValue: holding.investedValue?.toString(),
+              investedValueCurrency: holding.investedValueCurrency,
+              providerCurrency: holding.pluggyDiagramLink?.investment.currencyCode,
               amountOriginal: holding.pluggyDiagramLink?.investment.amountOriginal?.toString(),
               purchaseSummary: holding.pluggyDiagramLink ? {
                 version: holding.pluggyDiagramLink.investment.purchaseSummaryVersion,
@@ -191,8 +192,19 @@ export async function getPortfolioData(userId: string) {
                 cost: holding.pluggyDiagramLink.investment.purchaseCostTotal.toString(),
               } : undefined,
             })
-          : { price: null, coverage: 0 },
+          : { price: null, coverage: 0, currency: null },
       );
+      const holdingCosts = holdings.map((holding, index) => {
+        if (holding.investedValue !== null) {
+          return { value: holding.investedValue.toString(), currency: holding.investedValueCurrency };
+        }
+        const average = holdingAveragePrices[index];
+        // A partial purchase history cannot establish the entire position's cost.
+        return average.price && average.currency && average.coverage >= 1
+          ? { value: average.price.mul(holding.quantity.toString()).toString(), currency: average.currency }
+          : { value: null, currency: null };
+      });
+      const investedValue = aggregateInvestedValues(holdingCosts);
       const averagePrice = aggregateAveragePrices(holdings.map((holding, index) => ({
         ...holdingAveragePrices[index],
         quantity: holding.quantity.toString(),
@@ -245,7 +257,10 @@ export async function getPortfolioData(userId: string) {
         currentValue: currentValue.toString(),
         nativeCurrentValue: nativeCurrentValue?.toString() ?? null,
         nativeCurrency,
+        investedValue: investedValue.value?.toString() ?? null,
+        investedValueCurrency: investedValue.currency,
         averagePricePaid: averagePrice.price?.toString() ?? null,
+        averagePriceCurrency: averagePrice.currency,
         averagePriceCoverage: averagePrice.coverage,
         fractional: allowsFractionalUnits({
           instrumentType: asset.instrumentType,
@@ -322,10 +337,10 @@ export async function getPortfolioData(userId: string) {
           unitPriceBrl: holdingUnitPriceBrl(holding).toString(),
           fxRateToBrl: holding.fxRateToBrl?.toString() ?? null,
           fxUpdatedAt: holding.fxUpdatedAt?.toISOString() ?? null,
-          investedValue: supportsAveragePrice && holdingAveragePrices[index].price
-            ? holdingAveragePrices[index].price.mul(holding.quantity.toString()).toString()
-            : holding.investedValue?.toString() ?? null,
+          investedValue: holdingCosts[index].value,
+          investedValueCurrency: holdingCosts[index].currency,
           averagePricePaid: holdingAveragePrices[index].price?.toString() ?? null,
+          averagePriceCurrency: holdingAveragePrices[index].currency,
           averagePriceCoverage: holdingAveragePrices[index].coverage,
           currentValue: holdingValues[index].toString(),
           nativeCurrentValue: holdingNativeValues[index]?.toString() ?? null,
@@ -452,76 +467,14 @@ export async function getPortfolioData(userId: string) {
   };
 }
 
-async function ensureUserDiagramQuestions(userId: string) {
-  await prisma.$transaction(async (tx) => {
-    const defaults = await tx.diagramQuestion.findMany({
-      where: { userId: null, isDefault: true },
-      orderBy: [{ type: "asc" }, { sortOrder: "asc" }],
-    });
-    const sourceQuestions = defaults.length
-      ? defaults
-      : DEFAULT_QUESTIONS.map((question, sortOrder) => ({
-          id: "",
-          type: question.type,
-          criterion: question.criterion,
-          text: question.text,
-          sortOrder,
-          active: true,
-          templateKey: defaultQuestionTemplateKey(question),
-        }));
-    await tx.diagramQuestion.createMany({
-      data: sourceQuestions.map((question) => ({
-        userId,
-        type: question.type,
-        criterion: question.criterion,
-        text: question.text,
-        sortOrder: question.sortOrder,
-        active: question.active,
-        templateKey: question.templateKey
-          ?? `${question.type}:${question.criterion}`.toUpperCase(),
-      })),
-      skipDuplicates: true,
-    });
-    const copies = await tx.diagramQuestion.findMany({
-      where: {
-        userId,
-        templateKey: { in: sourceQuestions.flatMap((question) => question.templateKey ? [question.templateKey] : []) },
-      },
-      select: { id: true, templateKey: true },
-    });
-    const copyByTemplate = new Map(copies.map((copy) => [copy.templateKey, copy.id]));
-    const defaultById = new Map(defaults.map((question) => [question.id, question.templateKey]));
-    const existingAnswers = defaults.length
-      ? await tx.assetQuestionAnswer.findMany({
-          where: {
-            questionId: { in: defaults.map((question) => question.id) },
-            asset: { portfolio: { userId } },
-          },
-          select: { assetId: true, questionId: true, answer: true },
-        })
-      : [];
-    if (existingAnswers.length) {
-      await tx.assetQuestionAnswer.createMany({
-        data: existingAnswers.flatMap((answer) => {
-          const templateKey = defaultById.get(answer.questionId);
-          const copyId = templateKey ? copyByTemplate.get(templateKey) : undefined;
-          return copyId ? [{ assetId: answer.assetId, answer: answer.answer, questionId: copyId }] : [];
-        }),
-        skipDuplicates: true,
-      });
-    }
-  });
-}
-
 export async function getDiagramData(userId: string) {
-  await ensureUserDiagramQuestions(userId);
   const [questions, answers] = await Promise.all([
     prisma.diagramQuestion.findMany({
       where: { userId },
       orderBy: [{ type: "asc" }, { sortOrder: "asc" }],
     }),
     prisma.assetQuestionAnswer.findMany({
-      where: { asset: { portfolio: { userId } } },
+      where: { asset: { portfolio: { userId } }, question: { userId } },
       select: { assetId: true, questionId: true, answer: true },
     }),
   ]);

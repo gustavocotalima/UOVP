@@ -592,6 +592,113 @@ describe("finanças AUVP", () => {
     expect(august?.totalBrl).toBe(550);
   });
 
+  it.each([
+    ["2026-07-04T12:00:00Z", "2026-07"],
+    ["2026-07-07T12:00:00Z", "2026-07"],
+    ["2026-07-08T12:00:00Z", "2026-08"],
+  ])("usa o mesmo ciclo para uma compra e a fatura aberta em %s", (date, expectedKey) => {
+    const invoices = calculateInvoices(card, [transaction({
+      accountId: card.id, accountType: "CREDIT_CARD", date, amount: "-42",
+    })], new Date(date));
+    expect(invoices.filter((invoice) => invoice.open)).toHaveLength(1);
+    expect(invoices.find((invoice) => invoice.open)).toMatchObject({ key: expectedKey, total: 42, totalBrl: 42 });
+  });
+
+  it.each([
+    ["2026-07-24T12:00:00Z", "2026-08"],
+    ["2026-07-25T12:00:00Z", "2026-08"],
+    ["2026-07-26T12:00:00Z", "2026-09"],
+    ["2026-12-26T12:00:00Z", "2027-02"],
+  ])("respeita fechamento posterior ao vencimento e virada anual em %s", (date, expectedKey) => {
+    const configuredCard = { ...card, closingDay: 25, dueDay: 5 };
+    const invoices = calculateInvoices(configuredCard, [transaction({
+      accountId: card.id, accountType: "CREDIT_CARD", date,
+    })], new Date(date));
+    const open = invoices.find((invoice) => invoice.open)!;
+    expect(open.key).toBe(expectedKey);
+    expect(open.total).toBe(100);
+    expect(new Date(open.dueDate).getUTCDate()).toBe(5);
+  });
+
+  it.each([
+    ["2027-02-28T12:00:00Z", 31, 5, "2027-03", 5],
+    ["2028-02-29T12:00:00Z", 31, 5, "2028-03", 5],
+    ["2027-03-01T12:00:00Z", 31, 5, "2027-04", 5],
+    ["2027-02-04T12:00:00Z", 7, 31, "2027-02", 28],
+    ["2028-02-04T12:00:00Z", 7, 31, "2028-02", 29],
+    ["2026-07-10T12:00:00Z", 10, 10, "2026-08", 10],
+  ])("limita fechamento/vencimento aos dias existentes em %s", (date, closingDay, dueDay, expectedKey, expectedDueDay) => {
+    const configuredCard = { ...card, closingDay, dueDay };
+    const invoices = calculateInvoices(configuredCard, [transaction({
+      accountId: card.id, accountType: "CREDIT_CARD", date,
+    })], new Date(date));
+    const open = invoices.find((invoice) => invoice.open)!;
+    expect(open.key).toBe(expectedKey);
+    expect(open.total).toBe(100);
+    expect(new Date(open.dueDate).getUTCDate()).toBe(expectedDueDay);
+  });
+
+  it("infere o fechamento quando ausente e cria somente a fatura aberta vazia", () => {
+    const invoices = calculateInvoices({ ...card, dueDay: null, closingDay: null }, [], new Date("2026-07-03T12:00:00Z"));
+    expect(invoices).toHaveLength(1);
+    expect(invoices[0]).toMatchObject({ key: "2026-07", open: true, total: 0, totalBrl: 0, transactions: [] });
+    expect(new Date(invoices[0].dueDate).getUTCDate()).toBe(10);
+  });
+
+  it("resolve a fatura aberta pelo dia local no limite do fechamento", () => {
+    const now = new Date("2026-07-08T01:00:00Z");
+    expect(calculateInvoices(card, [], now, "America/Sao_Paulo").find((invoice) => invoice.open)?.key).toBe("2026-07");
+    expect(calculateInvoices(card, [], now, "UTC").find((invoice) => invoice.open)?.key).toBe("2026-08");
+  });
+
+  it("estornos reduzem a fatura e pagamentos internos/ignorados/removidos não alteram o líquido", () => {
+    const cardTransaction = (overrides: Partial<FinanceTransactionDto>) => transaction({
+      accountId: card.id, accountType: "CREDIT_CARD", ...overrides,
+    });
+    const invoices = calculateInvoices(card, [
+      cardTransaction({ id: "purchase", amount: "-100" }),
+      cardTransaction({ id: "refund", kind: "INCOME", amount: "40" }),
+      cardTransaction({ id: "payment", kind: "INCOME", amount: "100", internalTransfer: true }),
+      cardTransaction({ id: "transfer-expense", amount: "-500", internalTransfer: true }),
+      cardTransaction({ id: "ignored-credit", kind: "INCOME", amount: "999", ignored: true }),
+      cardTransaction({ id: "ignored-debit", amount: "-888", ignored: true }),
+      cardTransaction({ id: "removed-credit", kind: "INCOME", amount: "777", providerLifecycle: "REMOVED" }),
+      cardTransaction({ id: "removed-debit", amount: "-666", providerLifecycle: "REMOVED" }),
+      transaction({ id: "other-account", amount: "-500" }),
+    ], new Date("2026-07-20T12:00:00Z"));
+    expect(invoices.find((invoice) => invoice.open)).toMatchObject({ total: 60, totalBrl: 60 });
+  });
+
+  it("preserva o sinal de crédito líquido e soma centavos sem resíduos binários", () => {
+    const cardTransaction = (overrides: Partial<FinanceTransactionDto>) => transaction({
+      accountId: card.id, accountType: "CREDIT_CARD", ...overrides,
+    });
+    const credit = calculateInvoices(card, [
+      cardTransaction({ id: "purchase", amount: "-100" }),
+      cardTransaction({ id: "refund", kind: "INCOME", amount: "140" }),
+    ], new Date("2026-07-20T12:00:00Z")).find((invoice) => invoice.open);
+    expect(credit).toMatchObject({ total: -40, totalBrl: -40 });
+    const zero = calculateInvoices(card, [
+      cardTransaction({ id: "first", amount: "-0.10" }),
+      cardTransaction({ id: "second", amount: "-0.20" }),
+      cardTransaction({ id: "refund", kind: "INCOME", amount: "0.30" }),
+    ], new Date("2026-07-20T12:00:00Z")).find((invoice) => invoice.open);
+    expect(zero).toMatchObject({ total: 0, totalBrl: 0 });
+  });
+
+  it("compensa estornos em moeda nativa usando seus próprios valores BRL congelados", () => {
+    const usdCard = { ...card, currencyCode: "USD" };
+    const cardTransaction = (overrides: Partial<FinanceTransactionDto>) => transaction({
+      accountId: card.id, accountType: "CREDIT_CARD", currencyCode: "USD", ...overrides,
+    });
+    const open = calculateInvoices(usdCard, [
+      cardTransaction({ id: "purchase", amount: "-100", reportingAmountBrl: "-500" }),
+      cardTransaction({ id: "refund", kind: "INCOME", amount: "40", reportingAmountBrl: "240" }),
+      cardTransaction({ id: "missing-fx", amount: "-10", reportingAmountBrl: null }),
+    ], new Date("2026-07-20T12:00:00Z")).find((invoice) => invoice.open);
+    expect(open).toMatchObject({ total: 70, totalBrl: 260 });
+  });
+
   it("exclui dos totais BRL apenas a transação sem conversão", () => {
     expect(calculatePeriod([
       transaction({ id: "converted", kind: "INCOME", amount: "100", reportingAmountBrl: "550", budgetCategory: null }),

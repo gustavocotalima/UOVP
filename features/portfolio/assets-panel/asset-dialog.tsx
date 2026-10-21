@@ -15,7 +15,8 @@ import type { AssetsPanelController } from "./use-assets-panel-controller";
 export function AssetDialog({ controller }: {
   controller: Pick<AssetsPanelController, "fixedIncomeFamilies" | "questions" | "initialAnswers" | "form" | "setForm" | "quantityForms" | "setQuantityForms" | "setFixedGroupForm" | "formAnswers" | "setFormAnswers" | "setDeleteTarget" | "tickerOptions" | "setTickerOptions" | "tickerSearchPending" | "tickerSearchError" | "tickerListOpen" | "setTickerListOpen" | "tickerListPosition" | "setSelectedMarketTicker" | "activeTickerIndex" | "setActiveTickerIndex" | "pending" | "tickerInputFocused" | "tickerInput" | "updateTickerListPosition" | "formQuestionType" | "editingAsset" | "singleQuantityForm" | "previewQuantity" | "formQuestions" | "positives" | "negatives" | "marketTickerSearch" | "usesMarketTickerSearch" | "requiresStoreOfValueMarket" | "tickerQuery" | "hasSelectedMarketTicker" | "requiresYahooReitConfirmation" | "changeTicker" | "selectTicker" | "handleTickerKeyDown" | "submit" | "simpleScoreForm">;
 }) {
-  const { fixedIncomeFamilies, questions, initialAnswers, form, setForm, quantityForms, setQuantityForms, setFixedGroupForm, formAnswers, setFormAnswers, setDeleteTarget, tickerOptions, setTickerOptions, tickerSearchPending, tickerSearchError, tickerListOpen, setTickerListOpen, tickerListPosition, setSelectedMarketTicker, activeTickerIndex, setActiveTickerIndex, pending, tickerInputFocused, tickerInput, updateTickerListPosition, formQuestionType, editingAsset, singleQuantityForm, previewQuantity, formQuestions, positives, negatives, marketTickerSearch, usesMarketTickerSearch, requiresStoreOfValueMarket, tickerQuery, hasSelectedMarketTicker, requiresYahooReitConfirmation, changeTicker, selectTicker, handleTickerKeyDown, submit, simpleScoreForm } = controller;
+  const { fixedIncomeFamilies, questions, initialAnswers, form, setForm, quantityForms, setQuantityForms, setFixedGroupForm, formAnswers, setFormAnswers, setDeleteTarget, tickerOptions, setTickerOptions, tickerSearchPending, tickerSearchError, tickerListOpen, setTickerListOpen, tickerListPosition, setSelectedMarketTicker, activeTickerIndex, setActiveTickerIndex, pending, tickerInputFocused: tickerInputFocusedRef, tickerInput, updateTickerListPosition, formQuestionType, editingAsset, singleQuantityForm, previewQuantity, formQuestions, positives, negatives, marketTickerSearch, usesMarketTickerSearch, requiresStoreOfValueMarket, tickerQuery, hasSelectedMarketTicker, requiresYahooReitConfirmation, changeTicker, selectTicker, handleTickerKeyDown, submit, simpleScoreForm } = controller;
+  const multipleManualPositions = (editingAsset?.holdings.filter((holding) => holding.positionSource === "MANUAL").length ?? 0) > 1;
   return (<Dialog privateEditor open={form !== null} mobileMode="full" onOpenChange={(open) => !open && setForm(null)} dismissible={!pending} title={form?.id ? "Editar ativo" : "Adicionar ativo"} className="max-w-4xl" footer={form && (<>
     {form.id && <Button type="button" variant="danger" onClick={() => setDeleteTarget({ kind: "asset", id: form.id!, label: form.ticker })} disabled={pending}>Remover</Button>}
     <Button type="submit" form="asset-modal-form" disabled={pending
@@ -162,12 +163,12 @@ export function AssetDialog({ controller }: {
           <Label htmlFor="asset-ticker">Ticker (Código)</Label>
           {usesMarketTickerSearch ? (<div className="relative">
             <Input ref={tickerInput} id="asset-ticker" className="pr-10" placeholder="Ex: PETR4" value={form.ticker} onChange={(event) => changeTicker(event.target.value)} onFocus={() => {
-              tickerInputFocused.current = true;
+              tickerInputFocusedRef.current = true;
               updateTickerListPosition();
               if (!hasSelectedMarketTicker && (tickerOptions.length || tickerSearchError))
                 setTickerListOpen(true);
             }} onBlur={() => {
-              tickerInputFocused.current = false;
+              tickerInputFocusedRef.current = false;
               setTickerListOpen(false);
             }} onKeyDown={handleTickerKeyDown} role="combobox" aria-autocomplete="list" aria-expanded={tickerListOpen} aria-controls="market-ticker-options" aria-activedescendant={activeTickerIndex >= 0 ? `market-ticker-option-${activeTickerIndex}` : undefined} aria-describedby="asset-ticker-help" required />
             <span className="pointer-events-none absolute right-3 top-3 text-[var(--muted-foreground)]">
@@ -240,7 +241,7 @@ export function AssetDialog({ controller }: {
           <Label htmlFor="asset-quantity">{singleQuantityForm?.mode === "CUSTOM" ? "Quantidade temporária" : editingAsset?.providerControlled && !singleQuantityForm ? "Quantidade total" : "Quantidade"}</Label>
           <Input id="asset-quantity" type="number" min="0" step={singleQuantityForm?.step ?? "any"} value={singleQuantityForm ? singleQuantityForm.value : editingAsset?.providerControlled ? previewQuantity : form.quantity} onChange={(event) => singleQuantityForm
             ? setQuantityForms((current) => current.map((entry) => entry.linkId === singleQuantityForm.linkId ? { ...entry, value: event.target.value } : entry))
-            : setForm({ ...form, quantity: Number(event.target.value) })} disabled={editingAsset?.providerControlled && (!singleQuantityForm || singleQuantityForm.mode === "PROVIDER")} required />
+            : setForm({ ...form, quantity: Number(event.target.value) })} disabled={multipleManualPositions || (editingAsset?.providerControlled && (!singleQuantityForm || singleQuantityForm.mode === "PROVIDER"))} required />
         </div>
         {quantityForms.length > 0 && (<div className="space-y-3 sm:col-span-2">
           <p className="text-xs text-[var(--muted-foreground)]">Quantidades temporárias serão salvas com o ativo e mantidas nas sincronizações. Os dados originais da instituição não são alterados. Uma mudança na quantidade da Pluggy exibirá um aviso para escolher entre a instituição e o valor manual.</p>
@@ -263,6 +264,18 @@ export function AssetDialog({ controller }: {
           <p className="text-xs text-[var(--muted-foreground)]">Zero retira a posição dos totais. Esta correção não cria movimentações nem confirma aportes aguardando sincronização.</p>
         </div>)}
         {editingAsset?.providerControlled && !quantityForms.length && <p className="text-xs text-[var(--muted-foreground)] sm:col-span-2">A quantidade é controlada pelo provedor e será atualizada na próxima sincronização.</p>}
+        {multipleManualPositions && <p className="text-xs text-[var(--muted-foreground)] sm:col-span-2">Este ativo contém posições manuais separadas. Para ajustar quantidades e custos individuais, exporte a planilha e mantenha o ID de cada aplicação ao importar.</p>}
+        {!editingAsset?.providerControlled && !multipleManualPositions && <>
+          <div className="space-y-2">
+            <Label htmlFor="asset-invested">Custo de aquisição (opcional)</Label>
+            <Input id="asset-invested" type="number" min="0" step="0.01" value={form.investedValue ?? ""} onChange={(event) => setForm({ ...form, investedValue: event.target.value === "" ? null : Number(event.target.value), investedValueCurrency: event.target.value === "" ? null : form.investedValueCurrency ?? form.currency, investmentCostEdited: true })} />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="asset-invested-currency">Moeda do custo</Label>
+            <Input id="asset-invested-currency" value={form.investedValueCurrency ?? ""} placeholder={form.currency} minLength={3} maxLength={8} pattern="[A-Za-z0-9]{3,8}" required={form.investedValue !== null} disabled={form.investedValue === null} onChange={(event) => setForm({ ...form, investedValueCurrency: event.target.value.toUpperCase() || null, investmentCostEdited: true })} />
+          </div>
+          <p className="text-xs text-[var(--muted-foreground)] sm:col-span-2">Informe o total efetivamente pago e sua moeda. A cotação atual não determina o custo histórico. Deixe vazio se não souber.</p>
+        </>}
         {simpleScoreForm && <div className="space-y-2 sm:col-span-2"><Label htmlFor="asset-strength">{form.instrumentType === "ETF" ? "Nota do ETF (manual)" : form.instrumentType === "MUTUAL_FUND" ? "Nota do fundo (manual)" : "Nota de força"}</Label><Input id="asset-strength" type="number" min="-30" max="30" value={form.score} onChange={(event) => setForm({ ...form, score: Number(event.target.value) })} /></div>}
       </div>
 

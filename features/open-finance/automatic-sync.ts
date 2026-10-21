@@ -53,7 +53,7 @@ export async function syncStalePluggyItemsForUser(
           selectedItems.map((item) => item.pluggyItemId),
           { automatic: true },
         );
-        const changed = result.succeededItemCount > 0;
+        const changed = result.changed;
         const selectedReason = !result.itemCount
           ? null
           : result.pendingItemCount
@@ -73,7 +73,7 @@ export async function syncStalePluggyItemsForUser(
           updatedConnections: result.succeededItemCount,
           failedConnections: result.failedItemCount,
           message: result.failedItemCount
-            ? `${result.failedItemCount} conexão(ões) não puderam ser sincronizadas.`
+            ? `${result.failedItemCount} conexão(ões) não puderam ser concluídas.${result.partiallyUpdatedItemCount ? " Parte dos dados já foi atualizada." : ""}`
             : result.partialItemCount
               ? `${result.partialItemCount} conexão(ões) não informaram todos os saldos reservados.`
               : null,

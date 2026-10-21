@@ -94,7 +94,9 @@ export type AssetHoldingDto = {
   fxRateToBrl: string | null;
   fxUpdatedAt: string | null;
   investedValue: string | null;
+  investedValueCurrency?: string | null;
   averagePricePaid: string | null;
+  averagePriceCurrency?: string | null;
   averagePriceCoverage: number;
   currentValue: string;
   nativeCurrentValue: string | null;
@@ -114,6 +116,7 @@ export type AssetHoldingDto = {
   connectedMetadata: ConnectedInvestmentMetadataDto | null;
   transactions: Array<{
     id: string;
+    currencyCode?: string | null;
     description: string | null;
     type: string;
     movementType: string | null;
@@ -150,7 +153,10 @@ export type AssetDto = {
   currentValue: string;
   nativeCurrentValue: string | null;
   nativeCurrency: string | null;
+  investedValue?: string | null;
+  investedValueCurrency?: string | null;
   averagePricePaid: string | null;
+  averagePriceCurrency?: string | null;
   averagePriceCoverage: number;
   fractional: boolean;
   score: number;

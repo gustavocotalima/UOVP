@@ -283,54 +283,58 @@ export async function savePluggyConnectionDisplayNameAction(
 export async function reviewPluggyDiagramLinkAction(input: PluggyDiagramReviewInput) {
   const userId = await requireUserId();
   const parsed = reviewSchema.parse(input);
-  const link = await prisma.pluggyInvestmentDiagramLink.findFirst({
-    where: { id: parsed.linkId, userId },
-    select: { id: true },
-  });
-  if (!link) throw new Error("Investimento pendente não encontrado.");
-  if (parsed.familyCode) {
-    const family = await prisma.fixedIncomeFamily.findUnique({ where: { code: parsed.familyCode } });
-    if (!family) throw new Error("Família de renda fixa não encontrada.");
-  }
   const classifiesAsStoreOfValue = parsed.instrumentType === "ETF"
     && parsed.investmentClass === "STORE_OF_VALUE";
-  await prisma.pluggyInvestmentDiagramLink.update({
-    where: { id: link.id },
-    data: {
-      status: "NEEDS_REVIEW",
-      classificationSource: "USER_OVERRIDE",
-      suggestedInstrumentType: parsed.instrumentType,
-      suggestedInvestmentClass: parsed.investmentClass,
-      suggestedMarketRegion: classifiesAsStoreOfValue
-        ? parsed.marketRegion
-        : null,
-      suggestedFamilyCode: parsed.familyCode ?? null,
-      suggestedIndexation: parsed.indexation ?? null,
-      reviewReason: null,
+  await withUserOperationLease({
+    userId,
+    operation: "pluggy-sync",
+    leaseMs: 10 * 60_000,
+    action: async (lease) => {
+      await lease.runFencedTransaction(async (tx) => {
+        const link = await tx.pluggyInvestmentDiagramLink.findFirst({
+          where: { id: parsed.linkId, userId },
+          select: { id: true },
+        });
+        if (!link) throw new Error("Investimento pendente não encontrado.");
+        if (parsed.familyCode) {
+          const family = await tx.fixedIncomeFamily.findUnique({ where: { code: parsed.familyCode } });
+          if (!family) throw new Error("Família de renda fixa não encontrada.");
+        }
+        await tx.pluggyInvestmentDiagramLink.update({
+          where: { id: link.id },
+          data: {
+            status: "NEEDS_REVIEW",
+            classificationSource: "USER_OVERRIDE",
+            suggestedInstrumentType: parsed.instrumentType,
+            suggestedInvestmentClass: parsed.investmentClass,
+            suggestedMarketRegion: classifiesAsStoreOfValue ? parsed.marketRegion : null,
+            suggestedFamilyCode: parsed.familyCode ?? null,
+            suggestedIndexation: parsed.indexation ?? null,
+            reviewReason: null,
+          },
+        });
+      });
+      await reconcilePluggyInvestmentsForUser(userId, lease);
+      await lease.runFencedTransaction(async (tx) => {
+        const mapped = await tx.pluggyInvestmentDiagramLink.findFirst({
+          where: { id: parsed.linkId, userId },
+          include: { holding: { select: { assetId: true } } },
+        });
+        if (!mapped?.holding) throw new Error("Não foi possível integrar este investimento.");
+        const asset = await tx.asset.update({
+          where: { id: mapped.holding.assetId },
+          data: {
+            score: parsed.score,
+            marketRegion: classifiesAsStoreOfValue ? parsed.marketRegion : null,
+            instrumentSource: "USER_OVERRIDE",
+            exposureSource: "USER_OVERRIDE",
+            groupSource: parsed.familyCode ? "USER_OVERRIDE" : "AUTO",
+          },
+          select: { portfolioId: true },
+        });
+        await bumpPortfolioAndInvalidateDrafts(tx, asset.portfolioId, userId);
+      });
     },
-  });
-  await reconcilePluggyInvestmentsForUser(userId);
-  const mapped = await prisma.pluggyInvestmentDiagramLink.findFirst({
-    where: { id: link.id, userId },
-    include: { holding: { select: { assetId: true } } },
-  });
-  if (!mapped?.holding) throw new Error("Não foi possível integrar este investimento.");
-  const assetId = mapped.holding.assetId;
-  await prisma.$transaction(async (tx) => {
-    const asset = await tx.asset.update({
-      where: { id: assetId },
-      data: {
-        score: parsed.score,
-        marketRegion: classifiesAsStoreOfValue
-          ? parsed.marketRegion
-          : null,
-        instrumentSource: "USER_OVERRIDE",
-        exposureSource: "USER_OVERRIDE",
-        groupSource: parsed.familyCode ? "USER_OVERRIDE" : "AUTO",
-      },
-      select: { portfolioId: true },
-    });
-    await bumpPortfolioAndInvalidateDrafts(tx, asset.portfolioId, userId);
   });
   revalidatePath("/carteira");
   revalidatePath("/open-finance");
@@ -597,27 +601,32 @@ export async function resolvePluggyQuantityChangeAction(input: PluggyQuantityCha
 export async function excludePluggyDiagramLinkAction(linkId: string) {
   const userId = await requireUserId();
   const parsedId = z.string().cuid().parse(linkId);
-  const link = await prisma.pluggyInvestmentDiagramLink.findFirst({
-    where: { id: parsedId, userId },
-    include: { holding: { select: { id: true, includedInTotals: true, asset: { select: { portfolioId: true } } } } },
-  });
-  if (!link) throw new Error("Investimento pendente não encontrado.");
-  await prisma.$transaction(async (tx) => {
-    await tx.pluggyInvestmentDiagramLink.update({
-      where: { id: link.id },
-      data: {
-        status: "EXCLUDED",
-        classificationSource: "USER_OVERRIDE",
-        reviewReason: PLUGGY_DIAGRAM_EXCLUSION_REASON.USER,
-      },
-    });
-    if (link.holding?.includedInTotals) {
-      await tx.assetHolding.update({
-        where: { id: link.holding.id },
-        data: { includedInTotals: false },
+  await withUserOperationLease({
+    userId,
+    operation: "pluggy-sync",
+    leaseMs: 60_000,
+    action: (lease) => lease.runFencedTransaction(async (tx) => {
+      const link = await tx.pluggyInvestmentDiagramLink.findFirst({
+        where: { id: parsedId, userId },
+        include: { holding: { select: { id: true, includedInTotals: true, asset: { select: { portfolioId: true } } } } },
       });
-      await bumpPortfolioAndInvalidateDrafts(tx, link.holding.asset.portfolioId, userId);
-    }
+      if (!link) throw new Error("Investimento pendente não encontrado.");
+      await tx.pluggyInvestmentDiagramLink.update({
+        where: { id: link.id },
+        data: {
+          status: "EXCLUDED",
+          classificationSource: "USER_OVERRIDE",
+          reviewReason: PLUGGY_DIAGRAM_EXCLUSION_REASON.USER,
+        },
+      });
+      if (link.holding?.includedInTotals) {
+        await tx.assetHolding.update({
+          where: { id: link.holding.id },
+          data: { includedInTotals: false },
+        });
+        await bumpPortfolioAndInvalidateDrafts(tx, link.holding.asset.portfolioId, userId);
+      }
+    }),
   });
   revalidatePath("/carteira");
   revalidatePath("/open-finance");
@@ -658,23 +667,25 @@ export async function deletePluggyConnectionAction(pluggyItemId: string) {
     limit: 10,
     windowMs: 60 * 60_000,
   });
-  const item = await prisma.pluggyItem.findFirst({
-    where: {
-      userId,
-      pluggyItemId: parsedItemId,
-      status: { not: "DELETED" },
+  await withUserOperationLease({
+    userId,
+    operation: "pluggy-sync",
+    leaseMs: 10 * 60_000,
+    action: async (lease) => {
+      const item = await prisma.pluggyItem.findFirst({
+        where: { userId, pluggyItemId: parsedItemId, status: { not: "DELETED" } },
+        select: { id: true },
+      });
+      if (!item) throw new Error("Conexão não encontrada.");
+      const credentials = await requirePluggyCredentials(userId);
+      try {
+        await deletePluggyItem(credentials, parsedItemId);
+      } catch (error) {
+        if (!(error instanceof PluggyApiError) || error.status !== 404) throw error;
+      }
+      await markPluggyItemDisconnected(parsedItemId, lease);
     },
-    select: { id: true },
   });
-  if (!item) throw new Error("Conexão não encontrada.");
-
-  const credentials = await requirePluggyCredentials(userId);
-  try {
-    await deletePluggyItem(credentials, parsedItemId);
-  } catch (error) {
-    if (!(error instanceof PluggyApiError) || error.status !== 404) throw error;
-  }
-  await markPluggyItemDisconnected(parsedItemId);
 
   [
     "/open-finance",

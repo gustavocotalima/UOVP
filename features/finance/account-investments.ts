@@ -87,7 +87,7 @@ export async function projectAccountInvestment(tx: Prisma.TransactionClient, acc
     where: { id: holding.id },
     data: {
       quantity: balance, unitPrice: 1, currentValue: balance, providerCurrentValue: balance,
-      investedValue: null, includedInTotals: included, currency: account.currencyCode,
+      investedValue: null, investedValueCurrency: null, includedInTotals: included, currency: account.currencyCode,
       fxRateToBrl: validFx, fxUpdatedAt: account.balanceFxRateDate,
       priceUpdatedAt,
       productName: account.name, issuer: account.institutionName || account.name,
@@ -190,6 +190,7 @@ export async function classifyAccountInvestment(
     : await tx.assetHolding.create({ data: {
         ...metadata, pricingSource: "ACCOUNT_BALANCE", positionSource: "ACCOUNT_BALANCE",
         issuer: account.institutionName || account.name, productName: account.name,
+        investedValue: null, investedValueCurrency: null,
         currency: account.currencyCode, includedInTotals: false, fractional: true,
       } });
   await tx.accountInvestmentLink.update({ where: { id: link.id }, data: {

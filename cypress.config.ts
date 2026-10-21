@@ -66,6 +66,32 @@ export default defineConfig({
       on("before:spec", cleanupCypressUsers);
       on("after:run", cleanupCypressUsers);
       on("task", {
+        async setBinanceWalletFixture({ email, configured = true, quantity = "2" }: { email: string; configured?: boolean; quantity?: string }) {
+          if (!/^cypress-[^@]+@example\.com$/.test(email)) throw new Error("Only Cypress users may be updated");
+          if (!/^\d+(\.\d+)?$/.test(quantity)) throw new Error("Invalid fixture quantity");
+          const prisma = new PrismaClient();
+          try {
+            const user = await prisma.user.findUniqueOrThrow({ where: { email } });
+            if (!configured) {
+              await prisma.binanceConnection.deleteMany({ where: { userId: user.id } });
+              return null;
+            }
+            const now = new Date();
+            const connection = await prisma.binanceConnection.upsert({
+              where: { userId: user.id },
+              create: { userId: user.id, apiKeyCiphertext: "cypress-not-decrypted", apiSecretCiphertext: "cypress-not-decrypted", apiKeyLastFour: "1234", ipRestricted: true, syncPending: false, lastSyncAt: now },
+              update: { syncPending: false, lastSyncAt: now, lastError: null },
+            });
+            await prisma.binanceWalletAsset.upsert({
+              where: { connectionId_symbol: { connectionId: connection.id, symbol: "BTC" } },
+              create: { connectionId: connection.id, symbol: "BTC", name: "Bitcoin", status: "AVAILABLE", spotQuantity: quantity, valuationSupported: true, lastSyncAt: now },
+              update: { spotQuantity: quantity, lastSyncAt: now },
+            });
+            return null;
+          } finally {
+            await prisma.$disconnect();
+          }
+        },
         async invalidateContributionSimulations({ email }: { email: string }) {
           if (!/^cypress-[^@]+@example\.com$/.test(email)) throw new Error("Only Cypress users may be updated");
           const prisma = new PrismaClient();

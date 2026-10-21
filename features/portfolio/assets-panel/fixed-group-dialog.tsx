@@ -8,9 +8,9 @@ import { FIXED_INCOME_INDEXATIONS, FIXED_INCOME_INDEXATION_META, type FixedIncom
 import type { FixedIncomeGroupForm } from "./model";
 import type { AssetsPanelController } from "./use-assets-panel-controller";
 export function FixedGroupDialog({ controller }: {
-  controller: Pick<AssetsPanelController, "assets" | "fixedIncomeFamilies" | "form" | "fixedGroupForm" | "setFixedGroupForm" | "setDeleteTarget" | "pending" | "submitFixedGroup">;
+  controller: Pick<AssetsPanelController, "assets" | "fixedIncomeFamilies" | "fixedGroupForm" | "setFixedGroupForm" | "setDeleteTarget" | "pending" | "submitFixedGroup">;
 }) {
-  const { assets, fixedIncomeFamilies, form, fixedGroupForm, setFixedGroupForm, setDeleteTarget, pending, submitFixedGroup } = controller;
+  const { assets, fixedIncomeFamilies, fixedGroupForm, setFixedGroupForm, setDeleteTarget, pending, submitFixedGroup } = controller;
   return (<Dialog privateEditor open={fixedGroupForm !== null} mobileMode="full" onOpenChange={(open) => !open && setFixedGroupForm(null)} dismissible={!pending} title={fixedGroupForm?.id ? "Editar grupo de renda fixa" : "Adicionar grupo de renda fixa"} className="max-w-2xl" footer={fixedGroupForm && (<>
     {fixedGroupForm.id && <Button type="button" variant="danger" onClick={() => {
       const asset = assets.find((candidate) => candidate.id === fixedGroupForm.id);

@@ -320,24 +320,27 @@ function cursorWhere(cursor: string): Prisma.FinanceTransactionWhereInput {
 
 const summary = tool({
   name: "get_financial_summary", title: "Financial summary", scope: "finance:read",
-  description: "BRL financial-reference-month summary. Net income excludes goal-assigned inflows; compensation is limited to the same goal and month. Balances are current, not historical.",
+  description: "BRL financial-reference-month summary. Net income excludes goal-assigned inflows; compensation is limited to the same goal and month. Current account totals require accounts:read and otherwise return null. Completeness covers only permitted data; balances are current, not historical.",
   inputSchema: periodShape,
   dataSchema: z.object({
-    period: z.object(periodShape), totals: periodTotalsSchema, currentAccountTotals: accountTotalsSchema,
+    period: z.object(periodShape), totals: periodTotalsSchema,
+    currentAccountTotals: accountTotalsSchema.nullable().describe("Null when accounts:read is not granted; no account balances were queried."),
     missingFxCount: z.number().int().nonnegative(), complete: z.boolean(),
   }),
   execute: async (context, input) => readAnalysis(context, async (db) => {
     const where = { AND: [reportableWhere(context.userId), monthWhere(input)] };
     const [groups, missing, accounts] = await Promise.all([
       groupedAmounts(db, where), missingFx(db, where),
-      db.financialAccount.findMany({ where: { userId: context.userId, active: true }, select: accountSelect }),
+      context.scopes.includes("accounts:read")
+        ? db.financialAccount.findMany({ where: { userId: context.userId, active: true }, select: accountSelect })
+        : Promise.resolve(null),
     ]);
-    const balances = accountTotals(accounts);
+    const balances = accounts === null ? null : accountTotals(accounts);
     return envelope(context, {
       period: input, totals: periodTotals(calculatePeriodAmounts(groups)), currentAccountTotals: balances,
-      missingFxCount: missing, complete: missing === 0 && balances.missingFxCount === 0,
-    }, [...fxWarnings(missing), ...(balances.missingFxCount ? ["Some current account balances lack BRL conversion."] : []),
-      ...(accounts.some((account) => account.investmentLink?.enabled) ? ["Some account balances are also represented as ACCOUNT_BALANCE investments. Do not add both representations as separate wealth."] : []),
+      missingFxCount: missing, complete: missing === 0 && (balances === null || balances.missingFxCount === 0),
+    }, [...fxWarnings(missing), ...(balances?.missingFxCount ? ["Some current account balances lack BRL conversion."] : []),
+      ...(accounts?.some((account) => account.investmentLink?.enabled) ? ["Some account balances are also represented as ACCOUNT_BALANCE investments. Do not add both representations as separate wealth."] : []),
     ]);
   }),
 });

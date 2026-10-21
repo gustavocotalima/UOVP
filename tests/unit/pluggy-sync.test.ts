@@ -144,7 +144,7 @@ describe("sincronização de item Pluggy removido", () => {
     const result = await syncSelectedPluggyItemsForUser("user-a", ["failed", "ok"], { automatic: true });
     expect(result).toMatchObject({
       itemCount: 2, succeededItemCount: 1, failedItemCount: 1,
-      failures: [{ itemId: "failed", message: "Conexão não encontrada" }],
+      failures: [{ itemId: "failed", message: "Conexão não encontrada", changed: false }],
     });
     expect(mocks.getItem).toHaveBeenCalledTimes(1);
     expect(mocks.getItem.mock.calls[0][1]).toBe("ok");

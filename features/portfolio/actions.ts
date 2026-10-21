@@ -21,11 +21,10 @@ import {
   reopenDeletedPluggyPositionForReview,
 } from "@/features/open-finance/diagram-exclusion";
 import { allocateContribution, questionChangeAffectsAllocation } from "./allocation";
-import {
-  applyManualFixedIncomeContribution,
-  fixedIncomeHoldingFingerprint,
-} from "./asset-groups";
+import { fixedIncomeHoldingFingerprint, holdingCurrentValue } from "./asset-groups";
+import { addInvestmentCost, investmentCostUpdate } from "./investment-cost";
 import { bumpPortfolioAndInvalidateDrafts } from "./invalidation";
+import { investmentTargetsTotalCents, targetPercentageCents } from "./target-drafts";
 import {
   applyAssetQuantityEdits, assetQuantityEditSchema, prepareAssetQuantityEdits,
   validateAssetQuantityEdits, type PreparedAssetQuantityEdits,
@@ -72,6 +71,10 @@ import {
 const investmentClassSchema = z.enum(INVESTMENT_CLASSES);
 const instrumentTypeSchema = z.enum(INSTRUMENT_TYPES);
 const marketRegionSchema = z.enum(["BRAZIL", "INTERNATIONAL"]);
+const investmentCostShape = {
+  investedValue: z.coerce.number().finite().min(0).nullable().optional(),
+  investedValueCurrency: z.string().trim().regex(/^[A-Za-z0-9]{3,8}$/).transform((value) => value.toUpperCase()).nullable().optional(),
+};
 const assetSchema = z.object({
   id: z.string().cuid().optional(),
   investmentClass: investmentClassSchema,
@@ -81,6 +84,7 @@ const assetSchema = z.object({
   quantity: z.coerce.number().min(0),
   unitPrice: z.coerce.number().min(0),
   manualValue: z.coerce.number().min(0).nullable().optional(),
+  ...investmentCostShape,
   currency: z.string().trim().regex(/^[A-Za-z0-9]{3,8}$/, "Informe uma moeda válida.").transform((value) => value.toUpperCase()).default("BRL"),
   fractional: z.boolean().default(false),
   score: z.coerce.number().int().min(-30).max(30).default(0),
@@ -99,7 +103,7 @@ const fixedIncomeHoldingSchema = z.object({
   customTypeName: z.string().trim().min(2).max(120).nullable().optional(),
   issuer: z.string().trim().min(2).max(120),
   productName: z.string().trim().min(2).max(160),
-  investedValue: z.coerce.number().min(0).nullable().optional(),
+  ...investmentCostShape,
   currentValue: z.coerce.number().min(0),
   rateConvention: z.enum(RATE_CONVENTIONS).nullable().optional(),
   benchmark: z.string().trim().max(40).nullable().optional(),
@@ -210,6 +214,7 @@ export async function saveAssetAction(input: AssetInput) {
     windowMs: 10 * 60_000,
   });
   const parsed = assetSchema.parse(input);
+  const costData = investmentCostUpdate(parsed);
   if (parsed.quantityEdits?.length && !parsed.id) throw new Error("Selecione um ativo existente para corrigir quantidades conectadas.");
   const portfolio = await ensurePortfolio(userId);
   const instrumentType = (parsed.instrumentType ?? inferInstrumentType(parsed.investmentClass)) as InstrumentType;
@@ -240,6 +245,9 @@ export async function saveAssetAction(input: AssetInput) {
   const existingHolding = existingPositions.find((holding) => holding.positionSource === "MANUAL") ?? null;
   const existingQuoteHolding = existingHolding ?? existingPositions[0] ?? null;
   const hasProviderControlledPosition = existingPositions.some((holding) => holding.positionSource !== "MANUAL");
+  if (hasProviderControlledPosition && parsed.investedValue !== undefined) {
+    throw new Error("O custo de posições conectadas é mantido pelo provedor.");
+  }
   if (parsed.id && !existingHolding && !hasProviderControlledPosition) {
     throw new Error("Posição do ativo não encontrada.");
   }
@@ -340,12 +348,9 @@ export async function saveAssetAction(input: AssetInput) {
       ?? existingHolding?.unitPrice
       ?? parsed.unitPrice,
   );
-  const quantity = new Prisma.Decimal(parsed.quantity);
   const fxRateToBrl = yahooFx || binanceQuote?.fxRateToBrl
     ? new Prisma.Decimal(yahooFx?.rateToBrl ?? binanceQuote!.fxRateToBrl!)
     : existingHolding?.fxRateToBrl ?? null;
-  const convertedQuote = yahooQuote || (binanceQuote && binanceQuote.currency !== "BRL");
-  const effectiveUnitPrice = convertedQuote && fxRateToBrl ? unitPrice.mul(fxRateToBrl) : unitPrice;
   const holdingData = {
     issuer: brapiQuote?.name ?? yahooQuote?.name ?? existingHolding?.issuer ?? parsed.name,
     productName: brapiQuote?.name ?? yahooQuote?.name ?? existingHolding?.productName ?? parsed.name,
@@ -367,7 +372,7 @@ export async function saveAssetAction(input: AssetInput) {
     unitPrice,
     fxRateToBrl,
     fxUpdatedAt: yahooFx?.asOf ?? existingHolding?.fxUpdatedAt ?? null,
-    investedValue: existingHolding?.investedValue ?? (parsed.manualValue == null ? quantity.mul(effectiveUnitPrice) : new Prisma.Decimal(parsed.manualValue)),
+    ...costData,
     currentValue: brapiQuote || yahooQuote || binanceQuote || ["BRAPI", "YAHOO", "BINANCE"].includes(existingHolding?.pricingSource ?? "") || parsed.manualValue == null ? null : new Prisma.Decimal(parsed.manualValue),
     currency: brapiQuote?.currency ?? yahooQuote?.currency ?? binanceQuote?.currency ?? existingHolding?.currency ?? parsed.currency.toUpperCase(),
     fractional: allowsFractionalUnits({
@@ -458,7 +463,7 @@ export async function saveAssetAction(input: AssetInput) {
       });
     }
     if (!providerControlled) {
-      const existingHolding = await tx.assetHolding.findFirst({
+      const manualHoldings = await tx.assetHolding.findMany({
         where: {
           assetId: parent.id,
           positionSource: "MANUAL",
@@ -466,8 +471,18 @@ export async function saveAssetAction(input: AssetInput) {
         },
         orderBy: { createdAt: "asc" },
       });
-      if (existingHolding) await tx.assetHolding.update({ where: { id: existingHolding.id }, data: holdingData });
-      else await tx.assetHolding.create({ data: { ...holdingData, assetId: parent.id } });
+      if (manualHoldings.length > 1) {
+        const totalQuantity = manualHoldings.reduce((total, holding) => total.add(holding.quantity), new Prisma.Decimal(0));
+        const totalValue = manualHoldings.reduce((total, holding) => total.add(holdingCurrentValue(holding).toString()), new Prisma.Decimal(0));
+        if (!totalQuantity.equals(parsed.quantity) || parsed.investedValue !== undefined
+          || (parsed.manualValue != null && !totalValue.equals(parsed.manualValue))) {
+          throw new Error("Este ativo possui mais de uma posição manual. Edite as posições pelo ID da aplicação na planilha.");
+        }
+      } else if (manualHoldings[0]) {
+        await tx.assetHolding.update({ where: { id: manualHoldings[0].id }, data: holdingData });
+      } else {
+        await tx.assetHolding.create({ data: { ...holdingData, assetId: parent.id } });
+      }
     }
     if (prepared && quantityLinks) await applyAssetQuantityEdits(tx, prepared, quantityLinks);
     await bumpPortfolioAndInvalidateDrafts(tx, portfolio.id, userId);
@@ -510,7 +525,7 @@ function fixedIncomeHoldingData(parsed: z.output<typeof fixedIncomeHoldingSchema
     currency: "BRL",
     quantity: new Prisma.Decimal(0),
     unitPrice: new Prisma.Decimal(0),
-    investedValue: parsed.investedValue == null ? null : new Prisma.Decimal(parsed.investedValue),
+    ...investmentCostUpdate(parsed),
     currentValue: new Prisma.Decimal(parsed.currentValue),
     fractional: true,
     rateConvention: parsed.rateConvention as RateConvention | null | undefined,
@@ -641,8 +656,16 @@ export async function deleteAssetHoldingAction(holdingId: string) {
   revalidatePath("/home");
 }
 
+const marketAssetImportSchema = assetSchema.omit({ id: true }).extend({
+  holdingId: z.string().cuid().optional(),
+  manualValueCurrency: z.string().trim().regex(/^[A-Za-z0-9]{3,8}$/).transform((value) => value.toUpperCase()).optional(),
+  fxRateToBrl: z.coerce.number().finite().positive().optional(),
+  fxUpdatedAt: z.coerce.date().nullable().optional(),
+});
+export type MarketAssetImportInput = z.input<typeof marketAssetImportSchema>;
+
 const portfolioImportSchema = z.object({
-  marketRows: z.array(assetSchema.omit({ id: true })).max(1000),
+  marketRows: z.array(marketAssetImportSchema).max(1000),
   fixedIncomeRows: z.array(fixedIncomeImportSchema).max(1000),
 }).superRefine((value, context) => {
   const total = value.marketRows.length + value.fixedIncomeRows.length;
@@ -651,7 +674,7 @@ const portfolioImportSchema = z.object({
 });
 
 export async function importPortfolioRowsAction(input: {
-  marketRows: AssetInput[];
+  marketRows: MarketAssetImportInput[];
   fixedIncomeRows: FixedIncomeImportInput[];
 }) {
   const userId = await requireUserId();
@@ -667,6 +690,7 @@ export async function importPortfolioRowsAction(input: {
     leaseMs: 30 * 60_000,
     action: async (lease) => {
       const parsed = portfolioImportSchema.parse(input);
+      for (const row of parsed.marketRows) investmentCostUpdate(row);
       const portfolio = await lease.runFencedTransaction((tx) => tx.portfolio.upsert({
         where: { userId },
         update: {},
@@ -717,9 +741,10 @@ export async function importPortfolioRowsAction(input: {
         }
         fixedIncomeHoldingData(row.holding);
       }
-      const explicitHoldingIds = parsed.fixedIncomeRows.flatMap((row) =>
-        row.holding.id ? [row.holding.id] : [],
-      );
+      const explicitHoldingIds = [
+        ...parsed.fixedIncomeRows.flatMap((row) => row.holding.id ? [row.holding.id] : []),
+        ...parsed.marketRows.flatMap((row) => row.holdingId ? [row.holdingId] : []),
+      ];
       if (new Set(explicitHoldingIds).size !== explicitHoldingIds.length) {
         throw new Error("A planilha repete o mesmo ID da aplicação em mais de uma linha.");
       }
@@ -735,10 +760,25 @@ export async function importPortfolioRowsAction(input: {
           throw new Error("Um ou mais IDs de aplicação não pertencem a este usuário.");
         }
       }
+      const anonymousMarketRows = parsed.marketRows.filter((row) => !row.holdingId);
+      if (anonymousMarketRows.length) {
+        const existingAssets = await prisma.asset.findMany({
+          where: {
+            portfolioId: portfolio.id,
+            OR: anonymousMarketRows.map((row) => ({ investmentClass: row.investmentClass, ticker: row.ticker })),
+          },
+          select: {
+            ticker: true,
+            holdings: { where: { positionSource: "MANUAL", includedInTotals: true }, select: { id: true } },
+          },
+        });
+        const ambiguous = existingAssets.find((asset) => asset.holdings.length > 1);
+        if (ambiguous) throw new Error(`${ambiguous.ticker} possui mais de uma posição manual. Informe o ID da aplicação para importar.`);
+      }
       const anonymousFingerprints = new Set<string>();
       for (const row of parsed.fixedIncomeRows) {
         if (row.holding.id) continue;
-        const key = `${row.familyCode}:${row.indexation}:${fixedIncomeHoldingFingerprint(row.holding)}`;
+        const key = `${row.investmentClass}:${row.familyCode}:${row.indexation}:${fixedIncomeHoldingFingerprint(row.holding)}`;
         if (anonymousFingerprints.has(key)) {
           throw new Error(
             `O lote contém aplicações indistinguíveis (${row.holding.productName}). Informe o ID da aplicação.`,
@@ -892,8 +932,6 @@ export async function importPortfolioRowsAction(input: {
       });
       const quantity = new Prisma.Decimal(row.quantity);
       const unitPrice = new Prisma.Decimal(brapiQuote?.price ?? yahooQuote?.price ?? binanceQuote?.price ?? row.unitPrice);
-      const marketFx = yahooFx?.rateToBrl ?? binanceQuote?.fxRateToBrl ?? null;
-      const effectiveUnitPrice = marketFx ? unitPrice.mul(marketFx) : unitPrice;
       const holdingData = {
         issuer: brapiQuote?.name ?? yahooQuote?.name ?? row.name,
         productName: brapiQuote?.name ?? yahooQuote?.name ?? row.name,
@@ -913,7 +951,7 @@ export async function importPortfolioRowsAction(input: {
         unitPrice,
         fxRateToBrl: yahooFx?.rateToBrl ?? binanceQuote?.fxRateToBrl ?? null,
         fxUpdatedAt: yahooFx?.asOf ?? (binanceQuote?.fxRateToBrl ? binanceQuote.asOf : null),
-        investedValue: row.manualValue == null ? quantity.mul(effectiveUnitPrice) : new Prisma.Decimal(row.manualValue),
+        ...investmentCostUpdate(row),
         currentValue: brapiQuote || yahooQuote || binanceQuote || row.manualValue == null ? null : new Prisma.Decimal(row.manualValue),
         fractional: allowsFractionalUnits({
           instrumentType,
@@ -927,7 +965,7 @@ export async function importPortfolioRowsAction(input: {
         ...(resolvedImportLogoUrl ? { logoUrl: resolvedImportLogoUrl } : {}),
         priceUpdatedAt: brapiQuote?.asOf ?? yahooQuote?.asOf ?? binanceQuote?.asOf ?? new Date(),
       };
-      const existingHolding = await tx.assetHolding.findFirst({
+      const manualHoldings = await tx.assetHolding.findMany({
         where: {
           assetId: parent.id,
           positionSource: "MANUAL",
@@ -935,6 +973,15 @@ export async function importPortfolioRowsAction(input: {
         },
         orderBy: { createdAt: "asc" },
       });
+      const existingHolding = row.holdingId
+        ? manualHoldings.find((holding) => holding.id === row.holdingId)
+        : manualHoldings[0];
+      if (row.holdingId && !existingHolding) {
+        throw new Error(`A aplicação ${row.holdingId} não pertence ao ativo informado.`);
+      }
+      if (!row.holdingId && manualHoldings.length > 1) {
+        throw new Error(`${ticker} possui mais de uma posição manual. Informe o ID da aplicação para importar.`);
+      }
       const providerControlled = await tx.assetHolding.count({
         where: {
           assetId: parent.id,
@@ -947,10 +994,34 @@ export async function importPortfolioRowsAction(input: {
           `${ticker} é controlado por um provedor. Ajuste a posição no provedor em vez de importá-la manualmente.`,
         );
       }
+      let manualFxData: { fxRateToBrl: Prisma.Decimal | null; fxUpdatedAt: Date | null } | undefined;
+      if (!brapiQuote && !yahooQuote && !binanceQuote) {
+        const currency = holdingData.currency.trim().toUpperCase();
+        if (currency !== "BRL") {
+          if (row.manualValue != null && row.manualValueCurrency !== currency) {
+            throw new Error(`${ticker}: informe Valor atual nativo na moeda ${currency}; o Valor atual consolidado em BRL não é um saldo nativo.`);
+          }
+          // Preserve an omitted conversion only for an explicitly identified
+          // holding in the same native currency. A new position must supply FX.
+          const previousFx = row.holdingId && existingHolding?.currency === currency ? existingHolding : null;
+          const rate = row.fxRateToBrl === undefined ? previousFx?.fxRateToBrl : new Prisma.Decimal(row.fxRateToBrl);
+          if (!rate?.isFinite() || !rate.gt(0)) {
+            throw new Error(`${ticker}: informe um câmbio para BRL válido para a posição manual em ${currency}.`);
+          }
+          manualFxData = {
+            fxRateToBrl: rate,
+            fxUpdatedAt: row.fxUpdatedAt !== undefined
+              ? row.fxUpdatedAt : row.fxRateToBrl === undefined ? previousFx?.fxUpdatedAt ?? null : null,
+          };
+        } else {
+          manualFxData = { fxRateToBrl: null, fxUpdatedAt: null };
+        }
+      }
+      const savedHoldingData = { ...holdingData, ...manualFxData };
       if (existingHolding) {
-        await tx.assetHolding.update({ where: { id: existingHolding.id }, data: holdingData });
+        await tx.assetHolding.update({ where: { id: existingHolding.id }, data: savedHoldingData });
       } else {
-        await tx.assetHolding.create({ data: { ...holdingData, assetId: parent.id } });
+        await tx.assetHolding.create({ data: { ...savedHoldingData, assetId: parent.id } });
       }
     }
 
@@ -966,6 +1037,7 @@ export async function importPortfolioRowsAction(input: {
           fixedIncomeFamilyCode: family.code,
           indexation,
           instrumentType: "FIXED_INCOME",
+          investmentClass: row.investmentClass,
         },
       });
       if (
@@ -1824,9 +1896,11 @@ export async function refreshStaleMarketPricesAction(): Promise<AutomaticMarketR
 
 export async function saveInvestmentTargetsAction(values: Record<InvestmentClassKey, number>) {
   const userId = await requireUserId();
-  const parsed = z.record(investmentClassSchema, z.number().min(0).max(100)).parse(values);
-  const total = INVESTMENT_CLASSES.reduce((sum, key) => sum + (parsed[key] ?? 0), 0);
-  if (Math.abs(total - 100) > 0.001) throw new Error("As metas precisam totalizar 100%.");
+  const parsed = z.record(investmentClassSchema, z.number().min(0).max(100).refine(
+    (value) => targetPercentageCents(value) !== null,
+    "As metas precisam usar no máximo duas casas decimais.",
+  )).parse(values);
+  if (investmentTargetsTotalCents(parsed) !== 10_000) throw new Error("As metas precisam totalizar 100%.");
   const portfolio = await ensurePortfolio(userId);
   await prisma.$transaction(async (tx) => {
     for (const investmentClass of INVESTMENT_CLASSES) {
@@ -2168,16 +2242,17 @@ export async function executeContributionAction(
             holding = await tx.assetHolding.create({ data: { ...fixedIncomeHoldingData(parsedHolding), assetId: suggestion.assetId } });
           }
           if (!holding) throw new Error("Selecione ou crie uma aplicação para registrar o aporte.");
-          const nextValues = applyManualFixedIncomeContribution({
+          const costData = addInvestmentCost({
             investedValue: holding.investedValue,
-            currentValue: holding.currentValue ?? holding.quantity.mul(holding.unitPrice),
-            amount: value,
+            investedValueCurrency: holding.investedValueCurrency,
+            hasPriorPosition: (holding.currentValue ?? holding.quantity.mul(holding.unitPrice)).gt(0),
+            additions: new Map([["BRL", value]]),
           });
           await tx.assetHolding.update({
             where: { id: holding.id },
             data: {
-              investedValue: new Prisma.Decimal(nextValues.investedValue.toString()),
-              currentValue: new Prisma.Decimal(nextValues.currentValue.toString()),
+              ...costData,
+              currentValue: (holding.currentValue ?? holding.quantity.mul(holding.unitPrice)).add(value),
             },
           });
         } else {
@@ -2192,11 +2267,21 @@ export async function executeContributionAction(
           }
           const paidUnitPriceBrl = new Prisma.Decimal(parsedPaidUnitPrice!.toString()).mul(executionFxRate ?? 1);
           value = quantity.mul(paidUnitPriceBrl);
+          const additions = new Map([["BRL", value]]);
+          if (suggestion.nativeCurrency) {
+            additions.set(suggestion.nativeCurrency, quantity.mul(new Prisma.Decimal(parsedPaidUnitPrice!.toString())));
+          }
+          const costData = addInvestmentCost({
+            investedValue: holding.investedValue,
+            investedValueCurrency: holding.investedValueCurrency,
+            hasPriorPosition: holding.quantity.gt(0),
+            additions,
+          });
           await tx.assetHolding.update({
             where: { id: holding.id },
             data: {
               quantity: { increment: quantity },
-              investedValue: new Prisma.Decimal(holding.investedValue ?? 0).add(value),
+              ...costData,
               ...(holding.currentValue != null ? { currentValue: holding.currentValue.add(value) } : {}),
             },
           });

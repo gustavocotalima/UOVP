@@ -64,15 +64,18 @@ export async function classifyFinanceTransactionsForUser(
 ): Promise<FinanceClassificationSummary> {
   const db = transactionClient ?? prisma;
   await ensureDefaultTags(userId, db);
-  const [transactions, rules, systemTags] = await Promise.all([
-    db.financeTransaction.findMany({
-      where: {
-        userId,
-        source: "PLUGGY",
-        deleted: false,
-        ...(transactionIds ? { id: { in: transactionIds } } : {}),
-      },
-      include: { tags: true },
+  const ids = transactionIds ? [...new Set(transactionIds)] : undefined;
+  const candidateWhere: Prisma.FinanceTransactionWhereInput = {
+    userId,
+    source: "PLUGGY",
+    deleted: false,
+    ...(ids ? { id: { in: ids } } : {}),
+  };
+  const [highWater, rules, systemTags] = await Promise.all([
+    db.financeTransaction.findFirst({
+      where: candidateWhere,
+      select: { id: true },
+      orderBy: { id: "desc" },
     }),
     db.financeClassificationRule.findMany({
       where: { userId, enabled: true },
@@ -97,102 +100,133 @@ export async function classifyFinanceTransactionsForUser(
       .map((tag) => [tag.systemKey, tag.id]),
   );
   const summary: FinanceClassificationSummary = {
-    processed: transactions.length,
+    processed: 0,
     metasAssigned: 0,
     tagsAssigned: 0,
     internalTransfersDetected: 0,
     unclassified: 0,
   };
-  const operations: Prisma.PrismaPromise<unknown>[] = [];
+  const classifyBatch = async (tx: Prisma.TransactionClient, ids: string[]) => {
+    await tx.$queryRaw(Prisma.sql`
+      SELECT "id"
+      FROM "FinanceTransaction"
+      WHERE "userId" = ${userId}
+        AND "source" = 'PLUGGY'
+        AND "deleted" = false
+        AND "id" IN (${Prisma.join(ids)})
+      ORDER BY "id"
+      FOR UPDATE
+    `);
+    // Read sources and manual choices after acquiring the row locks. An earlier
+    // snapshot can predate a manual edit committed while classification waited.
+    const currentTransactions = await tx.financeTransaction.findMany({
+      where: { userId, source: "PLUGGY", deleted: false, id: { in: ids } },
+      include: { tags: true },
+      orderBy: { id: "asc" },
+      take: CLASSIFICATION_BATCH_SIZE,
+    });
+    summary.processed += currentTransactions.length;
+    for (const transaction of currentTransactions) {
+      const provider = classifyProviderTransaction(transaction);
+      const exactRule = financeRuleCandidates(transaction)
+        .map((candidate) => rulesByKey.get(ruleKey(transaction.kind, candidate.matchType, candidate.matchValue)))
+        .find(Boolean);
+      const matchedRule = exactRule ?? prefixRules.find(
+        (rule) =>
+          rule.kind === transaction.kind
+          && financeDescriptionMatchesPrefix(transaction, rule.matchValue),
+      );
 
-  for (const transaction of transactions) {
-    const provider = classifyProviderTransaction(transaction);
-    const exactRule = financeRuleCandidates(transaction)
-      .map((candidate) => rulesByKey.get(ruleKey(transaction.kind, candidate.matchType, candidate.matchValue)))
-      .find(Boolean);
-    const matchedRule = exactRule ?? prefixRules.find(
-      (rule) =>
-        rule.kind === transaction.kind
-        && financeDescriptionMatchesPrefix(transaction, rule.matchValue),
-    );
+      const budgetManual = transaction.budgetCategorySource === "MANUAL";
+      const tagsManual = transaction.tagAssignmentSource === "MANUAL";
+      const internalManual = transaction.internalTransferSource === "MANUAL";
 
-    const budgetManual = transaction.budgetCategorySource === "MANUAL";
-    const tagsManual = transaction.tagAssignmentSource === "MANUAL";
-    const internalManual = transaction.internalTransferSource === "MANUAL";
+      const budgetCategory = budgetManual
+        ? transaction.budgetCategory
+        : matchedRule?.assignsBudgetCategory
+          ? matchedRule.budgetCategory
+          : provider.budgetCategory;
+      const budgetCategorySource = budgetManual
+        ? "MANUAL"
+        : matchedRule?.assignsBudgetCategory
+          ? "USER_RULE"
+          : provider.budgetCategory
+            ? "PROVIDER_DEFAULT"
+            : "UNASSIGNED";
 
-    const budgetCategory = budgetManual
-      ? transaction.budgetCategory
-      : matchedRule?.assignsBudgetCategory
-        ? matchedRule.budgetCategory
-        : provider.budgetCategory;
-    const budgetCategorySource = budgetManual
-      ? "MANUAL"
-      : matchedRule?.assignsBudgetCategory
-        ? "USER_RULE"
-        : provider.budgetCategory
-          ? "PROVIDER_DEFAULT"
-          : "UNASSIGNED";
+      const internalTransfer = internalManual
+        ? transaction.internalTransfer
+        : matchedRule?.assignsInternalTransfer
+          ? matchedRule.internalTransfer
+          : provider.internalTransfer;
+      const internalTransferSource = internalManual
+        ? "MANUAL"
+        : matchedRule?.assignsInternalTransfer
+          ? "USER_RULE"
+          : provider.internalTransfer
+            ? "PROVIDER_DEFAULT"
+            : "UNASSIGNED";
 
-    const internalTransfer = internalManual
-      ? transaction.internalTransfer
-      : matchedRule?.assignsInternalTransfer
-        ? matchedRule.internalTransfer
-        : provider.internalTransfer;
-    const internalTransferSource = internalManual
-      ? "MANUAL"
-      : matchedRule?.assignsInternalTransfer
-        ? "USER_RULE"
-        : provider.internalTransfer
-          ? "PROVIDER_DEFAULT"
-          : "UNASSIGNED";
+      const ruleTagIds = matchedRule?.assignsTags ? matchedRule.tags.map((tag) => tag.tagId) : null;
+      const providerTagIds = provider.tagKeys
+        .map((key: DefaultFinanceTagKey) => tagIdsByKey.get(key))
+        .filter((id): id is string => Boolean(id));
+      const manualTags = transaction.tags.filter((tag) => tag.source === "MANUAL");
+      const manualTagIds = new Set(manualTags.map((tag) => tag.tagId));
+      const automaticTagIds = tagsManual ? [] : [...new Set(ruleTagIds ?? providerTagIds)]
+        .filter((tagId) => !manualTagIds.has(tagId));
+      const tagAssignmentSource = tagsManual
+        ? "MANUAL"
+        : matchedRule?.assignsTags
+          ? "USER_RULE"
+          : providerTagIds.length
+            ? "PROVIDER_DEFAULT"
+            : "UNASSIGNED";
 
-    const ruleTagIds = matchedRule?.assignsTags ? matchedRule.tags.map((tag) => tag.tagId) : null;
-    const providerTagIds = provider.tagKeys
-      .map((key: DefaultFinanceTagKey) => tagIdsByKey.get(key))
-      .filter((id): id is string => Boolean(id));
-    const automaticTagIds = tagsManual ? [] : (ruleTagIds ?? providerTagIds);
-    const tagAssignmentSource = tagsManual
-      ? "MANUAL"
-      : matchedRule?.assignsTags
-        ? "USER_RULE"
-        : providerTagIds.length
-          ? "PROVIDER_DEFAULT"
-          : "UNASSIGNED";
+      const appliedRule =
+        matchedRule
+        && (
+          (!budgetManual && matchedRule.assignsBudgetCategory)
+          || (!tagsManual && matchedRule.assignsTags)
+          || (!internalManual && matchedRule.assignsInternalTransfer)
+        )
+          ? matchedRule
+          : null;
 
-    const appliedRule =
-      matchedRule
-      && (
-        (!budgetManual && matchedRule.assignsBudgetCategory)
-        || (!tagsManual && matchedRule.assignsTags)
-        || (!internalManual && matchedRule.assignsInternalTransfer)
-      )
-        ? matchedRule
-        : null;
+      if (budgetCategory && budgetCategorySource !== "MANUAL") summary.metasAssigned += 1;
+      summary.tagsAssigned += automaticTagIds.length;
+      if (internalTransfer && internalTransferSource !== "MANUAL") summary.internalTransfersDetected += 1;
+      if (
+        transaction.kind === "EXPENSE"
+        && !budgetCategory
+        && budgetCategorySource === "UNASSIGNED"
+        && !internalTransfer
+      ) {
+        summary.unclassified += 1;
+      }
 
-    if (budgetCategory && budgetCategorySource !== "MANUAL") summary.metasAssigned += 1;
-    summary.tagsAssigned += automaticTagIds.length;
-    if (internalTransfer && internalTransferSource !== "MANUAL") summary.internalTransfersDetected += 1;
-    if (
-      transaction.kind === "EXPENSE"
-      && !budgetCategory
-      && budgetCategorySource === "UNASSIGNED"
-      && !internalTransfer
-    ) {
-      summary.unclassified += 1;
-    }
+      const data: Prisma.FinanceTransactionUncheckedUpdateInput = {};
+      if (transaction.budgetCategory !== budgetCategory) data.budgetCategory = budgetCategory as BudgetCategory | null;
+      if (transaction.budgetCategorySource !== budgetCategorySource) data.budgetCategorySource = budgetCategorySource;
+      if (transaction.tagAssignmentSource !== tagAssignmentSource) data.tagAssignmentSource = tagAssignmentSource;
+      if (transaction.internalTransfer !== internalTransfer) data.internalTransfer = internalTransfer;
+      if (transaction.internalTransferSource !== internalTransferSource) data.internalTransferSource = internalTransferSource;
+      if (transaction.classificationRuleId !== (appliedRule?.id ?? null)) data.classificationRuleId = appliedRule?.id ?? null;
+      const desiredTags = [
+        ...manualTags,
+        ...automaticTagIds.map((tagId) => ({ tagId, source: tagAssignmentSource })),
+      ];
+      const desiredTagKeys = new Set(desiredTags.map((tag) => `${tag.tagId}:${tag.source}`));
+      const tagsChanged = !tagsManual && (transaction.tags.length !== desiredTags.length
+        || transaction.tags.some((tag) => !desiredTagKeys.has(`${tag.tagId}:${tag.source}`)));
+      if (!Object.keys(data).length && !tagsChanged) continue;
 
-    operations.push(
-      db.financeTransaction.update({
-        where: { id: transaction.id },
+      await tx.financeTransaction.update({
+        where: { id: transaction.id, userId },
         data: {
-          budgetCategory: budgetCategory as BudgetCategory | null,
-          budgetCategorySource,
-          tagAssignmentSource,
-          internalTransfer,
-          internalTransferSource,
-          classificationRuleId: appliedRule?.id ?? null,
+          ...data,
           classifiedAt: new Date(),
-          ...(!tagsManual
+          ...(tagsChanged
             ? {
                 tags: {
                   deleteMany: { source: { not: "MANUAL" } },
@@ -201,14 +235,26 @@ export async function classifyFinanceTransactionsForUser(
               }
             : {}),
         },
-      }),
-    );
-  }
+      });
+    }
+  };
 
-  for (let index = 0; index < operations.length; index += CLASSIFICATION_BATCH_SIZE) {
-    const batch = operations.slice(index, index + CLASSIFICATION_BATCH_SIZE);
-    if (transactionClient) await Promise.all(batch);
-    else await prisma.$transaction(batch);
+  let cursor: string | undefined;
+  while (highWater) {
+    const candidates = await db.financeTransaction.findMany({
+      where: {
+        AND: [candidateWhere, { id: { ...(cursor ? { gt: cursor } : {}), lte: highWater.id } }],
+      },
+      select: { id: true },
+      orderBy: { id: "asc" },
+      take: CLASSIFICATION_BATCH_SIZE,
+    });
+    if (!candidates.length) break;
+    const batchIds = candidates.map((transaction) => transaction.id);
+    if (transactionClient) await classifyBatch(transactionClient, batchIds);
+    else await prisma.$transaction((tx) => classifyBatch(tx, batchIds));
+    cursor = candidates[candidates.length - 1].id;
+    if (candidates.length < CLASSIFICATION_BATCH_SIZE) break;
   }
   return summary;
 }

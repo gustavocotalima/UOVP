@@ -43,3 +43,30 @@ export function resolveTransactionFx({
     fxSource: "YAHOO",
   };
 }
+
+/** A frozen rate belongs to a currency and transaction day, not to an amount. */
+export function resolveUpdatedTransactionFx(input: Parameters<typeof resolveTransactionFx>[0] & {
+  transactionDate: Date;
+  previous?: {
+    currencyCode: string;
+    date: Date;
+    fxRateToBrl: Decimal | null;
+    fxRateDate: Date | null;
+    fxSource: TransactionFxResolution["fxSource"];
+  } | null;
+}): TransactionFxResolution {
+  const { previous } = input;
+  if (input.accountCurrencyCode.trim().toUpperCase() !== "BRL"
+    && previous?.currencyCode.trim().toUpperCase() === input.accountCurrencyCode.trim().toUpperCase()
+    && previous.date.toISOString().slice(0, 10) === input.transactionDate.toISOString().slice(0, 10)
+    && previous.fxSource !== null
+    && previous.fxRateToBrl?.isFinite() && previous.fxRateToBrl.gt(0)) {
+    return {
+      reportingAmountBrl: input.amountInAccountCurrency.mul(previous.fxRateToBrl).toDecimalPlaces(2),
+      fxRateToBrl: previous.fxRateToBrl,
+      fxRateDate: previous.fxRateDate,
+      fxSource: previous.fxSource,
+    };
+  }
+  return resolveTransactionFx(input);
+}

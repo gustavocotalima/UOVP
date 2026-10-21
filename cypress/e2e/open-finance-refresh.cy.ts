@@ -26,6 +26,125 @@ describe("invalidação dos dados Open Finance", () => {
     cy.contains('[role="status"]', "Sincronizando Open Finance automaticamente").should("not.exist");
   }
 
+  function transactionPageBody(page: number, label: string) {
+    return {
+      page,
+      total: 26,
+      transactions: [{
+        id: `transaction-${page}`,
+        institution: "Inter",
+        accountName: "Conta corrente",
+        description: `${label} página ${page}`,
+        merchantName: null,
+        category: null,
+        amount: "25",
+        currencyCode: "BRL",
+        date: "2026-07-01T12:00:00.000Z",
+        type: "CREDIT",
+        status: "POSTED",
+      }],
+    };
+  }
+
+  it("mostra erro local na página 2 sem reutilizar as linhas da página 1 e permite retentar", () => {
+    let failPageTwo = true;
+    let releaseRetry: (() => void) | undefined;
+    cy.intercept("GET", "/api/open-finance/transactions?*", (request) => {
+      const page = Number(new URL(request.url).searchParams.get("page"));
+      if (page === 2 && failPageTwo) {
+        request.reply({ statusCode: 503, body: { error: "Serviço temporariamente indisponível." } });
+        return;
+      }
+      if (page === 2) {
+        return new Promise<void>((resolve) => {
+          releaseRetry = () => {
+            request.reply(transactionPageBody(page, "Retentativa"));
+            resolve();
+          };
+        });
+      }
+      request.reply(transactionPageBody(page, "Anterior"));
+    }).as("transactions");
+    cy.visit("/open-finance");
+    cy.waitForHydration();
+    cy.contains("button", "Transações").click();
+    cy.wait("@transactions");
+    cy.contains("Anterior página 1").should("exist");
+    cy.contains("button", "Próxima").click();
+    cy.wait("@transactions").its("response.statusCode").should("equal", 503);
+    cy.get("#open-finance-panel-transactions").within(() => {
+      cy.contains("Página 2 de 2").should("exist");
+      cy.contains('[role="alert"]', "Não foi possível carregar a página 2").should("exist");
+      cy.contains("Anterior página 1").should("not.exist");
+      cy.contains("Nenhuma transação sincronizada.").should("not.exist");
+      cy.contains("button", "Anterior").should("be.enabled");
+      cy.contains("button", "Próxima").should("be.disabled");
+      cy.then(() => { failPageTwo = false; });
+      cy.contains("button", "Tentar novamente").click();
+      cy.contains("Carregando transações…").should("exist");
+      cy.contains("button", "Anterior").should("be.disabled");
+      cy.contains("button", "Próxima").should("be.disabled");
+      cy.get('[role="alert"]').should("not.exist");
+    });
+    cy.wrap(null).should(() => { expect(releaseRetry).to.be.a("function"); });
+    cy.then(() => releaseRetry!());
+    cy.wait("@transactions");
+    cy.get("#open-finance-panel-transactions").within(() => {
+      cy.contains("Retentativa página 2").should("exist");
+      cy.contains("Página 2 de 2").should("exist");
+      cy.contains("Anterior página 1").should("not.exist");
+      cy.contains("Carregando transações…").should("not.exist");
+      cy.get('[role="alert"]').should("not.exist");
+    });
+  });
+
+  it("ignora respostas atrasadas após sair da aba e atualizar o snapshot na mesma página", () => {
+    const releases: Array<() => void> = [];
+    let returnedObsolete = 0;
+    let pageTwoRequests = 0;
+    cy.intercept("GET", "/api/open-finance/transactions?*", (request) => {
+      const page = Number(new URL(request.url).searchParams.get("page"));
+      request.reply(transactionPageBody(page, snapshotLabel));
+    }).as("transactions");
+    cy.visit("/open-finance");
+    cy.waitForHydration();
+    cy.window().then((window) => {
+      const fetch = window.fetch.bind(window);
+      // Hold delivery after real HTTP completes, so releasing a stale response is
+      // deterministic even when the component has already aborted its signal.
+      cy.stub(window, "fetch").callsFake(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const response = await fetch(input, init);
+        if (String(input).includes("/api/open-finance/transactions?page=2") && ++pageTwoRequests <= 2) {
+          await new Promise<void>((resolve) => { releases.push(resolve); });
+          returnedObsolete += 1;
+        }
+        return response;
+      });
+    });
+    cy.contains("button", "Transações").click();
+    cy.wait("@transactions");
+    cy.contains("button", "Próxima").click();
+    cy.wait("@transactions");
+    cy.wrap(null).should(() => { expect(releases).to.have.length(1); });
+    cy.contains("button", "Contas").click();
+    cy.contains("button", "Transações").click();
+    cy.wait("@transactions");
+    cy.wrap(null).should(() => { expect(releases).to.have.length(2); });
+    completeExternalSync();
+    cy.wait("@transactions").its("request.url").should("include", "page=2");
+    cy.contains("Atualizado página 2").should("exist");
+    cy.then(() => { releases.forEach((release) => release()); });
+    cy.wrap(null).should(() => { expect(returnedObsolete).to.equal(2); });
+    cy.get("#open-finance-panel-transactions").within(() => {
+      cy.contains("Atualizado página 2").should("exist");
+      cy.contains("Página 2 de 2").should("exist");
+      cy.contains("Anterior página 1").should("not.exist");
+      cy.contains("Anterior página 2").should("not.exist");
+      cy.contains("Carregando transações…").should("not.exist");
+      cy.get('[role="alert"]').should("not.exist");
+    });
+  });
+
   it("atualiza a consulta ativa após refresh externo preservando aba e página", () => {
     cy.intercept("GET", "/api/open-finance/transactions?*", (request) => {
       const page = Number(new URL(request.url).searchParams.get("page"));

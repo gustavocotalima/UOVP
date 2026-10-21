@@ -16,7 +16,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/features/mcp/query", () => ({ readAnalysis: mocks.readAnalysis }));
 
 import { financeTools } from "@/features/mcp/finance-tools";
-import { McpError, type McpContext } from "@/features/mcp/types";
+import { McpError, type McpContext, type McpScope } from "@/features/mcp/types";
 
 const context: McpContext = {
   userId: "user-a", clientId: "client", grantId: "grant", timeZone: "America/Sao_Paulo",
@@ -92,6 +92,55 @@ describe("read-only MCP finance tools", () => {
   it("rejects missing scope before reading the database", () => {
     expect(() => execute("list_accounts", {}, { ...context, scopes: ["finance:read"] })).toThrow(McpError);
     expect(mocks.readAnalysis).not.toHaveBeenCalled();
+  });
+
+  it.each<{
+    scopes: McpScope[]; summaryAllowed: boolean; balancesAllowed: boolean;
+  }>([
+    { scopes: ["finance:read"], summaryAllowed: true, balancesAllowed: false },
+    { scopes: ["accounts:read"], summaryAllowed: false, balancesAllowed: true },
+    { scopes: ["finance:read", "accounts:read"], summaryAllowed: true, balancesAllowed: true },
+    { scopes: [], summaryAllowed: false, balancesAllowed: false },
+  ])("isolates summary/account permissions for $scopes", async ({ scopes, summaryAllowed, balancesAllowed }) => {
+    const scopedContext = { ...context, scopes };
+    mocks.db.financialAccount.findMany.mockResolvedValue([account()]);
+    if (summaryAllowed) {
+      const result = await execute("get_financial_summary", period, scopedContext);
+      expect(result.data).toMatchObject({
+        currentAccountTotals: balancesAllowed ? { bankBalance: "2850.38" } : null,
+        complete: true,
+      });
+      expect(mocks.db.financialAccount.findMany).toHaveBeenCalledTimes(balancesAllowed ? 1 : 0);
+      const definition = financeTools.find((candidate) => candidate.name === "get_financial_summary")!;
+      expect(z.object(definition.outputSchema!).safeParse(result).success).toBe(true);
+    } else {
+      expect(() => execute("get_financial_summary", period, scopedContext)).toThrow(McpError);
+      expect(mocks.readAnalysis).not.toHaveBeenCalled();
+    }
+    if (balancesAllowed) {
+      const result = await execute("list_accounts", {}, scopedContext);
+      expect(result.data).toMatchObject({ totals: { bankBalance: "2850.38" } });
+    } else {
+      expect(() => execute("list_accounts", {}, scopedContext)).toThrow(McpError);
+    }
+  });
+
+  it("omits balance FX/overlap warnings and keeps permitted data complete without accounts:read", async () => {
+    mocks.db.financeTransaction.groupBy.mockResolvedValue([group("100", null)]);
+    mocks.db.financialAccount.findMany.mockResolvedValue([
+      account({ balanceBrl: null, investmentLink: { enabled: true, assetHoldingId: "private-holding", status: "MAPPED" } }),
+    ]);
+    const output = await execute("get_financial_summary", period, { ...context, scopes: ["finance:read"] });
+    expect(output.data).toMatchObject({
+      totals: { grossIncome: "100.00" }, currentAccountTotals: null, missingFxCount: 0, complete: true,
+    });
+    expect(output.warnings).toEqual([]);
+    expect(mocks.db.financialAccount.findMany).not.toHaveBeenCalled();
+
+    mocks.db.financeTransaction.count.mockResolvedValue(1);
+    const incomplete = await execute("get_financial_summary", period, { ...context, scopes: ["finance:read"] });
+    expect(incomplete.data).toMatchObject({ currentAccountTotals: null, missingFxCount: 1, complete: false });
+    expect(incomplete.warnings).toEqual([expect.stringContaining("eligible transaction")]);
   });
 
   it("rejects userId inputs, oversized pages and periods longer than twelve months", async () => {

@@ -1,7 +1,7 @@
 import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { syncAllPluggyItemsForUser, syncPluggyItemForUser } from "@/features/open-finance/sync";
+import { PluggySyncError, syncAllPluggyItemsForUser, syncPluggyItemForUser } from "@/features/open-finance/sync";
 import { getActiveUser } from "@/lib/current-user";
 import { isSameOriginRequest } from "@/lib/request-security";
 import {
@@ -12,6 +12,8 @@ import {
 import { anonymizedUserId, logIntegrationRefresh } from "@/lib/integration-observability";
 
 const inputSchema = z.object({ itemId: z.string().uuid().optional() });
+const refreshPaths = ["/open-finance", "/home", "/orcamento-domestico", "/metas", "/contas", "/faturas", "/transacoes", "/tags", "/carteira"];
+function revalidateSnapshots() { refreshPaths.forEach((path) => revalidatePath(path)); }
 
 export async function POST(request: Request) {
   if (!isSameOriginRequest(request)) return NextResponse.json({ error: "Origem inválida." }, { status: 403 });
@@ -31,7 +33,7 @@ export async function POST(request: Request) {
     const result = input.data.itemId
       ? await syncPluggyItemForUser(user.id, input.data.itemId)
       : await syncAllPluggyItemsForUser(user.id);
-    ["/open-finance", "/home", "/orcamento-domestico", "/metas", "/contas", "/faturas", "/transacoes", "/tags", "/carteira"].forEach((path) => revalidatePath(path));
+    revalidateSnapshots();
     logIntegrationRefresh({
       event: "pluggy-refresh",
       user: anonymizedUserId(user.id),
@@ -44,11 +46,11 @@ export async function POST(request: Request) {
       failedConnections: "failedItemCount" in result ? result.failedItemCount : 0,
     });
     if ("failedItemCount" in result && result.failedItemCount > 0) {
-      if (result.succeededItemCount === 0) {
+      if (result.succeededItemCount === 0 && !result.changed) {
         return NextResponse.json(
           {
             ...result,
-            error: "Nenhuma conexão pôde ser sincronizada. Os dados anteriores foram preservados.",
+            error: "Nenhuma conexão pôde ser sincronizada. Não houve atualização dos dados financeiros das conexões.",
           },
           { status: 502 },
         );
@@ -56,7 +58,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           ...result,
-          warning: `${result.failedItemCount} conexão(ões) não puderam ser sincronizadas.`,
+          warning: `${result.failedItemCount} conexão(ões) não puderam ser concluídas.${result.partiallyUpdatedItemCount ? " Parte dos dados já foi atualizada; uma nova sincronização continuará o processo." : ""}`,
         },
         { status: 207 },
       );
@@ -75,6 +77,14 @@ export async function POST(request: Request) {
     }
     return NextResponse.json(result);
   } catch (error) {
+    if (error instanceof PluggySyncError) {
+      revalidateSnapshots();
+      return NextResponse.json({
+        changed: true,
+        partial: true,
+        warning: "A sincronização foi interrompida após atualizar parte dos dados. Uma nova sincronização continuará o processo.",
+      }, { status: 207 });
+    }
     const status = error instanceof OperationRateLimitError
       ? 429
       : error instanceof OperationInProgressError

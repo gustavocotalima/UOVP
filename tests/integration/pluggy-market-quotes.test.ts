@@ -119,4 +119,18 @@ suite("cotações de mercado após sincronização Pluggy", () => {
     expect(link.holding?.priceUpdatedAt).toBeNull();
     expect(link.holding?.quantity.toString()).toBe("10");
   });
+
+  it("mantém a moeda do custo do provedor separada da moeda da cotação", async () => {
+    const { userId, investmentId } = await fixture(true);
+    await reconcilePluggyInvestmentsForUser(userId);
+    await db!.pluggyInvestment.update({
+      where: { id: investmentId }, data: { amountOriginal: 100, currencyCode: "USD" },
+    });
+    await reconcilePluggyInvestmentsForUser(userId);
+    const link = await db!.pluggyInvestmentDiagramLink.findUniqueOrThrow({
+      where: { pluggyInvestmentDbId: investmentId }, include: { holding: true },
+    });
+    expect(link.holding).toMatchObject({ currency: "BRL", investedValueCurrency: "USD" });
+    expect(link.holding!.investedValue?.toString()).toBe("100");
+  });
 });

@@ -9,7 +9,8 @@ import {
 import { resolveFinancialReference } from "@/features/finance/calculations";
 import { writeFinancialReferenceBatches } from "@/features/finance/financial-reference";
 import { resolvePluggyTransactionAmounts } from "@/features/open-finance/transaction-amount";
-import { ensureHistoricalFxRates, resolveTransactionFx } from "@/features/finance/fx";
+import { ensureHistoricalFxRates } from "@/features/finance/fx";
+import { resolveUpdatedTransactionFx } from "@/features/finance/fx-resolution";
 import { fetchYahooFxRates } from "@/features/portfolio/yahoo-finance";
 import {
   classifyFinanceTransactionsForUser,
@@ -39,6 +40,7 @@ import {
   resolvePluggyInstitutionName,
 } from "./institution-logo";
 import { extractAccountInvestmentSnapshots } from "./reserved-balances";
+import { acknowledgePluggySync } from "./sync-requests";
 
 const WRITE_BATCH_SIZE = 100;
 const INVESTMENT_SYNC_CONCURRENCY = 6;
@@ -48,6 +50,26 @@ class RemotePluggyItemDeletedError extends Error {
     super("A conexão foi removida na Pluggy.");
     this.name = "RemotePluggyItemDeletedError";
   }
+}
+
+/** A failed refresh can still contain committed, retryable progress. */
+export class PluggySyncError extends Error {
+  readonly changed = true;
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : "Falha desconhecida na sincronização.", { cause });
+    this.name = "PluggySyncError";
+  }
+}
+
+function trackCommittedWrites(lease: UserOperationLeaseContext, onCommit: () => void): UserOperationLeaseContext {
+  return {
+    ...lease,
+    runFencedTransaction: async (action, options) => {
+      const result = await lease.runFencedTransaction(action, options);
+      onCommit();
+      return result;
+    },
+  };
 }
 
 function asDate(value?: string | null) {
@@ -320,7 +342,7 @@ function transactionOperation(
   });
 }
 
-async function financeTransactionOperation(
+export async function financeTransactionOperation(
   tx: Prisma.TransactionClient,
   userId: string,
   financialAccountId: string,
@@ -340,11 +362,24 @@ async function financeTransactionOperation(
   });
   const installmentData = transactionInstallment(transaction);
   const reference = resolveFinancialReference(date, financialMonthStart, timeZone);
-  const fx = resolveTransactionFx({
+  // The lock and subsequent read share the write transaction. A concurrent
+  // backfill/edit cannot change the frozen FX between this read and the upsert.
+  const [previous] = await tx.$queryRaw<Array<{
+    userId: string; currencyCode: string; date: Date;
+    fxRateToBrl: Prisma.Decimal | null; fxRateDate: Date | null;
+    fxSource: "NATIVE" | "PLUGGY" | "YAHOO" | "MANUAL" | null;
+  }>>(Prisma.sql`
+    SELECT "userId", "currencyCode", "date", "fxRateToBrl", "fxRateDate", "fxSource"
+    FROM "FinanceTransaction" WHERE "externalId" = ${transaction.id} FOR UPDATE
+  `);
+  if (previous && previous.userId !== userId) throw new Error("Transação de outro usuário.");
+  const fx = resolveUpdatedTransactionFx({
     amountInAccountCurrency: new Prisma.Decimal(resolvedAmounts.amount),
     accountCurrencyCode,
     originalCurrencyCode: transaction.currencyCode ?? accountCurrencyCode,
     rate: historicalFx,
+    transactionDate: date,
+    previous,
   });
   const providerData = {
     userId,
@@ -376,7 +411,7 @@ async function financeTransactionOperation(
   };
   const stored = await tx.financeTransaction.upsert({
     where: { externalId: transaction.id },
-    update: providerData,
+    update: { ...providerData, ...fx },
     create: {
       externalId: transaction.id,
       referenceYear: reference.year,
@@ -385,12 +420,6 @@ async function financeTransactionOperation(
       ...providerData,
     },
   });
-  if (stored.fxSource === null || stored.reportingAmountBrl === null) {
-    await tx.financeTransaction.update({
-      where: { id: stored.id },
-      data: fx,
-    });
-  }
   if (!stored.referenceOverridden) {
     return tx.financeTransaction.update({
       where: { id: stored.id },
@@ -468,7 +497,7 @@ const ACCOUNT_INVESTMENT_SOURCES = [
   "ACCOUNT_AUTOMATIC_BALANCE",
 ] as const;
 
-async function syncAccountInvestmentSnapshots(
+export async function syncAccountInvestmentSnapshots(
   tx: Prisma.TransactionClient,
   pluggyItemDbId: string,
   pluggyAccountDbId: string,
@@ -634,16 +663,22 @@ async function syncInvestments(
   let transactionCount = 0;
   for (let index = 0; index < investments.length; index += INVESTMENT_SYNC_CONCURRENCY) {
     const batch = investments.slice(index, index + INVESTMENT_SYNC_CONCURRENCY);
-    const results = await Promise.all(
+    // Collect the complete remote unit before persisting it, and settle all
+    // siblings before returning an error. No writes may outlive the result.
+    const collected = await Promise.allSettled(
       batch.map(async (investment) => {
-        const storedInvestment = await lease.runFencedTransaction((tx) =>
-          investmentOperation(tx, pluggyItemDbId, investment),
-        );
         const transactions = await getPluggyInvestmentTransactions(credentials, investment.id, lease.signal);
-        return { storedInvestment, transactions };
+        return { investment, transactions };
       }),
     );
-    for (const { storedInvestment, transactions } of results) {
+    const failure = collected.find((result) => result.status === "rejected");
+    if (failure?.status === "rejected") throw failure.reason;
+    for (const result of collected) {
+      if (result.status !== "fulfilled") continue;
+      const { investment, transactions } = result.value;
+      const storedInvestment = await lease.runFencedTransaction((tx) =>
+        investmentOperation(tx, pluggyItemDbId, investment),
+      );
       await writeInBatches(
         lease,
         transactions.map((transaction) => (tx) =>
@@ -714,9 +749,11 @@ export async function bootstrapLegacyPluggyItem(userId: string, pluggyItemId: st
 async function syncPluggyItemForUserUnlocked(
   userId: string,
   pluggyItemId: string,
-  lease: UserOperationLeaseContext,
+  operationLease: UserOperationLeaseContext,
+  onCommit: () => void,
 ) {
   const stored = await ensureOwnedItem(userId, pluggyItemId);
+  const lease = trackCommittedWrites(operationLease, onCommit);
   try {
     const credentials = await requirePluggyCredentials(userId);
     const remote = await getPluggyItem(credentials, pluggyItemId, lease.signal);
@@ -760,6 +797,18 @@ async function syncPluggyItemForUserUnlocked(
     const syncedPluggyAccountDbIds: string[] = [];
     const classification = emptyClassificationSummary();
     for (const [accountIndex, account] of accounts.entries()) {
+      const transactions = await getPluggyTransactions(credentials, account.id, lease.signal);
+      const accountCurrency = (account.currencyCode ?? "BRL").trim().toUpperCase();
+      const historicalFxByDate = accountCurrency === "BRL"
+        ? new Map<string, { rateDate: Date; rateToBrl: Prisma.Decimal }>()
+        : await ensureHistoricalFxRates(
+            accountCurrency,
+            transactions.flatMap((transaction) => {
+              const date = asDate(transaction.date);
+              return date ? [date] : [];
+            }),
+            lease.signal,
+          ).catch(() => new Map<string, { rateDate: Date; rateToBrl: Prisma.Decimal }>());
       const { storedAccount, financialAccount, accountInvestments } = await lease.runFencedTransaction(async (tx) => {
         const storedAccount = await upsertAccount(tx, stored.id, account);
         const financialAccount = await upsertFinancialAccount(
@@ -782,18 +831,6 @@ async function syncPluggyItemForUserUnlocked(
       syncedPluggyAccountDbIds.push(storedAccount.id);
       accountInvestmentCount += accountInvestments.syncedCount;
       reservedBalancePartial ||= accountInvestments.partial;
-      const transactions = await getPluggyTransactions(credentials, account.id, lease.signal);
-      const accountCurrency = financialAccount.currencyCode.trim().toUpperCase();
-      const historicalFxByDate = accountCurrency === "BRL"
-        ? new Map<string, { rateDate: Date; rateToBrl: Prisma.Decimal }>()
-        : await ensureHistoricalFxRates(
-            accountCurrency,
-            transactions.flatMap((transaction) => {
-              const date = asDate(transaction.date);
-              return date ? [date] : [];
-            }),
-            lease.signal,
-          ).catch(() => new Map<string, { rateDate: Date; rateToBrl: Prisma.Decimal }>());
       transactionCount += transactions.length;
       await writeInBatches(
         lease,
@@ -908,11 +945,9 @@ async function syncPluggyItemForUserUnlocked(
             ...remoteItemData,
             connectorImageUrl,
             institutionName,
-            syncPending: reservedBalancePartial,
             errorMessage: reservedBalancePartial
               ? "A Pluggy não informou um snapshot completo dos saldos reservados."
               : remoteItemData.errorMessage,
-            lastSyncAt: new Date(),
           },
         }),
       ]);
@@ -924,8 +959,18 @@ async function syncPluggyItemForUserUnlocked(
     });
 
     const diagram = await reconcilePluggyInvestmentsForUser(userId, lease, { pluggyItemDbId: stored.id });
+    await lease.runFencedTransaction(async (tx) => {
+      await acknowledgePluggySync(tx, {
+        itemId: stored.id, userId, requestedVersion: stored.syncRequestedVersion,
+        partial: reservedBalancePartial,
+      });
+      if (!reservedBalancePartial) await tx.pluggyItem.update({
+        where: { id: stored.id }, data: { lastSyncAt: new Date() },
+      });
+    });
 
     return {
+      changed: true,
       accountCount: accounts.length,
       transactionCount,
       investmentCount: investments.length + accountInvestmentCount,
@@ -937,7 +982,7 @@ async function syncPluggyItemForUserUnlocked(
     };
   } catch (error) {
     if (error instanceof RemotePluggyItemDeletedError) throw error;
-    await lease.runFencedTransaction((tx) => tx.pluggyItem.update({
+    await operationLease.runFencedTransaction((tx) => tx.pluggyItem.update({
         where: { id: stored.id },
         data: {
           syncPending: true,
@@ -949,17 +994,22 @@ async function syncPluggyItemForUserUnlocked(
 }
 
 export async function syncPluggyItemForUser(userId: string, pluggyItemId: string) {
+  let committedWrites = false;
   try {
     return await withUserOperationLease({
       userId,
       operation: "pluggy-sync",
       leaseMs: 10 * 60_000,
-      action: (lease) => syncPluggyItemForUserUnlocked(userId, pluggyItemId, lease),
+      action: (lease) => syncPluggyItemForUserUnlocked(userId, pluggyItemId, lease, () => { committedWrites = true; }),
     });
   } catch (error) {
-    if (!(error instanceof RemotePluggyItemDeletedError)) throw error;
+    if (!(error instanceof RemotePluggyItemDeletedError)) {
+      if (committedWrites) throw new PluggySyncError(error);
+      throw error;
+    }
     await markPluggyItemDisconnected(error.pluggyItemId);
     return {
+      changed: true,
       accountCount: 0,
       transactionCount: 0,
       investmentCount: 0,
@@ -991,12 +1041,14 @@ async function syncPluggyItemsForUser(
     ? selectPluggyItemsForAutomaticSync(candidates)
     : candidates;
   const totals = {
+    changed: false,
     itemCount: items.length,
     pendingItemCount: items.filter((item) => item.syncPending).length,
     succeededItemCount: 0,
     failedItemCount: 0,
     partialItemCount: 0,
-    failures: [] as Array<{ itemId: string; message: string }>,
+    partiallyUpdatedItemCount: 0,
+    failures: [] as Array<{ itemId: string; message: string; changed: boolean }>,
     accountCount: 0,
     transactionCount: 0,
     investmentCount: 0,
@@ -1009,6 +1061,7 @@ async function syncPluggyItemsForUser(
   for (const item of items) {
     try {
       const result = await syncPluggyItemForUser(userId, item.pluggyItemId);
+      totals.changed ||= result.changed;
       totals.succeededItemCount += 1;
       totals.accountCount += result.accountCount;
       totals.transactionCount += result.transactionCount;
@@ -1020,10 +1073,14 @@ async function syncPluggyItemsForUser(
       totals.diagramReviewCount += result.diagram.review;
       addClassificationSummary(totals.classification, result.classification);
     } catch (error) {
+      const changed = error instanceof PluggySyncError;
+      totals.changed ||= changed;
+      if (changed) totals.partiallyUpdatedItemCount += 1;
       totals.failedItemCount += 1;
       totals.failures.push({
         itemId: item.pluggyItemId,
         message: error instanceof Error ? error.message : "Falha desconhecida na sincronização.",
+        changed,
       });
     }
   }

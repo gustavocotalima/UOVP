@@ -1,5 +1,6 @@
 import YahooFinance from "yahoo-finance2";
 import { z } from "zod";
+import { withProviderRequestDeadline } from "@/lib/provider-request-budget";
 import {
   getSharedCache,
   getSharedCacheMany,
@@ -80,6 +81,11 @@ export type YahooHistoricalFxRate = {
 
 const yahooFinance = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
 const YAHOO_TIMEOUT_MS = 15_000;
+const YAHOO_AVAILABLE_TIMEOUT_MS = 30_000;
+const YAHOO_SHARED_WAIT_TIMEOUT_MS = 60_000;
+const YAHOO_MAX_GROUP_ATTEMPTS = 32;
+const YAHOO_FALLBACK_CONCURRENCY = 2;
+type YahooRequestOptions = { fetchOptions: { signal: AbortSignal } };
 
 type YahooSearchCandidate = {
   isYahooFinance?: boolean;
@@ -149,12 +155,12 @@ const cachedYahooProfileSchema = z.object({
 });
 
 export type YahooClient = {
-  search(query: string, options: { quotesCount: number; newsCount: number }): Promise<{ quotes: YahooSearchCandidate[] }>;
+  search(query: string, options: { quotesCount: number; newsCount: number }, request?: YahooRequestOptions): Promise<{ quotes: YahooSearchCandidate[] }>;
   quote(symbols: string[], options: {
     return: "object";
     fields: Array<(typeof YAHOO_QUOTE_FIELDS)[number]>;
-  }): Promise<Record<string, YahooQuoteCandidate>>;
-  quoteSummary(symbol: string, options: { modules: ["assetProfile"] }): Promise<{
+  }, request?: YahooRequestOptions): Promise<Record<string, YahooQuoteCandidate>>;
+  quoteSummary(symbol: string, options: { modules: ["assetProfile"] }, request?: YahooRequestOptions): Promise<{
     assetProfile?: {
       sector?: string;
       sectorDisp?: string;
@@ -167,7 +173,7 @@ export type YahooClient = {
     period2: Date;
     interval: "1d";
     events: "history";
-  }): Promise<{
+  }, request?: YahooRequestOptions): Promise<{
     quotes: Array<{
       date: Date;
       close: number | null;
@@ -176,10 +182,10 @@ export type YahooClient = {
 };
 
 const defaultYahooClient: YahooClient = {
-  search: async (query, options) => yahooFinance.search(query, options),
-  quote: async (symbols, options) => yahooFinance.quote(symbols, options),
-  quoteSummary: async (symbol, options) => yahooFinance.quoteSummary(symbol, options),
-  chart: async (symbol, options) => yahooFinance.chart(symbol, options),
+  search: async (query, options, request) => yahooFinance.search(query, options, request),
+  quote: async (symbols, options, request) => yahooFinance.quote(symbols, options, request),
+  quoteSummary: async (symbol, options, request) => yahooFinance.quoteSummary(symbol, options, request),
+  chart: async (symbol, options, request) => yahooFinance.chart(symbol, options, request),
 };
 
 export class YahooFinanceApiError extends Error {
@@ -189,29 +195,43 @@ export class YahooFinanceApiError extends Error {
   }
 }
 
-async function withYahooTimeout<T>(operation: Promise<T>, signal?: AbortSignal) {
-  if (signal?.aborted) throw signal.reason ?? new DOMException("Operação cancelada.", "AbortError");
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  let abortListener: (() => void) | undefined;
-  try {
-    return await Promise.race([
-      operation,
-      new Promise<never>((_, reject) => {
-        timeout = setTimeout(() => {
-          reject(new YahooFinanceApiError("O Yahoo Finance demorou demais para responder. Tente novamente."));
-        }, YAHOO_TIMEOUT_MS);
-      }),
-      ...(signal
-        ? [new Promise<never>((_, reject) => {
-            abortListener = () => reject(signal.reason ?? new DOMException("Operação cancelada.", "AbortError"));
-            signal.addEventListener("abort", abortListener, { once: true });
-          })]
-        : []),
-    ]);
-  } finally {
-    if (timeout) clearTimeout(timeout);
-    if (signal && abortListener) signal.removeEventListener("abort", abortListener);
+async function withYahooTimeout<T>(operation: (signal: AbortSignal) => Promise<T>, signal?: AbortSignal) {
+  return withProviderRequestDeadline({
+    signal,
+    timeoutMs: YAHOO_TIMEOUT_MS,
+    timeoutError: new YahooFinanceApiError("O Yahoo Finance demorou demais para responder. Tente novamente."),
+  }, operation);
+}
+
+async function withYahooCallerDeadline<T>(
+  signal: AbortSignal | undefined,
+  timeoutMs: number,
+  operation: (signal: AbortSignal) => Promise<T>,
+) {
+  // A caller can join another caller's in-process flight. Cancelling this wait
+  // must reject locally without cancelling the leader's independent signal.
+  return withProviderRequestDeadline({
+    signal,
+    timeoutMs,
+    timeoutError: new YahooFinanceApiError("O prazo de espera pela consulta ao Yahoo Finance foi atingido."),
+  }, async (callerSignal) => {
+    const result = await operation(callerSignal);
+    callerSignal.throwIfAborted();
+    return result;
+  });
+}
+
+function isYahooSymbolFailure(error: unknown) {
+  const messages: string[] = [];
+  let current: unknown = error;
+  for (let depth = 0; depth < 6 && current && typeof current === "object"; depth += 1) {
+    const candidate = current as { name?: unknown; message?: unknown; code?: unknown; status?: unknown; statusCode?: unknown; causeValue?: unknown; cause?: unknown };
+    const status = Number(candidate.status ?? candidate.statusCode ?? candidate.code);
+    if (status === 429 || status >= 500 || candidate.name === "AbortError" || candidate.name === "TimeoutError") return false;
+    if (typeof candidate.message === "string") messages.push(candidate.message);
+    current = candidate.causeValue ?? candidate.cause;
   }
+  return messages.some((message) => /quote not found|symbol.*not found|not found.*symbol|no fundamentals|no data found.*symbol/i.test(message));
 }
 
 function text(value: unknown) {
@@ -290,7 +310,17 @@ function yahooError(error: unknown) {
   return new YahooFinanceApiError("Não foi possível consultar o Yahoo Finance.", error);
 }
 
-export async function searchYahooTickers({
+export async function searchYahooTickers(
+  options: Parameters<typeof searchYahooTickersForCaller>[0],
+): Promise<YahooTickerSearchResult[]> {
+  return withYahooCallerDeadline(
+    options.signal,
+    YAHOO_SHARED_WAIT_TIMEOUT_MS + YAHOO_TIMEOUT_MS + YAHOO_AVAILABLE_TIMEOUT_MS,
+    (signal) => searchYahooTickersForCaller({ ...options, signal }),
+  );
+}
+
+async function searchYahooTickersForCaller({
   query,
   kind,
   client = defaultYahooClient,
@@ -303,32 +333,39 @@ export async function searchYahooTickers({
   signal?: AbortSignal;
   cacheMode?: MarketCacheMode;
 }): Promise<YahooTickerSearchResult[]> {
+  signal?.throwIfAborted();
   const normalizedQuery = query.trim().toUpperCase();
   const useSharedCache = client === defaultYahooClient && isSharedCacheConfigured();
   const cacheKey = sharedCacheKey("yahoo:search", normalizedQuery, kind);
   const readCached = async (minimumCachedAt = 0) => {
+    signal?.throwIfAborted();
     const hit = await getSharedCache(cacheKey, (value) => {
       const parsed = cachedYahooSearchSchema.safeParse(value);
       return parsed.success ? parsed.data : null;
     });
+    signal?.throwIfAborted();
     return hit && hit.cachedAt >= minimumCachedAt ? hit.value : null;
   };
   if (useSharedCache && cacheMode === "USE_CACHE") {
     const cached = await readCached();
+    signal?.throwIfAborted();
     if (cached) return cached;
   }
 
-  const startedAt = Date.now();
   const load = async () => {
+    signal?.throwIfAborted();
+    const startedAt = Date.now();
     let result: Awaited<ReturnType<YahooClient["search"]>>;
     try {
       result = await withYahooTimeout(
-        client.search(query.trim(), { quotesCount: 20, newsCount: 0 }),
+        (requestSignal) => client.search(query.trim(), { quotesCount: 20, newsCount: 0 }, { fetchOptions: { signal: requestSignal } }),
         signal,
       );
     } catch (error) {
+      signal?.throwIfAborted();
       throw yahooError(error);
     }
+    signal?.throwIfAborted();
 
     const candidates = result.quotes.flatMap<YahooTickerSearchResult>((candidate) => {
       if (candidate.isYahooFinance !== true || !candidate.symbol) return [];
@@ -373,9 +410,12 @@ export async function searchYahooTickers({
         logoUrl: quoteBySymbol.get(candidate.symbol)?.logoUrl ?? null,
       }));
     } catch {
+      signal?.throwIfAborted();
       results = candidates;
     }
+    signal?.throwIfAborted();
     if (useSharedCache) await setSharedCache(cacheKey, results, 60 * 60, startedAt);
+    signal?.throwIfAborted();
     return results;
   };
 
@@ -383,11 +423,22 @@ export async function searchYahooTickers({
   return withSharedCacheCoalescing({
     key: sharedCacheKey("yahoo:search-flight", normalizedQuery, kind),
     operation: load,
+    waitTimeoutMs: YAHOO_SHARED_WAIT_TIMEOUT_MS,
     readAfterWait: (lockStartedAt) => readCached(cacheMode === "REFRESH" ? lockStartedAt : 0),
   });
 }
 
-export async function fetchYahooAssetProfile({
+export async function fetchYahooAssetProfile(
+  options: Parameters<typeof fetchYahooAssetProfileForCaller>[0],
+) {
+  return withYahooCallerDeadline(
+    options.signal,
+    YAHOO_SHARED_WAIT_TIMEOUT_MS + YAHOO_TIMEOUT_MS,
+    (signal) => fetchYahooAssetProfileForCaller({ ...options, signal }),
+  );
+}
+
+async function fetchYahooAssetProfileForCaller({
   symbol,
   client = defaultYahooClient,
   signal,
@@ -398,34 +449,42 @@ export async function fetchYahooAssetProfile({
   signal?: AbortSignal;
   cacheMode?: MarketCacheMode;
 }) {
+  signal?.throwIfAborted();
   const normalizedSymbol = normalizeYahooSymbol(symbol);
   const useSharedCache = client === defaultYahooClient && isSharedCacheConfigured();
   const cacheKey = sharedCacheKey("yahoo:profile", normalizedSymbol);
   const readCached = async (minimumCachedAt = 0) => {
+    signal?.throwIfAborted();
     const hit = await getSharedCache(cacheKey, (value) => {
       const parsed = cachedYahooProfileSchema.safeParse(value);
       return parsed.success ? parsed.data : null;
     });
+    signal?.throwIfAborted();
     return hit && hit.cachedAt >= minimumCachedAt ? hit.value : null;
   };
   if (useSharedCache && cacheMode === "USE_CACHE") {
     const cached = await readCached();
+    signal?.throwIfAborted();
     if (cached) return cached;
   }
-  const startedAt = Date.now();
   const load = async () => {
+    signal?.throwIfAborted();
+    const startedAt = Date.now();
     try {
       const result = await withYahooTimeout(
-        client.quoteSummary(normalizedSymbol, { modules: ["assetProfile"] }),
+        (requestSignal) => client.quoteSummary(normalizedSymbol, { modules: ["assetProfile"] }, { fetchOptions: { signal: requestSignal } }),
         signal,
       );
       const profile = {
         sector: result.assetProfile?.sector ?? result.assetProfile?.sectorDisp ?? null,
         industry: result.assetProfile?.industry ?? result.assetProfile?.industryDisp ?? null,
       };
+      signal?.throwIfAborted();
       if (useSharedCache) await setSharedCache(cacheKey, profile, undefined, startedAt);
+      signal?.throwIfAborted();
       return profile;
     } catch (error) {
+      signal?.throwIfAborted();
       throw yahooError(error);
     }
   };
@@ -433,11 +492,22 @@ export async function fetchYahooAssetProfile({
   return withSharedCacheCoalescing({
     key: sharedCacheKey("yahoo:profile-flight", normalizedSymbol),
     operation: load,
+    waitTimeoutMs: YAHOO_SHARED_WAIT_TIMEOUT_MS,
     readAfterWait: (lockStartedAt) => readCached(cacheMode === "REFRESH" ? lockStartedAt : 0),
   });
 }
 
-export async function fetchYahooQuotes({
+export async function fetchYahooQuotes(
+  options: Parameters<typeof fetchYahooQuotesForCaller>[0],
+): Promise<YahooQuote[]> {
+  return withYahooCallerDeadline(
+    options.signal,
+    YAHOO_SHARED_WAIT_TIMEOUT_MS + YAHOO_TIMEOUT_MS,
+    (signal) => fetchYahooQuotesForCaller({ ...options, signal }),
+  );
+}
+
+async function fetchYahooQuotesForCaller({
   symbols,
   client = defaultYahooClient,
   signal,
@@ -448,6 +518,7 @@ export async function fetchYahooQuotes({
   signal?: AbortSignal;
   cacheMode?: MarketCacheMode;
 }): Promise<YahooQuote[]> {
+  signal?.throwIfAborted();
   const requestedSymbols = [...new Set(symbols.map(normalizeYahooSymbol).filter(Boolean))];
   if (!requestedSymbols.length) return [];
   const useSharedCache = client === defaultYahooClient && isSharedCacheConfigured();
@@ -456,10 +527,12 @@ export async function fetchYahooQuotes({
     sharedCacheKey("yahoo:quote", symbol),
   ]));
   const readCached = async (requested: string[], minimumCachedAt = 0) => {
+    signal?.throwIfAborted();
     const hits = await getSharedCacheMany(
       requested.map((symbol) => keysBySymbol.get(symbol)!),
       decodeCachedYahooQuote,
     );
+    signal?.throwIfAborted();
     return new Map(requested.flatMap((symbol) => {
       const hit = hits.get(keysBySymbol.get(symbol)!);
       return hit && hit.cachedAt >= minimumCachedAt ? [[symbol, hit.value] as const] : [];
@@ -468,23 +541,27 @@ export async function fetchYahooQuotes({
   const cached = useSharedCache && cacheMode === "USE_CACHE"
     ? await readCached(requestedSymbols)
     : new Map<string, YahooQuote>();
+  signal?.throwIfAborted();
   const missing = requestedSymbols.filter((symbol) => !cached.has(symbol));
   if (!missing.length) return requestedSymbols.flatMap((symbol) => cached.get(symbol) ?? []);
 
-  const startedAt = Date.now();
   const load = async () => {
+    signal?.throwIfAborted();
+    const startedAt = Date.now();
     let result: Awaited<ReturnType<YahooClient["quote"]>>;
     try {
       result = await withYahooTimeout(
-        client.quote(missing, {
+        (requestSignal) => client.quote(missing, {
           return: "object",
           fields: [...YAHOO_QUOTE_FIELDS],
-        }),
+        }, { fetchOptions: { signal: requestSignal } }),
         signal,
       );
     } catch (error) {
+      signal?.throwIfAborted();
       throw yahooError(error);
     }
+    signal?.throwIfAborted();
 
     const fetched = missing.flatMap<YahooQuote>((requestedSymbol) => {
       const quote = result[requestedSymbol];
@@ -503,6 +580,7 @@ export async function fetchYahooQuotes({
         asOf: quote.regularMarketTime instanceof Date ? quote.regularMarketTime : new Date(),
       }];
     });
+    signal?.throwIfAborted();
     if (useSharedCache) {
       await setSharedCacheMany(fetched.map((quote) => ({
         key: keysBySymbol.get(quote.requestedSymbol)!,
@@ -510,6 +588,7 @@ export async function fetchYahooQuotes({
         cachedAt: startedAt,
       })));
     }
+    signal?.throwIfAborted();
     return new Map(fetched.map((quote) => [quote.requestedSymbol, quote]));
   };
 
@@ -518,6 +597,7 @@ export async function fetchYahooQuotes({
     : await withSharedCacheCoalescing({
         key: sharedCacheKey("yahoo:quote-flight", missing.slice().sort()),
         operation: load,
+        waitTimeoutMs: YAHOO_SHARED_WAIT_TIMEOUT_MS,
         readAfterWait: async (lockStartedAt) => {
           const waited = await readCached(missing, cacheMode === "REFRESH" ? lockStartedAt : 0);
           return waited.size === missing.length ? waited : null;
@@ -537,24 +617,59 @@ export async function fetchAvailableYahooQuotes({
   signal?: AbortSignal;
   cacheMode?: MarketCacheMode;
 }): Promise<YahooQuote[]> {
+  signal?.throwIfAborted();
   const unique = [...new Set(symbols.map(normalizeYahooSymbol).filter(Boolean))];
   if (!unique.length) return [];
-  try {
-    return await fetchYahooQuotes({ symbols: unique, client, signal, cacheMode });
-  } catch (error) {
-    if (unique.length === 1) throw error;
+  return withProviderRequestDeadline({
+    signal,
+    timeoutMs: YAHOO_AVAILABLE_TIMEOUT_MS,
+    timeoutError: new YahooFinanceApiError("O prazo total de consulta ao Yahoo Finance foi atingido."),
+  }, async (deadlineSignal) => {
+    let firstSymbolError: unknown;
+    try {
+      return await fetchYahooQuotes({ symbols: unique, client, signal: deadlineSignal, cacheMode });
+    } catch (error) {
+      deadlineSignal.throwIfAborted();
+      if (unique.length === 1 || !isYahooSymbolFailure(error)) throw error;
+      firstSymbolError = error;
+    }
+
+    const stop = new AbortController();
+    const workerSignal = AbortSignal.any([deadlineSignal, stop.signal]);
     const middle = Math.ceil(unique.length / 2);
-    const [left, right] = await Promise.allSettled([
-      fetchAvailableYahooQuotes({ symbols: unique.slice(0, middle), client, signal, cacheMode }),
-      fetchAvailableYahooQuotes({ symbols: unique.slice(middle), client, signal, cacheMode }),
-    ]);
-    const available = [
-      ...(left.status === "fulfilled" ? left.value : []),
-      ...(right.status === "fulfilled" ? right.value : []),
-    ];
-    if (!available.length) throw error;
-    return available;
-  }
+    const queue = [unique.slice(0, middle), unique.slice(middle)];
+    const quotesBySymbol = new Map<string, YahooQuote>();
+    let attempts = 1;
+    const worker = async () => {
+      while (queue.length && !workerSignal.aborted) {
+        const group = queue.shift()!;
+        try {
+          if (attempts >= YAHOO_MAX_GROUP_ATTEMPTS) {
+            throw new YahooFinanceApiError("O limite de tentativas de consulta ao Yahoo Finance foi atingido.");
+          }
+          attempts += 1;
+          const quotes = await fetchYahooQuotes({ symbols: group, client, signal: workerSignal, cacheMode });
+          for (const quote of quotes) quotesBySymbol.set(quote.requestedSymbol, quote);
+        } catch (error) {
+          if (workerSignal.aborted) return;
+          if (isYahooSymbolFailure(error)) {
+            if (group.length > 1) {
+              const split = Math.ceil(group.length / 2);
+              queue.push(group.slice(0, split), group.slice(split));
+            }
+          } else {
+            stop.abort(error);
+            return;
+          }
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: YAHOO_FALLBACK_CONCURRENCY }, worker));
+    deadlineSignal.throwIfAborted();
+    if (stop.signal.aborted) throw stop.signal.reason;
+    if (!quotesBySymbol.size) throw firstSymbolError;
+    return unique.flatMap((symbol) => quotesBySymbol.get(symbol) ?? []);
+  });
 }
 
 export function yahooFxSymbol(currency: string) {
@@ -607,6 +722,7 @@ export async function fetchYahooHistoricalFxRates({
   client?: YahooClient;
   signal?: AbortSignal;
 }): Promise<YahooHistoricalFxRate[]> {
+  signal?.throwIfAborted();
   const normalizedCurrency = currency.trim().toUpperCase();
   if (normalizedCurrency === "BRL") {
     return [{
@@ -621,15 +737,16 @@ export async function fetchYahooHistoricalFxRates({
     }];
   }
   const symbol = yahooFxSymbol(normalizedCurrency);
-  if (!symbol || !client.chart) return [];
+  const chart = client.chart;
+  if (!symbol || !chart) return [];
   try {
     const result = await withYahooTimeout(
-      client.chart(symbol, {
+      (requestSignal) => chart.call(client, symbol, {
         period1,
         period2,
         interval: "1d",
         events: "history",
-      }),
+      }, { fetchOptions: { signal: requestSignal } }),
       signal,
     );
     return result.quotes.flatMap<YahooHistoricalFxRate>((quote) => {
@@ -646,6 +763,7 @@ export async function fetchYahooHistoricalFxRates({
       }];
     });
   } catch (error) {
+    signal?.throwIfAborted();
     throw yahooError(error);
   }
 }

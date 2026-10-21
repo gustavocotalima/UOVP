@@ -171,8 +171,8 @@ export async function searchBrapiTickers({
     if (cached) return cached;
   }
 
-  const startedAt = Date.now();
   const load = async () => {
+    const startedAt = Date.now();
     const url = new URL(BRAPI_TICKERS_URL);
     url.searchParams.set("search", query.trim());
     url.searchParams.set("sortBy", "symbol");
@@ -338,8 +338,8 @@ export async function fetchBrapiQuotes({
   const missing = symbols.filter((symbol) => !cached.has(symbol));
   if (!missing.length) return symbols.flatMap((symbol) => cached.get(symbol) ?? []);
 
-  const startedAt = Date.now();
   const load = async () => {
+    const startedAt = Date.now();
     const url = new URL(BRAPI_QUOTE_URL);
     url.searchParams.set("symbols", missing.join(","));
 

@@ -1,6 +1,6 @@
-import { PrismaClient, DiagramType } from "@prisma/client";
+import { PrismaClient } from "@prisma/client";
 import { INVESTMENT_PRESETS } from "../features/portfolio/constants";
-import { DEFAULT_QUESTIONS, defaultQuestionTemplateKey } from "../features/portfolio/questions";
+import { backfillUserDiagramQuestions, synchronizeGlobalQuestionTemplates } from "../features/portfolio/question-provisioning";
 import { ASSET_CATALOG, CATALOG_FAMILY_BY_ID, FIXED_INCOME_FAMILIES } from "../features/portfolio/catalog";
 
 const prisma = new PrismaClient();
@@ -31,18 +31,8 @@ async function main() {
     });
   }
 
-  await prisma.diagramQuestion.deleteMany({ where: { userId: null, isDefault: true } });
-  await prisma.diagramQuestion.createMany({
-    data: DEFAULT_QUESTIONS.map((question, index) => ({
-      type: question.type as DiagramType,
-      criterion: question.criterion,
-      text: question.text,
-      sortOrder: index,
-      active: true,
-      isDefault: true,
-      templateKey: defaultQuestionTemplateKey(question),
-    })),
-  });
+  await prisma.$transaction(synchronizeGlobalQuestionTemplates, { timeout: 30_000 });
+  await backfillUserDiagramQuestions(prisma);
 }
 
 main()

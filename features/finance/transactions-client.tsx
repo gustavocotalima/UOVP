@@ -1,6 +1,6 @@
 "use client";
 
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowDown,
@@ -110,6 +110,7 @@ export function TransactionsClient({ data, initialPage, initialQueryKey, snapsho
     };
     return financeTransactionQueryKey(query);
   }, [data.year, data.month, page, pageSize, reviewingDeletions, reviewingAllPeriods, sort, deferredSearch, filters]);
+  const previousQueryKey = useRef(queryKey);
   const matchesResult = pageResult.queryKey === queryKey && pageResult.revision === snapshotRevision;
   // A new RSC snapshot can satisfy the initial query without a duplicate GET.
   // Once another query has loaded in this revision, returning to page 1 refetches
@@ -122,10 +123,14 @@ export function TransactionsClient({ data, initialPage, initialQueryKey, snapsho
 
   useEffect(() => {
     const controller = new AbortController();
+    const queryChanged = previousQueryKey.current !== queryKey;
+    previousQueryKey.current = queryKey;
     queueMicrotask(() => {
       if (!controller.signal.aborted) {
         setSelected([]);
-        setExpandedMobile(null);
+        // An automatic RSC refresh must not close the card the user is reading.
+        // A different filter/page/sort still starts with collapsed cards.
+        if (queryChanged) setExpandedMobile(null);
         setMenu(null);
       }
     });

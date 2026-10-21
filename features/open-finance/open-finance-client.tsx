@@ -30,8 +30,10 @@ import { Input } from "@/components/ui/input";
 import { InstitutionLogo } from "@/components/ui/institution-logo";
 import { SegmentedTabs } from "@/components/ui/segmented-tabs";
 import { beginDataRefreshDeferral, requestDataRefresh } from "@/lib/client-data-refresh";
+import { formatDateOnly } from "@/lib/calendar";
 import { cn } from "@/lib/utils";
 import type { OpenFinanceData } from "./data";
+import { currencyShare, normalizedCurrency, sumAmountsByCurrency } from "./currency-totals";
 import { InvestmentMetadataEditor } from "./investment-metadata-editor";
 import { InvestmentQuantityChangeNotice } from "./investment-quantity-change-notice";
 import {
@@ -42,6 +44,11 @@ import {
 } from "./diagram-actions";
 import { pluggyConnectErrorMessage } from "./pluggy-connect-error";
 import { createSnapshotRequests } from "./snapshot-requests";
+import {
+  getTransactionPageView,
+  transactionLastPage,
+  type TransactionPageResult,
+} from "./transaction-page-state";
 import { usePluggySyncStatus } from "./use-pluggy-sync-status";
 
 type Tab = "connections" | "accounts" | "transactions" | "investments";
@@ -108,10 +115,6 @@ function date(value: string | null, timeZone: string) {
   return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone }).format(new Date(value));
 }
 
-function shortDate(value: string, timeZone: string) {
-  return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeZone }).format(new Date(value));
-}
-
 function statusLabel(status: string, executionStatus: string | null) {
   if (status === "DELETED") return "Desconectado";
   if (status === "UPDATED" && (!executionStatus || executionStatus === "SUCCESS")) return "Conectado";
@@ -136,10 +139,11 @@ export function OpenFinanceClient({ data, snapshotRevision }: {
   const [metadataEditor, setMetadataEditor] = useState<
     OpenFinanceData["investments"][number]["connectedMetadata"]
   >(null);
-  const [transactions, setTransactions] = useState(data.transactions);
   const [transactionPage, setTransactionPage] = useState(1);
-  const [transactionTotal, setTransactionTotal] = useState(0);
-  const [transactionsLoading, setTransactionsLoading] = useState(false);
+  const [transactionAttempt, setTransactionAttempt] = useState(0);
+  const [transactionResult, setTransactionResult] = useState<
+    TransactionPageResult<OpenFinanceData["transactions"][number]> | null
+  >(null);
   const [investmentTransactions, setInvestmentTransactions] = useState<
     Record<string, OpenFinanceData["investments"][number]["transactions"]>
   >({});
@@ -170,15 +174,15 @@ export function OpenFinanceClient({ data, snapshotRevision }: {
     (item) => !resolvedDisconnections.has(item.id),
   );
   const transactionPageSize = 25;
+  const transactionView = getTransactionPageView(transactionResult, {
+    page: transactionPage, snapshotRevision, attempt: transactionAttempt,
+  });
   const actionsBusy = busy !== null || pluggySyncStatus.active;
 
   useEffect(() => {
     if (tab !== "transactions") return;
     const controller = new AbortController();
-    let correctingPage = false;
-    queueMicrotask(() => {
-      if (!controller.signal.aborted) setTransactionsLoading(true);
-    });
+    const query = { page: transactionPage, snapshotRevision, attempt: transactionAttempt };
     fetch(`/api/open-finance/transactions?page=${transactionPage}&pageSize=${transactionPageSize}`, {
       cache: "no-store",
       signal: controller.signal,
@@ -191,31 +195,40 @@ export function OpenFinanceClient({ data, snapshotRevision }: {
         };
         if (!response.ok) throw new Error(payload.error || "Não foi possível carregar as transações.");
         if (!controller.signal.aborted) {
-          const lastPage = Math.max(1, Math.ceil(payload.total / transactionPageSize));
+          const lastPage = transactionLastPage(payload.total, transactionPageSize);
           if (transactionPage > lastPage) {
-            correctingPage = true;
+            setTransactionResult({
+              query, status: "correcting", total: payload.total, transactions: [], error: null,
+            });
             setTransactionPage(lastPage);
             return;
           }
-          setTransactions(payload.transactions);
-          setTransactionTotal(payload.total);
+          setTransactionResult({
+            query, status: "ready", total: payload.total, transactions: payload.transactions, error: null,
+          });
         }
       })
       .catch((error) => {
         if (!controller.signal.aborted) {
-          setNotice({
-            type: "error",
-            text: error instanceof Error ? error.message : "Não foi possível carregar as transações.",
-          });
+          setTransactionResult((current) => ({
+            query, status: "error", transactions: [],
+            total: current?.query.snapshotRevision === snapshotRevision ? current.total : null,
+            error: error instanceof Error ? error.message : "Não foi possível carregar as transações.",
+          }));
         }
-      })
-      .finally(() => {
-        if (!controller.signal.aborted && !correctingPage) setTransactionsLoading(false);
       });
     return () => {
       controller.abort();
     };
-  }, [tab, transactionPage, snapshotRevision]);
+  }, [tab, transactionPage, snapshotRevision, transactionAttempt]);
+
+  function changeTab(nextTab: Tab) {
+    // Revisiting the tab starts a new request, including after an aborted fetch.
+    if (nextTab === "transactions" && tab !== "transactions") {
+      setTransactionAttempt((attempt) => attempt + 1);
+    }
+    setTab(nextTab);
+  }
 
   const loadInvestmentTransactions = useCallback(async (id: string, page: number) => {
     const requests = investmentRequests.current;
@@ -589,7 +602,7 @@ export function OpenFinanceClient({ data, snapshotRevision }: {
       </section>
 
       <div className="flex flex-col gap-4 @4xl:flex-row @4xl:items-center @4xl:justify-between">
-        <SegmentedTabs value={tab} onValueChange={setTab} options={tabs} ariaLabel="Dados Open Finance" />
+        <SegmentedTabs value={tab} onValueChange={changeTab} options={tabs} ariaLabel="Dados Open Finance" />
         <div className="grid grid-cols-2 gap-2 @3xl:flex @3xl:flex-wrap">
           <Button
             variant="outline"
@@ -721,9 +734,11 @@ export function OpenFinanceClient({ data, snapshotRevision }: {
           role="tabpanel"
           aria-labelledby="open-finance-tab-transactions"
         >
-          <DataCard title="Transações recentes" description={`${transactionTotal} lançamento(s), carregados em páginas de ${transactionPageSize}.`}>
-            <div className="divide-y">
-              {transactions.map((transaction) => {
+          <DataCard title="Transações recentes" description={transactionView.total === null
+            ? "Consulte os lançamentos em páginas de 25."
+            : `${transactionView.total} lançamento(s), carregados em páginas de ${transactionPageSize}.`}>
+            <div className="divide-y" aria-busy={transactionView.loading}>
+              {transactionView.transactions.map((transaction) => {
                 const incoming = Number(transaction.amount) >= 0;
                 return (
                   <div key={transaction.id} className="grid gap-3 py-4 first:pt-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
@@ -745,14 +760,20 @@ export function OpenFinanceClient({ data, snapshotRevision }: {
                   </div>
                 );
               })}
-              {transactionsLoading && <p className="py-8 text-center text-sm text-[var(--muted-foreground)]">Carregando transações…</p>}
-              {!transactionsLoading && !transactions.length && <p className="py-8 text-center text-sm text-[var(--muted-foreground)]">Nenhuma transação sincronizada.</p>}
+              {transactionView.loading && <p role="status" className="py-8 text-center text-sm text-[var(--muted-foreground)]">Carregando transações…</p>}
+              {transactionView.error && (
+                <div role="alert" className="space-y-3 py-8 text-center text-sm">
+                  <p className="text-[var(--danger)]">Não foi possível carregar a página {transactionPage}. {transactionView.error}</p>
+                  <Button variant="outline" size="sm" onClick={() => setTransactionAttempt((attempt) => attempt + 1)}>Tentar novamente</Button>
+                </div>
+              )}
+              {!transactionView.loading && !transactionView.error && !transactionView.transactions.length && <p className="py-8 text-center text-sm text-[var(--muted-foreground)]">Nenhuma transação sincronizada.</p>}
             </div>
-            {transactionTotal > transactionPageSize && (
+            {(transactionPage > 1 || (transactionView.total ?? 0) > transactionPageSize) && (
               <div className="mt-4 flex items-center justify-end gap-2 border-t pt-4">
-                <Button variant="outline" size="sm" disabled={transactionsLoading || transactionPage === 1} onClick={() => setTransactionPage((page) => Math.max(1, page - 1))}>Anterior</Button>
-                <span className="text-xs text-[var(--muted-foreground)]">Página {transactionPage} de {Math.ceil(transactionTotal / transactionPageSize)}</span>
-                <Button variant="outline" size="sm" disabled={transactionsLoading || transactionPage >= Math.ceil(transactionTotal / transactionPageSize)} onClick={() => setTransactionPage((page) => page + 1)}>Próxima</Button>
+                <Button variant="outline" size="sm" disabled={transactionView.loading || transactionPage === 1} onClick={() => setTransactionPage((page) => Math.max(1, page - 1))}>Anterior</Button>
+                <span className="text-xs text-[var(--muted-foreground)]">Página {transactionPage}{transactionView.total !== null ? ` de ${transactionLastPage(transactionView.total, transactionPageSize)}` : ""}</span>
+                <Button variant="outline" size="sm" disabled={transactionView.loading || Boolean(transactionView.error) || transactionView.total === null || transactionPage >= transactionLastPage(transactionView.total, transactionPageSize)} onClick={() => setTransactionPage((page) => page + 1)}>Próxima</Button>
               </div>
             )}
           </DataCard>
@@ -771,7 +792,7 @@ export function OpenFinanceClient({ data, snapshotRevision }: {
               || hasActiveTemporaryQuantity(investment)
               || (showSoldInvestments && investment.status === "TOTAL_WITHDRAWAL"),
             )}
-            total={data.totals.investments}
+            totalsByCurrency={data.totalsByCurrency.investments}
             soldCount={data.soldInvestmentCount}
             showSold={showSoldInvestments}
             onToggleSold={() => void toggleSoldInvestments()}
@@ -1041,7 +1062,7 @@ function effectiveRate(metadata: NonNullable<Investment["connectedMetadata"]>["e
 
 function InvestmentPortfolio({
   investments,
-  total,
+  totalsByCurrency,
   soldCount,
   showSold,
   onToggleSold,
@@ -1056,7 +1077,7 @@ function InvestmentPortfolio({
   timeZone,
 }: {
   investments: OpenFinanceData["investments"];
-  total: number;
+  totalsByCurrency: Record<string, number>;
   soldCount: number;
   showSold: boolean;
   onToggleSold: () => void;
@@ -1105,7 +1126,11 @@ function InvestmentPortfolio({
               {showSold ? "Ocultar vendidos" : `Mostrar vendidos (${soldCount})`}
             </Button>
           )}
-          <strong className="text-xl tabular-nums text-[var(--success)]"><PrivateValue>{money(total)}</PrivateValue></strong>
+          <div className="flex flex-wrap gap-3 text-right">
+            {Object.entries(Object.keys(totalsByCurrency).length ? totalsByCurrency : { BRL: 0 }).map(([currency, amount]) => (
+              <strong key={currency} className="text-xl tabular-nums text-[var(--success)]"><PrivateValue>{money(amount, currency)}</PrivateValue></strong>
+            ))}
+          </div>
         </div>
       </CardHeader>
 
@@ -1116,17 +1141,24 @@ function InvestmentPortfolio({
       )}
 
       {groups.map(([label, groupInvestments]) => {
-        const groupTotal = groupInvestments.reduce((sum, investment) => sum + Number(investment.balance), 0);
+        const groupTotals = sumAmountsByCurrency(groupInvestments.map((investment) => ({
+          amount: investment.balance, currencyCode: investment.currencyCode,
+        })));
         return (
           <section key={label}>
             <div className="flex items-center justify-between border-b bg-[var(--muted)]/35 px-5 py-3 text-[11px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
               <span>{label}</span>
-              <span className="tabular-nums"><PrivateValue>{money(groupTotal)}</PrivateValue></span>
+              <span className="flex flex-wrap justify-end gap-3 tabular-nums">
+                {Object.entries(groupTotals).map(([currency, amount]) => (
+                  <PrivateValue key={currency}>{money(amount, currency)}</PrivateValue>
+                ))}
+              </span>
             </div>
             {groupInvestments.map((investment) => {
               const expanded = investment.id === expandedId;
               const sold = investment.status === "TOTAL_WITHDRAWAL";
-              const share = !sold && total ? (Number(investment.balance) / total) * 100 : 0;
+              const share = !sold && investment.providerAvailable
+                ? currencyShare(investment.balance, investment.currencyCode, totalsByCurrency) : null;
               return (
                 <div key={investment.id} className="border-b last:border-b-0">
                   <button
@@ -1170,7 +1202,7 @@ function InvestmentPortfolio({
                           <PrivateValue>{money(investment.balance, investment.currencyCode)}</PrivateValue>
                         </strong>
                         <span className="text-[10px] tabular-nums text-[var(--muted-foreground)]">
-                          {share.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%
+                          {share === null ? "—" : `${share.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}% em ${normalizedCurrency(investment.currencyCode)}`}
                         </span>
                       </span>
                       {expanded ? <ChevronUp className="size-4 text-[var(--muted-foreground)]" /> : <ChevronDown className="size-4 text-[var(--muted-foreground)]" />}
@@ -1261,15 +1293,15 @@ function InvestmentDetails({
     investment.insurerCnpj ? { label: "CNPJ da seguradora", value: investment.insurerCnpj } : null,
     investment.owner ? { label: "Titular", value: investment.owner } : null,
     investment.number ? { label: "Número", value: investment.number } : null,
-    investment.issueDate ? { label: "Emissão", value: shortDate(investment.issueDate, timeZone) } : null,
+    investment.issueDate ? { label: "Emissão", value: formatDateOnly(investment.issueDate) } : null,
     (effectiveMetadata?.purchaseDate || investment.purchaseDate)
-      ? { label: "Compra", value: shortDate(effectiveMetadata?.purchaseDate || investment.purchaseDate!, timeZone) }
+      ? { label: "Compra", value: formatDateOnly(effectiveMetadata?.purchaseDate || investment.purchaseDate!) }
       : null,
-    investment.gracePeriodDate ? { label: "Fim da carência", value: shortDate(investment.gracePeriodDate, timeZone) } : null,
+    investment.gracePeriodDate ? { label: "Fim da carência", value: formatDateOnly(investment.gracePeriodDate) } : null,
     (effectiveMetadata?.maturityDate || investment.dueDate)
-      ? { label: "Vencimento", value: shortDate(effectiveMetadata?.maturityDate || investment.dueDate!, timeZone) }
+      ? { label: "Vencimento", value: formatDateOnly(effectiveMetadata?.maturityDate || investment.dueDate!) }
       : null,
-    investment.quotaDate ? { label: "Data da posição", value: shortDate(investment.quotaDate, timeZone) } : null,
+    investment.quotaDate ? { label: "Data da posição", value: formatDateOnly(investment.quotaDate) } : null,
     status(investment.status) ? { label: "Status", value: status(investment.status)! } : null,
     { label: "Atualizado pela instituição", value: date(investment.updatedAt, timeZone) },
   ].filter((item): item is NonNullable<typeof item> => item !== null);
@@ -1316,7 +1348,6 @@ function InvestmentDetails({
       {investment.connectedMetadata && (
         <ProviderMetadataDetails
           metadata={investment.connectedMetadata.providerMetadata}
-          timeZone={timeZone}
         />
       )}
 
@@ -1345,7 +1376,7 @@ function InvestmentDetails({
                   <div className="min-w-0">
                     <strong className="block text-xs">{transaction.type.replaceAll("_", " ")}</strong>
                     <p className="mt-0.5 text-[11px] text-[var(--muted-foreground)]">
-                      {shortDate(transaction.date, timeZone)}
+                      {formatDateOnly(transaction.tradeDate ?? transaction.date)}
                       <PrivateValue>{transaction.quantity !== null ? ` · ${decimal(transaction.quantity)} un.` : ""}</PrivateValue>
                       {transaction.description ? ` · ${transaction.description}` : ""}
                     </p>
@@ -1388,10 +1419,8 @@ function InvestmentDetails({
 
 function ProviderMetadataDetails({
   metadata,
-  timeZone,
 }: {
   metadata: NonNullable<Investment["connectedMetadata"]>["providerMetadata"];
-  timeZone: string;
 }) {
   const rawDetails = [
     { label: "Produto", value: metadata.productName },
@@ -1406,10 +1435,10 @@ function ProviderMetadataDetails({
       : null,
     metadata.annualRate !== null ? { label: "annualRate", value: metadata.annualRate } : null,
     metadata.purchaseDate
-      ? { label: "Data de compra", value: shortDate(metadata.purchaseDate, timeZone) }
+      ? { label: "Data de compra", value: formatDateOnly(metadata.purchaseDate) }
       : null,
     metadata.maturityDate
-      ? { label: "Vencimento", value: shortDate(metadata.maturityDate, timeZone) }
+      ? { label: "Vencimento", value: formatDateOnly(metadata.maturityDate) }
       : null,
     metadata.issuerCnpj ? { label: "CNPJ do emissor", value: metadata.issuerCnpj } : null,
   ].filter((item): item is NonNullable<typeof item> => item !== null);

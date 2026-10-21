@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requestPluggySync } from "@/features/open-finance/sync-requests";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { markPluggyItemDisconnected } from "@/features/open-finance/disconnection";
@@ -372,10 +373,7 @@ export async function POST(request: Request) {
             });
           }
         }
-        await tx.pluggyItem.updateMany({
-          where: { pluggyItemId: payload.data.itemId, userId },
-          data: { syncPending: true },
-        });
+        await requestPluggySync(tx, { pluggyItemId: payload.data.itemId, userId });
         await tx.pluggyWebhookEvent.update({
           where: { id: event.id },
           data: { processedAt: now, processingStartedAt: null },
@@ -401,13 +399,13 @@ export async function POST(request: Request) {
       });
       return NextResponse.json({ received: true, linked: true });
     }
-    await prisma.$transaction([
-      prisma.pluggyItem.update({ where: { id: item.id }, data: { syncPending: true } }),
-      prisma.pluggyWebhookEvent.update({
+    await prisma.$transaction(async (tx) => {
+      await requestPluggySync(tx, { pluggyItemId: item.pluggyItemId, userId });
+      await tx.pluggyWebhookEvent.update({
         where: { id: event.id },
         data: { processedAt: new Date(), processingStartedAt: null },
-      }),
-    ]);
+      });
+    });
     return NextResponse.json({ received: true, linked: true });
   } catch (error) {
     await prisma.pluggyWebhookEvent.update({

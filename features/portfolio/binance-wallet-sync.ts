@@ -12,6 +12,7 @@ import { bumpPortfolioAndInvalidateDrafts } from "./invalidation";
 import { fetchBinanceQuotes, type BinanceQuote } from "./binance";
 import { BinancePrivateClient, type BinanceWalletKind, type BinanceWalletSnapshot } from "./binance-wallet-client";
 import { requireBinanceCredentials } from "./binance-wallet-credentials";
+import { binanceHoldingValuationChanged } from "./binance-wallet-valuation";
 
 const FIAT_ASSETS = new Set([
   "AED", "ARS", "AUD", "BRL", "CAD", "CHF", "CLP", "CNY", "COP", "CZK", "EUR", "GBP",
@@ -36,6 +37,7 @@ const BUCKET_UPDATED_AT_FIELD: Record<BinanceWalletKind, "spotUpdatedAt" | "fund
 export type BinanceWalletSyncResult = {
   status: "SKIPPED" | "UPDATED" | "PARTIAL" | "FAILED";
   changed: boolean;
+  portfolioChanged: boolean;
   reason: "AUTOMATIC_STALE" | "MANUAL" | null;
   discovered: number;
   tracked: number;
@@ -110,10 +112,12 @@ async function persistSnapshot({
   userId,
   snapshot,
   lease,
+  progress,
 }: {
   userId: string;
   snapshot: BinanceWalletSnapshot;
   lease: UserOperationLeaseContext;
+  progress: { changed: boolean; portfolioChanged: boolean };
 }) {
   const connection = await prisma.binanceConnection.findUnique({ where: { userId } });
   if (!connection) throw new Error("Conexão Binance não encontrada.");
@@ -216,6 +220,7 @@ async function persistSnapshot({
       },
     });
   }, { timeout: 120_000 });
+  progress.changed = true;
 
   const walletRows = await prisma.binanceWalletAsset.findMany({
     where: { connectionId: connection.id },
@@ -232,7 +237,7 @@ async function persistSnapshot({
   const quoteBySymbol = new Map(quotes.quotes.map((quote) => [quote.requestedAsset, quote]));
   const btcQuote = quoteBySymbol.get("BTC");
   const trackedRows = walletRows.filter((asset) => asset.status === "TRACKED" && asset.holdingId);
-  let changed = discovered > 0;
+  let portfolioChanged = false;
   const portfolio = await prisma.portfolio.findUnique({ where: { userId } });
 
   if (walletRows.length) {
@@ -254,7 +259,20 @@ async function persistSnapshot({
         if (walletAsset.status !== "TRACKED" || !walletAsset.holdingId) continue;
         const holding = await tx.assetHolding.findUnique({ where: { id: walletAsset.holdingId } });
         if (!holding) continue;
-        const update: Prisma.AssetHoldingUpdateInput = { quantity: new Prisma.Decimal(quantity.toString()) };
+        const update = {
+          quantity: new Prisma.Decimal(quantity.toString()),
+          unitPrice: holding.unitPrice,
+          currency: holding.currency,
+          pricingSource: holding.pricingSource,
+          fxRateToBrl: holding.fxRateToBrl,
+          fxUpdatedAt: holding.fxUpdatedAt,
+          providerSymbol: holding.providerSymbol,
+          marketQuoteType: holding.marketQuoteType,
+          priceUpdatedAt: holding.priceUpdatedAt,
+          currentValue: holding.currentValue,
+          providerCurrentValue: holding.providerCurrentValue,
+          includedInTotals: holding.includedInTotals,
+        };
         if (quote) {
           update.pricingSource = "BINANCE";
           update.unitPrice = new Prisma.Decimal(String(quote.price));
@@ -279,15 +297,18 @@ async function persistSnapshot({
           update.currentValue = null;
           update.providerCurrentValue = null;
         }
-        if (!holding.quantity.eq(new Prisma.Decimal(quantity.toString()))) changed = true;
+        if (binanceHoldingValuationChanged(holding, update)) portfolioChanged = true;
         await tx.assetHolding.update({ where: { id: holding.id }, data: update });
       }
       await reconcileBinanceContributions(tx, userId);
-      if (changed && portfolio) await bumpPortfolioAndInvalidateDrafts(tx, portfolio.id, userId);
+      if (portfolioChanged && portfolio) await bumpPortfolioAndInvalidateDrafts(tx, portfolio.id, userId);
     }, { timeout: 120_000 });
+    progress.portfolioChanged = portfolioChanged;
   }
 
-  return { changed, discovered, tracked: trackedRows.length, failedWallets };
+  // A completed attempt updates visible sync timestamps/status even when the
+  // portfolio valuation is identical. Refresh consumers without staling drafts.
+  return { changed: true, portfolioChanged, discovered, tracked: trackedRows.length, failedWallets };
 }
 
 export async function syncBinanceWalletForUser(
@@ -295,6 +316,7 @@ export async function syncBinanceWalletForUser(
   { reason = "MANUAL" }: { reason?: "AUTOMATIC_STALE" | "MANUAL" } = {},
 ): Promise<BinanceWalletSyncResult> {
   const startedAt = Date.now();
+  const progress = { changed: false, portfolioChanged: false };
   try {
     return await withUserOperationLease({
       userId,
@@ -303,14 +325,15 @@ export async function syncBinanceWalletForUser(
       action: async (lease) => {
         const connection = await prisma.binanceConnection.findUnique({ where: { userId } });
         if (!connection) {
-          return { status: "SKIPPED", changed: false, reason: null, discovered: 0, tracked: 0, failedWallets: [], message: null };
+          return { status: "SKIPPED", changed: false, portfolioChanged: false, reason: null, discovered: 0, tracked: 0, failedWallets: [], message: null };
         }
-        await prisma.binanceConnection.update({ where: { id: connection.id }, data: { lastAttemptAt: new Date() } });
+        await lease.runFencedTransaction((tx) => tx.binanceConnection.update({ where: { id: connection.id }, data: { lastAttemptAt: new Date() } }));
+        progress.changed = true;
         try {
           const credentials = await requireBinanceCredentials(userId);
-          const client = new BinancePrivateClient(credentials);
+          const client = new BinancePrivateClient(credentials, undefined, { signal: lease.signal });
           const snapshot = await client.walletSnapshot();
-          const persisted = await persistSnapshot({ userId, snapshot, lease });
+          const persisted = await persistSnapshot({ userId, snapshot, lease, progress });
           logIntegrationRefresh({
             event: "binance-wallet-sync",
             user: anonymizedUserId(userId),
@@ -333,10 +356,10 @@ export async function syncBinanceWalletForUser(
           };
         } catch (error) {
           const message = error instanceof Error ? error.message : "Não foi possível sincronizar a Binance.";
-          await prisma.binanceConnection.update({
+          await lease.runFencedTransaction((tx) => tx.binanceConnection.update({
             where: { id: connection.id },
             data: { status: "ERROR", syncPending: true, lastError: message, lastAttemptAt: new Date() },
-          }).catch(() => undefined);
+          })).catch(() => undefined);
           logIntegrationRefresh({
             event: "binance-wallet-sync",
             user: anonymizedUserId(userId),
@@ -350,11 +373,12 @@ export async function syncBinanceWalletForUser(
     });
   } catch (error) {
     if (error instanceof OperationInProgressError) {
-      return { status: "SKIPPED", changed: false, reason, discovered: 0, tracked: 0, failedWallets: [], message: null };
+      return { status: "SKIPPED", changed: false, portfolioChanged: false, reason, discovered: 0, tracked: 0, failedWallets: [], message: null };
     }
     return {
       status: "FAILED",
-      changed: false,
+      changed: progress.changed,
+      portfolioChanged: progress.portfolioChanged,
       reason,
       discovered: 0,
       tracked: 0,
@@ -370,7 +394,7 @@ export async function syncStaleBinanceWalletForUser(userId: string): Promise<Bin
     select: { syncPending: true, lastSyncAt: true },
   });
   if (!shouldSyncBinanceConnection(connection)) {
-    return { status: "SKIPPED", changed: false, reason: null, discovered: 0, tracked: 0, failedWallets: [], message: null };
+    return { status: "SKIPPED", changed: false, portfolioChanged: false, reason: null, discovered: 0, tracked: 0, failedWallets: [], message: null };
   }
   return syncBinanceWalletForUser(userId, { reason: "AUTOMATIC_STALE" });
 }

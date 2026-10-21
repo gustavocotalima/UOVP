@@ -560,6 +560,7 @@ export async function updateFinanceTransactionAction(input: {
         manualRateToBrl: parsed.manualFxRateToBrl,
         existing: {
           currencyCode: transaction.currencyCode,
+          transactionDate: transaction.date,
           rateToBrl: transaction.fxRateToBrl,
           rateDate: transaction.fxRateDate,
           source: transaction.fxSource,
@@ -583,6 +584,12 @@ export async function updateFinanceTransactionAction(input: {
       : await tx.financialAccount.findFirstOrThrow({
           where: { id: nextAccount.id, userId, active: true },
         });
+    if (currentTransaction.source === "MANUAL" && (
+      lockedCurrentAccount.currencyCode !== currentAccount.currencyCode
+      || lockedNextAccount.currencyCode !== currencyCode
+    )) {
+      throw new Error("A moeda da conta mudou. Atualize a página e tente novamente.");
+    }
     const balanceApplied = currentTransaction.source === "MANUAL"
       && lockedNextAccount.source === "MANUAL"
       && (parsed.updateAccountBalance ?? currentTransaction.balanceApplied);

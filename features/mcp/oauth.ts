@@ -11,6 +11,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { parseScopes, mcpOrigin, mcpResource, redirectMatches, signingKeys, validateRedirectUri } from "./config";
 import { resolveMcpClient } from "./clients";
+import { opportunisticMcpOAuthCleanup } from "./oauth-retention";
 import { McpError, MCP_SCOPES, type McpScope } from "./types";
 
 export const tokenHash = (value: string) => createHash("sha256").update(value).digest("hex");
@@ -148,7 +149,7 @@ export async function createMcpAuthorization(userId: string, query: Record<strin
   if (!approved) { redirect.searchParams.set("error", "access_denied"); return { redirectUrl: redirect.toString() }; }
   const scopes = parseScopes(approvedScopes);
   if (scopes.some((scope) => !request.scopes.includes(scope))) throw new McpError("invalid_scope", "Consent cannot add permissions.");
-  return prisma.$transaction(async (db) => {
+  const result = await prisma.$transaction(async (db) => {
     await db.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`mcp-user:${userId}`}))`;
     const user = await db.user.findFirst({ where: { id: userId, mcpEnabled: true }, select: { id: true } });
     const client = await db.mcpOAuthClient.findUnique({ where: { id: request.clientId } });
@@ -162,6 +163,8 @@ export async function createMcpAuthorization(userId: string, query: Record<strin
     url.searchParams.set("iss", mcpOrigin());
     return { redirectUrl: url.toString() };
   });
+  await opportunisticMcpOAuthCleanup(userId);
+  return result;
 }
 
 export async function exchangeMcpToken(body: Record<string, string>) {
@@ -172,6 +175,7 @@ export async function exchangeMcpToken(body: Record<string, string>) {
   const credential = body.grant_type === "authorization_code" ? body.code : body.refresh_token;
   if (!credential || credential.length > 2048) throw new McpError("invalid_grant", "Invalid authorization credential.");
   const hash = tokenHash(credential);
+  let cleanupUserId: string | undefined;
   const result = await prisma.$transaction(async (db) => {
     await db.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`mcp-token:${hash}`}))`;
     const code = body.grant_type === "authorization_code" ? await db.mcpOAuthCode.findUnique({ where: { codeHash: hash }, include: { grant: true } }) : null;
@@ -185,14 +189,19 @@ export async function exchangeMcpToken(body: Record<string, string>) {
     if (!user) throw new McpError("invalid_grant", "Authorization was revoked.");
     if (code?.consumedAt || token?.revokedAt) {
       // Commit family revocation even though the replay request is refused.
-      await db.mcpOAuthToken.updateMany({ where: code ? { authCodeHash: hash } : { familyId: token!.familyId }, data: { revokedAt: new Date() } });
+      await db.mcpOAuthToken.updateMany({
+        where: { ...(code ? { authCodeHash: hash } : { familyId: token!.familyId }), revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
       return { replay: true as const };
     }
     const binding = { grantId: grant.id, familyId: token?.familyId ?? randomUUID(), authCodeHash: code?.codeHash ?? token?.authCodeHash ?? undefined, refreshExpiresAt: token?.refreshExpiresAt ?? undefined };
     const response = await authorizationServer(db, binding).respondToAccessTokenRequest(new OAuthRequest({ body }));
+    cleanupUserId = grant.userId;
     return { replay: false as const, body: response.body, status: response.status };
   }, { timeout: 15_000 });
   if (result.replay) throw new McpError("invalid_grant", "Credential was already used; reconnect this client.");
+  if (cleanupUserId) await opportunisticMcpOAuthCleanup(cleanupUserId);
   return result;
 }
 

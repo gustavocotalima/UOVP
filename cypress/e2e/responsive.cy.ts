@@ -88,7 +88,21 @@ describe("layout responsivo", () => {
     cy.contains('[data-testid="mobile-transaction-card"]', "Mercado classificado")
       .should("contain", "Meta")
       .and("contain", "Tags")
-      .and("contain", "Ocultar dos relatórios");
+      .and("contain", "Ocultar dos relatórios")
+      .find('button[aria-expanded="true"]').should("exist");
+
+    // The classification action delivers a fresh RSC snapshot. Its controlled
+    // select only reflects the new category after that snapshot has rendered.
+    cy.contains('[data-testid="mobile-transaction-card"]', "Mercado classificado")
+      .contains("label", "Meta").find("select").select("COMFORT");
+    cy.contains("Meta atualizada.").should("be.visible");
+    cy.contains('[data-testid="mobile-transaction-card"]', "Mercado classificado")
+      .should("contain", "Tags")
+      .and("contain", "Ocultar dos relatórios")
+      .within(() => {
+        cy.get('button[aria-expanded="true"]').should("exist");
+        cy.contains("label", "Meta").find("select").should("have.value", "COMFORT");
+      });
     expectNoPageOverflow();
   });
 

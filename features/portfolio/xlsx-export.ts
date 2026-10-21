@@ -113,7 +113,7 @@ function createStoredZip(files: Array<{ name: string; contents: string }>) {
   return join([...localParts, central, end]);
 }
 
-function portfolioRows(assets: AssetDto[]) {
+export function portfolioRows(assets: AssetDto[]) {
   const headers = [
     "ID da aplicação",
     "Classe",
@@ -131,6 +131,7 @@ function portfolioRows(assets: AssetDto[]) {
     "Quantidade",
     "Preço",
     "Valor investido",
+    "Moeda investimento",
     "Valor atual",
     "Moeda",
     "Fracionado",
@@ -142,12 +143,16 @@ function portfolioRows(assets: AssetDto[]) {
     "Origem da posição",
     "Conta de origem",
     "Mesmo valor incluído no saldo em conta",
+    "Valor atual nativo",
+    "Câmbio para BRL",
+    "Data do câmbio",
   ];
   const rows: CellValue[][] = [headers];
   for (const asset of assets) {
     if (asset.instrumentType !== "FIXED_INCOME") {
-      rows.push([
-        "",
+      const positions = asset.holdings.length ? asset.holdings : [null];
+      for (const holding of positions) rows.push([
+        holding?.id ?? "",
         asset.investmentClass,
         asset.instrumentType,
         asset.marketRegion === "INTERNATIONAL" ? "Internacional" : asset.marketRegion === "BRAZIL" ? "Nacional" : "",
@@ -156,21 +161,35 @@ function portfolioRows(assets: AssetDto[]) {
         asset.fixedIncomeFamilyCode ?? "",
         asset.indexation ?? "",
         asset.score,
+        holding?.catalogItemId ?? "",
+        holding?.customTypeName ?? "",
+        holding?.issuer ?? "",
+        holding?.productName ?? "",
+        Number(holding?.quantity ?? asset.quantity),
+        Number(holding?.unitPrice ?? asset.nativeUnitPrice ?? asset.unitPrice),
+        holding
+          ? holding.investedValue == null || !holding.investedValueCurrency ? "" : Number(holding.investedValue)
+          : asset.investedValue == null || !asset.investedValueCurrency ? "" : Number(asset.investedValue),
+        holding
+          ? holding.investedValue == null ? "" : holding.investedValueCurrency ?? ""
+          : asset.investedValue == null ? "" : asset.investedValueCurrency ?? "",
+        Number(holding?.currentValue ?? asset.currentValue),
+        holding?.currency ?? asset.currency,
+        holding?.fractional ?? asset.fractional,
         "",
         "",
         "",
         "",
-        Number(asset.quantity),
-        Number(asset.nativeUnitPrice ?? asset.unitPrice),
         "",
-        Number(asset.currentValue),
-        asset.currency,
-        asset.fractional,
+        holding?.positionSource ?? "MANUAL",
         "",
         "",
-        "",
-        "",
-        "",
+        (holding?.currency ?? asset.currency) === "BRL"
+          ? Number(holding?.currentValue ?? asset.currentValue)
+          : holding ? holding.nativeCurrentValue == null ? "" : Number(holding.nativeCurrentValue)
+            : asset.nativeCurrentValue == null ? "" : Number(asset.nativeCurrentValue),
+        holding ? holding.fxRateToBrl ?? "" : asset.fxRateToBrl ?? "",
+        holding ? holding.fxUpdatedAt ?? "" : asset.fxUpdatedAt ?? "",
       ]);
       continue;
     }
@@ -191,7 +210,8 @@ function portfolioRows(assets: AssetDto[]) {
         holding.productName,
         Number(holding.quantity),
         Number(holding.unitPrice),
-        holding.investedValue === null ? "" : Number(holding.investedValue),
+        holding.investedValue == null || !holding.investedValueCurrency ? "" : Number(holding.investedValue),
+        holding.investedValue == null ? "" : holding.investedValueCurrency ?? "",
         holding.accountBalanceSource?.valuationUnavailable ? null : Number(holding.currentValue),
         holding.currency,
         holding.fractional,
@@ -203,6 +223,9 @@ function portfolioRows(assets: AssetDto[]) {
         holding.positionSource,
         holding.accountBalanceSource?.name ?? "",
         holding.accountBalanceSource ? true : "",
+        holding.currency === "BRL" ? Number(holding.currentValue) : holding.nativeCurrentValue == null ? "" : Number(holding.nativeCurrentValue),
+        holding.fxRateToBrl ?? "",
+        holding.fxUpdatedAt ?? "",
       ]);
     }
   }
