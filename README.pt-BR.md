@@ -2,6 +2,11 @@
 
 [English](./README.md)
 
+<p>
+  <img width="49%" alt="Screenshot 1" src="https://github.com/user-attachments/assets/5fddede5-1495-4ee5-b5a5-5abf2bb94757" />
+  <img width="49%" alt="Screenshot 2" src="https://github.com/user-attachments/assets/e16ffa80-9fcf-4b79-a2ef-d20ed20c6ae3" />
+</p>
+
 **Uma Outra Verdade Possível** — uma aplicação financeira pessoal multiusuário para orçamento doméstico, carteira de investimentos e agregação via Open Finance, inspirada no Diagrama do Cerrado da AUVP.
 
 A interface está em português brasileiro. Frontend e backend executam na mesma aplicação Next.js. O PostgreSQL armazena os registros financeiros e o estado das integrações; o Redis opcional compartilha dados públicos de mercado entre usuários.
