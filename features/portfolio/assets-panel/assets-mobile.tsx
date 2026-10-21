@@ -7,7 +7,7 @@ import { formatDateOnly } from "@/lib/calendar";
 import { formatCurrency, formatMoney, formatPercent } from "@/lib/money";
 import { INSTRUMENT_TYPE_META, INVESTMENT_CLASS_META } from "../constants";
 import { currentValue } from "./model";
-import { TemporaryQuantityBadge, ProviderQuantity, MoneyWithNative, holdingProfitability, pluggyInvestmentSourceLabel, reviewDecimal, reviewDate } from "./presentation";
+import { TemporaryQuantityBadge, ProviderQuantity, MoneyWithNative, CostValue, holdingProfitability, pluggyInvestmentSourceLabel, reviewDecimal, reviewDate } from "./presentation";
 import { AssetLogo } from "./asset-logo";
 import { HoldingHistoryMobile } from "./holding-history";
 import type { AssetsPanelController } from "./use-assets-panel-controller";
@@ -77,8 +77,10 @@ export function AssetsMobile({ controller }: {
 
           {asset.holdings.map((holding) => {
             const movementState = holdingTransactions[holding.id];
-            const displayedAveragePrice = movementState?.averagePricePaid ?? holding.averagePricePaid;
-            const displayedAveragePriceCoverage = movementState?.averagePriceCoverage ?? holding.averagePriceCoverage;
+            const hasMovementAverage = movementState && !movementState.loading && !movementState.error;
+            const displayedAveragePrice = hasMovementAverage ? movementState.averagePricePaid : holding.averagePricePaid;
+            const displayedAveragePriceCurrency = hasMovementAverage ? movementState.averagePriceCurrency : holding.averagePriceCurrency;
+            const displayedAveragePriceCoverage = hasMovementAverage ? movementState.averagePriceCoverage : holding.averagePriceCoverage;
             return (<section key={holding.id} className="rounded-xl border bg-[var(--card)] p-3">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0"><strong className="block truncate text-sm">{holding.typeName}</strong><span className="block truncate text-xs text-[var(--muted-foreground)]">{holding.productName}</span></div>
@@ -98,12 +100,12 @@ export function AssetsMobile({ controller }: {
                 <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Emissor</dt><dd className="mt-1">{holding.issuer || "—"}</dd></div>
                 {holding.institution && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Instituição</dt><dd className="mt-1">{holding.institution}</dd></div>}
                 <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Atual</dt><dd className="mt-1"><MoneyWithNative brl={holding.currentValue} native={holding.nativeCurrentValue} currency={holding.currency} strong nativePrimary={!!holding.accountBalanceSource} unavailable={holding.accountBalanceSource?.valuationUnavailable} /></dd></div>
-                {holding.investedValue !== null && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Investido</dt><dd className="mt-1"><PrivateValue>{formatMoney(holding.investedValue)}</PrivateValue></dd></div>}
+                {holding.investedValue !== null && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Investido</dt><dd className="mt-1"><CostValue value={holding.investedValue} currency={holding.investedValueCurrency} /></dd></div>}
                 {["STOCK", "ETF", "REAL_ESTATE_FUND", "REIT", "CRYPTO"].includes(asset.instrumentType) && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Quantidade atual</dt><dd className="mt-1"><PrivateValue>{Number(holding.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 10 })}</PrivateValue><ProviderQuantity metadata={holding.connectedMetadata} /></dd></div>}
-                {displayedAveragePrice !== null && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Preço médio</dt><dd className="mt-1"><PrivateValue>{formatMoney(displayedAveragePrice)}</PrivateValue>{displayedAveragePriceCoverage < 0.999 && <span className="block text-[9px] text-[var(--primary)]">Histórico parcial</span>}</dd></div>}
+                {displayedAveragePrice !== null && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Preço médio</dt><dd className="mt-1"><CostValue value={displayedAveragePrice} currency={displayedAveragePriceCurrency} />{displayedAveragePriceCoverage < 0.999 && <span className="block text-[9px] text-[var(--primary)]">Histórico parcial</span>}</dd></div>}
                 {holdingProfitability(holding) && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Rentabilidade</dt><dd className="mt-1">{holdingProfitability(holding)}</dd></div>}
-                {holding.purchaseDate && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Compra</dt><dd className="mt-1">{reviewDate(holding.purchaseDate, timeZone)}</dd></div>}
-                {holding.maturityDate && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Vencimento</dt><dd className="mt-1">{reviewDate(holding.maturityDate, timeZone)}</dd></div>}
+                {holding.purchaseDate && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Compra</dt><dd className="mt-1">{formatDateOnly(holding.purchaseDate)}</dd></div>}
+                {holding.maturityDate && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Vencimento</dt><dd className="mt-1">{formatDateOnly(holding.maturityDate)}</dd></div>}
                 {holding.positionSource !== "MANUAL" && <div><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Status</dt><dd className="mt-1">{holding.providerStatus ?? "Sincronizado"}</dd></div>}
               </dl>
               {holding.accountBalanceSource && <p className="mt-3 text-xs text-[var(--muted-foreground)]">Mesmo dinheiro incluído em Saldo em conta. Valor e moeda são controlados pela conta; nenhuma movimentação de investimento é criada.</p>}

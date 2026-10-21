@@ -1,0 +1,212 @@
+name: CI
+
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+    branches: [main, dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: 'true'
+  NEXT_TELEMETRY_DISABLED: '1'
+  CYPRESS_INSTALL_BINARY: '0'
+  DATABASE_URL: postgresql://uovp:uovp-ci@127.0.0.1:5432/uovp_ci?schema=public
+  AUTH_URL: https://uovp-ci.test:8443
+  AUTH_TRUST_HOST: 'true'
+  AUTH_TRUST_PROXY: 'true'
+  NO_PROXY: localhost,127.0.0.1,uovp-ci.test
+
+jobs:
+  quality:
+    name: Code quality
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - run: python3 -m unittest discover -s tests/ci
+      - run: pnpm typecheck
+      - run: pnpm lint
+
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - run: pnpm test
+
+  integration:
+    name: Integration tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      REDIS_URL: redis://127.0.0.1:6379
+      UOVP_TEST_REDIS_URL: redis://127.0.0.1:6379
+    services:
+      postgres:
+        image: postgres:18.4-alpine
+        env:
+          POSTGRES_USER: uovp
+          POSTGRES_PASSWORD: uovp-ci
+          POSTGRES_DB: uovp_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U uovp -d uovp_ci"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+      redis:
+        image: redis:7.2.15
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - run: node scripts/ci/check-services.mjs
+      - run: pnpm exec prisma migrate deploy
+      - run: pnpm db:seed
+      - run: pnpm test:integration --reporter=default --reporter=json --outputFile=work/integration-results.json
+      - run: node scripts/ci/check-test-results.mjs work/integration-results.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: integration-results
+          path: work/integration-results.json
+          retention-days: 7
+
+  build:
+    name: Production build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - run: pnpm build
+      - name: Preserve build dependency links
+        run: |
+          mkdir -p work
+          tar --exclude='.next/cache' -czf work/production-build.tar.gz .next
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: production-build
+          path: work/production-build.tar.gz
+          retention-days: 1
+          if-no-files-found: error
+
+  e2e:
+    name: Browser tests
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      REDIS_URL: redis://127.0.0.1:6379
+      UOVP_TEST_REDIS_URL: redis://127.0.0.1:6379
+      CYPRESS_BASE_URL: https://uovp-ci.test:8443
+      CYPRESS_DEFAULT_COMMAND_TIMEOUT: '15000'
+    services:
+      postgres:
+        image: postgres:18.4-alpine
+        env:
+          POSTGRES_USER: uovp
+          POSTGRES_PASSWORD: uovp-ci
+          POSTGRES_DB: uovp_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U uovp -d uovp_ci"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+      redis:
+        image: redis:7.2.15
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: production-build
+          path: work
+      - name: Restore build dependency links
+        run: tar -xzf work/production-build.tar.gz
+      - run: node scripts/ci/check-services.mjs
+      - run: pnpm exec prisma migrate deploy
+      - run: pnpm db:seed
+      - name: Install Cypress browser
+        run: CYPRESS_INSTALL_BINARY= pnpm exec cypress install
+      - name: Resolve the temporary HTTPS origin
+        run: echo '127.0.0.1 uovp-ci.test' | sudo tee -a /etc/hosts
+      - run: bash scripts/ci/run-e2e.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: failure()
+        with:
+          name: browser-failure-artifacts
+          path: |
+            cypress/screenshots/
+            cypress/videos/
+            work/e2e-*.log
+          retention-days: 7
+
+  passed:
+    name: CI passed
+    if: always()
+    needs: [quality, unit, integration, build, e2e]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Require every check to succeed
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          results = json.loads(os.environ['RESULTS'])
+          failed = [name for name, job in results.items() if job['result'] != 'success']
+          if failed:
+              raise SystemExit('Required checks did not pass: ' + ', '.join(failed))
+          print('All required checks passed.')
+          PY
+
+  deploy-dev:
+    name: Deploy dev
+    needs: passed
+    if: github.ref == 'refs/heads/dev' && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    environment:
+      name: development
+      url: https://uovp-dev.cotalima.com.br
+    concurrency:
+      group: coolify-development
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Deploy the tested commit with coolify-deploy
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COOLIFY_URL: ${{ vars.COOLIFY_URL }}
+          COOLIFY_APP_UUID: ${{ vars.COOLIFY_DEV_APP_UUID }}
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+        run: python3 scripts/ci/deploy-dev.py

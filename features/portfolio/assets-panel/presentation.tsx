@@ -1,6 +1,6 @@
 "use client";
 import { PrivateValue } from "@/components/ui/private-value";
-import { formatDateOnly } from "@/lib/calendar";
+import { formatCalendarDate, formatDateOnly } from "@/lib/calendar";
 import { formatCurrency, formatMoney } from "@/lib/money";
 import type { AssetHoldingDto } from "../types";
 import type { ReviewForm } from "./model";
@@ -61,6 +61,13 @@ export function reviewMoney(value: string, currency: string) {
     return `${currency} ${Number(value).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`;
   }
 }
+export function CostValue({ value, currency }: { value: string | null; currency?: string | null }) {
+  if (value === null) return <span title="Indisponível: custo não informado ou moedas incompatíveis.">—</span>;
+  return <span className="block">
+    <PrivateValue>{currency ? reviewMoney(value, currency) : reviewDecimal(value)}</PrivateValue>
+    {!currency && <span className="mt-1 block text-[10px] text-[var(--muted-foreground)]">Moeda do custo não informada</span>}
+  </span>;
+}
 export function reviewDecimal(value: string) {
   return Number(value).toLocaleString("pt-BR", { maximumFractionDigits: 10 });
 }
@@ -91,7 +98,7 @@ export function pluggyInvestmentSourceLabel(source: AssetHoldingDto["providerInv
   return "Pluggy";
 }
 export function reviewDate(value: string, timeZone: string) {
-  return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeZone }).format(new Date(value));
+  return formatCalendarDate(value, timeZone);
 }
 export function reviewDateTime(value: string, timeZone: string) {
   return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone }).format(new Date(value));

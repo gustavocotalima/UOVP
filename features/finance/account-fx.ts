@@ -123,6 +123,9 @@ export async function resolveHistoricalFinancialFx(input: {
   manualRateToBrl?: number;
   existing?: {
     currencyCode: string;
+    // The original transaction date identifies the frozen conversion basis.
+    // rateDate may be an earlier close (weekends/holidays).
+    transactionDate: Date;
     rateToBrl: Prisma.Decimal | null;
     rateDate: Date | null;
     source: "NATIVE" | "PLUGGY" | "YAHOO" | "MANUAL" | null;
@@ -142,8 +145,10 @@ export async function resolveHistoricalFinancialFx(input: {
   if (
     input.existing?.currencyCode === input.currencyCode
     && input.existing.rateToBrl
+    && input.existing.rateToBrl.isFinite()
+    && input.existing.rateToBrl.gt(0)
     && input.existing.rateDate
-    && sameFinancialDate(input.existing.rateDate, input.transactionDate)
+    && sameFinancialDate(input.existing.transactionDate, input.transactionDate)
   ) {
     return {
       rateToBrl: input.existing.rateToBrl,

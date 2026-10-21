@@ -4,7 +4,11 @@ import { Button } from "@/components/ui/button";
 import { LoaderCircle } from "lucide-react";
 import type { AssetHoldingDto } from "../types";
 import type { HoldingTransactionsState } from "../use-holding-transactions";
-import { operationTypeLabel, reviewMoney, reviewOperationDate } from "./presentation";
+import { operationTypeLabel, reviewMoney, reviewDecimal, reviewOperationDate } from "./presentation";
+function operationMoney(value: string | null, currency: string | null | undefined) {
+  if (value === null) return "—";
+  return <PrivateValue>{currency ? reviewMoney(value, currency) : `${reviewDecimal(value)} · moeda não informada`}</PrivateValue>;
+}
 type HoldingHistoryProps = {
   holding: AssetHoldingDto;
   movementState?: HoldingTransactionsState;
@@ -21,8 +25,8 @@ export function HoldingHistoryMobile({ holding, movementState, loadHoldingTransa
       {displayedTransactions.map((transaction) => {
         const operationAmount = transaction.netAmount ?? transaction.amount;
         return (<div key={transaction.id} className="rounded-lg bg-[var(--muted)]/35 p-3 text-xs">
-          <div className="flex items-start justify-between gap-3"><span><strong>{operationTypeLabel(transaction.type)}</strong><span className="mt-1 block text-[10px] text-[var(--muted-foreground)]">{reviewOperationDate(transaction.tradeDate ?? transaction.date)}</span></span><strong>{operationAmount === null ? "—" : <PrivateValue>{reviewMoney(operationAmount, holding.currency)}</PrivateValue>}</strong></div>
-          <div className="mt-2 flex justify-between gap-3 text-[10px] text-[var(--muted-foreground)]"><span><PrivateValue>{transaction.quantity === null ? "Quantidade —" : `${Number(transaction.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 8 })} un.`}</PrivateValue></span><span>{transaction.value === null ? "Preço —" : <PrivateValue>{reviewMoney(transaction.value, holding.currency)}</PrivateValue>}</span></div>
+          <div className="flex items-start justify-between gap-3"><span><strong>{operationTypeLabel(transaction.type)}</strong><span className="mt-1 block text-[10px] text-[var(--muted-foreground)]">{reviewOperationDate(transaction.tradeDate ?? transaction.date)}</span></span><strong>{operationMoney(operationAmount, transaction.currencyCode)}</strong></div>
+          <div className="mt-2 flex justify-between gap-3 text-[10px] text-[var(--muted-foreground)]"><span><PrivateValue>{transaction.quantity === null ? "Quantidade —" : `${Number(transaction.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 8 })} un.`}</PrivateValue></span><span>{transaction.value === null ? "Preço —" : operationMoney(transaction.value, transaction.currencyCode)}</span></div>
         </div>);
       })}
       {movementState?.loading && <div className="flex items-center justify-center gap-2 py-3 text-xs text-[var(--muted-foreground)]"><LoaderCircle className="size-4 animate-spin" /> Carregando…</div>}
@@ -48,8 +52,8 @@ export function HoldingHistoryDesktop({ holding, movementState, loadHoldingTrans
             <span className="whitespace-nowrap">{reviewOperationDate(transaction.tradeDate ?? transaction.date)}</span>
             <span><strong>{operationTypeLabel(transaction.type)}</strong>{transaction.description && <span className="mt-0.5 block truncate text-[10px] text-[var(--muted-foreground)]" title={transaction.description}>{transaction.description}</span>}</span>
             <span className="whitespace-nowrap">{transaction.quantity === null ? "—" : <PrivateValue>{Number(transaction.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 8 })}</PrivateValue>}</span>
-            <span className="whitespace-nowrap">{transaction.value === null ? "—" : <PrivateValue>{reviewMoney(transaction.value, holding.currency)}</PrivateValue>}</span>
-            <span className="whitespace-nowrap text-right font-semibold">{operationAmount === null ? "—" : <PrivateValue>{reviewMoney(operationAmount, holding.currency)}</PrivateValue>}</span>
+            <span className="whitespace-nowrap">{operationMoney(transaction.value, transaction.currencyCode)}</span>
+            <span className="whitespace-nowrap text-right font-semibold">{operationMoney(operationAmount, transaction.currencyCode)}</span>
           </div>);
         })}
         {movementState?.loading && (<div className="flex items-center justify-center gap-2 px-3 py-4 text-xs text-[var(--muted-foreground)]">

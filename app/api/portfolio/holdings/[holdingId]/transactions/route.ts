@@ -33,6 +33,7 @@ export async function GET(
     select: {
       quantity: true,
       investedValue: true,
+      investedValueCurrency: true,
       positionSource: true,
       pluggyDiagramLink: {
         select: {
@@ -40,6 +41,7 @@ export async function GET(
           investment: {
             select: {
               amountOriginal: true,
+              currencyCode: true,
               purchaseQuantityTotal: true,
               purchaseCostTotal: true,
               purchaseSummaryVersion: true,
@@ -60,6 +62,8 @@ export async function GET(
     positionSource: holding.positionSource,
     quantity: holding.quantity.toString(),
     investedValue: holding.investedValue?.toString(),
+    investedValueCurrency: holding.investedValueCurrency,
+    providerCurrency: pluggyDiagramLink.investment.currencyCode,
     amountOriginal: pluggyDiagramLink.investment.amountOriginal?.toString(),
     purchaseSummary: {
       version: pluggyDiagramLink.investment.purchaseSummaryVersion,
@@ -95,9 +99,11 @@ export async function GET(
     pageSize: parsedQuery.data.pageSize,
     total,
     averagePricePaid: averagePrice.price?.toString() ?? null,
+    averagePriceCurrency: averagePrice.currency,
     averagePriceCoverage: averagePrice.coverage,
     transactions: rows.map((transaction) => ({
       id: transaction.id,
+      currencyCode: pluggyDiagramLink.investment.currencyCode,
       description: transaction.description,
       type: transaction.type,
       movementType: transaction.movementType,

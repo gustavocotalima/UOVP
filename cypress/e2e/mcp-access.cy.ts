@@ -2,7 +2,7 @@ const callbackUrl = "https://mcp-cypress.example/callback";
 const verifier = "uovp-cypress-pkce-verifier-for-read-only-mcp-tests";
 
 function enableMcp() {
-  cy.get('[data-testid="mcp-settings"]').within(() => {
+  cy.get('[data-testid="mcp-settings"]:visible').within(() => {
     cy.contains("button", "Habilitar MCP").should("be.enabled").click();
     cy.contains("MCP habilitado.").should("be.visible");
     cy.get("#mcp-endpoint").invoke("val").as("mcpResource", { type: "static" });
@@ -10,7 +10,7 @@ function enableMcp() {
 }
 
 function registerClient() {
-  cy.get('[data-testid="mcp-settings"]').within(() => {
+  cy.get('[data-testid="mcp-settings"]:visible').within(() => {
     cy.contains("summary", "Cliente personalizado").click();
     cy.get("#mcp-client-name").type("Agente MCP Cypress");
     cy.get("#mcp-client-redirects").type(callbackUrl);
@@ -54,7 +54,7 @@ describe("acesso somente leitura por MCP", () => {
   });
 
   it("começa desabilitado, mantém a escolha após reload e confirma a revogação ao desabilitar", () => {
-    cy.get('[data-testid="mcp-settings"]').within(() => {
+    cy.get('[data-testid="mcp-settings"]:visible').within(() => {
       cy.contains("button", "Habilitar MCP").should("have.attr", "aria-pressed", "false");
       cy.contains("Nenhum agente autorizado.").should("be.visible");
       cy.contains("não apaga dados já enviados").should("be.visible");
@@ -62,14 +62,14 @@ describe("acesso somente leitura por MCP", () => {
     enableMcp();
     cy.reload();
     cy.waitForHydration();
-    cy.get('[data-testid="mcp-settings"]').contains("button", "Desabilitar MCP").click();
+    cy.get('[data-testid="mcp-settings"]:visible').contains("button", "Desabilitar MCP").click();
     cy.get('[role="dialog"]').within(() => {
       cy.contains("Desabilitar acesso por MCP?").should("be.visible");
       cy.contains("button", "Cancelar").click();
     });
-    cy.get('[data-testid="mcp-settings"]').contains("button", "Desabilitar MCP").click();
+    cy.get('[data-testid="mcp-settings"]:visible').contains("button", "Desabilitar MCP").click();
     cy.get('[role="dialog"]').contains("button", "Desabilitar e revogar").click();
-    cy.get('[data-testid="mcp-settings"]').contains("button", "Habilitar MCP").should("have.attr", "aria-pressed", "false");
+    cy.get('[data-testid="mcp-settings"]:visible').contains("button", "Habilitar MCP").should("have.attr", "aria-pressed", "false");
   });
 
   it("permite recusar o consentimento sem criar autorização", () => {
@@ -91,7 +91,7 @@ describe("acesso somente leitura por MCP", () => {
     });
     cy.visit("/configuracoes");
     cy.waitForHydration();
-    cy.get('[data-testid="mcp-settings"]').contains("Nenhum agente autorizado.").should("be.visible");
+    cy.get('[data-testid="mcp-settings"]:visible').contains("Nenhum agente autorizado.").should("be.visible");
   });
 
   it("autoriza apenas os escopos selecionados, obtém token e o invalida ao revogar", () => {
@@ -178,7 +178,7 @@ describe("acesso somente leitura por MCP", () => {
   it("rejeita callbacks e autorizações inválidos sem erro de renderização e cabe no celular", () => {
     cy.viewport(390, 844);
     enableMcp();
-    cy.get('[data-testid="mcp-settings"]').within(() => {
+    cy.get('[data-testid="mcp-settings"]:visible').within(() => {
       cy.contains("summary", "Cliente personalizado").click();
       cy.get("#mcp-client-name").type("Cliente inválido");
       cy.get("#mcp-client-redirects").type("http://untrusted.example/callback");

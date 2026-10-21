@@ -1,5 +1,9 @@
 describe("modais da carteira", () => {
   beforeEach(() => {
+    cy.intercept("GET", "https://s.yimg.com/uc/finance/logos/AAPL.svg", {
+      headers: { "content-type": "image/svg+xml" },
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="black"/></svg>',
+    });
     cy.registerAndLogin();
     cy.visit("/carteira");
     cy.waitForHydration();
@@ -7,12 +11,10 @@ describe("modais da carteira", () => {
   });
 
   it("exibe o logo do Yahoo Finance na tabela da carteira", () => {
-    cy.contains("button:visible", "Adicionar ativo").click();
-    cy.get("#asset-class").select("INTERNATIONAL_STOCKS");
-    cy.get("#asset-ticker").type("AAPL");
-    cy.get("#market-ticker-options", { timeout: 10000 }).contains('[role="option"]', "AAPL").click();
-    cy.get("#asset-quantity").type("{selectall}1");
-    cy.get('button[form="asset-modal-form"]').click();
+    // Logo rendering does not depend on a live Yahoo search/quote request.
+    cy.get<string>("@testUserEmail").then((email) => cy.task("seedYahooMarketLogo", { email }));
+    cy.reload();
+    cy.waitForHydration();
 
     cy.contains("tbody tr", "AAPL")
       .find("[data-asset-logo]")
@@ -249,13 +251,9 @@ describe("modais da carteira", () => {
   });
 
   it("recalcula um aporte invalidado e permite registrar a nova sugestão", () => {
-    cy.contains("button:visible", "Adicionar ativo").click();
-    cy.get("#asset-class").select("INTERNATIONAL_STOCKS");
-    cy.get("#asset-ticker").type("AAPL");
-    cy.get("#market-ticker-options", { timeout: 10000 }).contains('[role="option"]', "AAPL").click();
-    cy.get("#asset-quantity").type("{selectall}32");
-    cy.get('button[form="asset-modal-form"]').click();
-    cy.contains("Ativo adicionado.").should("be.visible");
+    cy.get<string>("@testUserEmail").then((email) => cy.task("seedYahooMarketLogo", { email, quantity: 32 }));
+    cy.reload();
+    cy.waitForHydration();
 
     cy.get('button[aria-label="Editar AAPL"]:visible').click();
     cy.get('[role="switch"]').click({ multiple: true });

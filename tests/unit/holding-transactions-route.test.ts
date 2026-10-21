@@ -11,11 +11,12 @@ vi.mock("@/lib/prisma", () => ({ prisma: {
 import { GET } from "@/app/api/portfolio/holdings/[holdingId]/transactions/route";
 
 const holdingId = "cm1holding00000000000000001";
-function holding({ quantity = 125, amountOriginal = null }: { quantity?: number; amountOriginal?: number | null } = {}) {
+function holding({ quantity = 125, amountOriginal = null, currency = "BRL" }: { quantity?: number; amountOriginal?: number | null; currency?: string } = {}) {
   return {
-    quantity: new Decimal(quantity), investedValue: null, positionSource: "PLUGGY",
+    quantity: new Decimal(quantity), investedValue: null, investedValueCurrency: null, positionSource: "PLUGGY",
     pluggyDiagramLink: { pluggyInvestmentDbId: "investment-a", investment: {
       amountOriginal: amountOriginal === null ? null : new Decimal(amountOriginal),
+      currencyCode: currency,
       purchaseQuantityTotal: new Decimal(100), purchaseCostTotal: new Decimal(2498), purchaseSummaryVersion: 1,
     } },
   };
@@ -37,7 +38,7 @@ describe("movimentações de posições com resumo de compras", () => {
   it("consulta somente a página e a contagem, preservando o contrato de preço e cobertura", async () => {
     const response = await request();
     expect(await response.json()).toEqual({
-      page: 2, pageSize: 25, total: 80, averagePricePaid: "24.98", averagePriceCoverage: 0.8,
+      page: 2, pageSize: 25, total: 80, averagePricePaid: "24.98", averagePriceCoverage: 0.8, averagePriceCurrency: "BRL",
       transactions: [],
     });
     expect(mocks.holding).toHaveBeenCalledWith(expect.objectContaining({
@@ -45,7 +46,7 @@ describe("movimentações de posições com resumo de compras", () => {
       select: expect.objectContaining({ pluggyDiagramLink: { select: {
         pluggyInvestmentDbId: true,
         investment: { select: {
-          amountOriginal: true, purchaseQuantityTotal: true, purchaseCostTotal: true, purchaseSummaryVersion: true,
+          amountOriginal: true, currencyCode: true, purchaseQuantityTotal: true, purchaseCostTotal: true, purchaseSummaryVersion: true,
         } },
       } } }),
     }));
@@ -73,5 +74,24 @@ describe("movimentações de posições com resumo de compras", () => {
     expect((await request()).status).toBe(404);
     expect(mocks.movements).not.toHaveBeenCalled();
     expect(mocks.count).not.toHaveBeenCalled();
+  });
+
+  it("retorna a moeda do custo USD tanto pelo valor original quanto pelo resumo de compras", async () => {
+    mocks.holding.mockResolvedValue(holding({ quantity: 2, amountOriginal: 100, currency: "USD" }));
+    expect(await (await request()).json()).toMatchObject({ averagePricePaid: "50", averagePriceCurrency: "USD" });
+    mocks.holding.mockResolvedValue(holding({ quantity: 125, currency: "USD" }));
+    expect(await (await request()).json()).toMatchObject({ averagePricePaid: "24.98", averagePriceCurrency: "USD" });
+  });
+
+  it("retorna movimentações na moeda do investimento, independente da cotação da holding", async () => {
+    mocks.holding.mockResolvedValue({ ...holding({ quantity: 2, amountOriginal: 100, currency: "USD" }), currency: "BRL" });
+    mocks.movements.mockResolvedValue([{
+      id: "movement", description: "Compra", type: "BUY", movementType: null,
+      quantity: new Decimal(2), value: new Decimal(50), amount: new Decimal(100), netAmount: null, agreedRate: null,
+      date: new Date("2026-01-01T00:00:00Z"), tradeDate: null,
+    }]);
+    expect(await (await request()).json()).toMatchObject({
+      averagePriceCurrency: "USD", transactions: [{ currencyCode: "USD", value: "50", amount: "100" }],
+    });
   });
 });

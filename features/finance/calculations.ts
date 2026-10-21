@@ -279,6 +279,28 @@ export function calculateHistory(
   });
 }
 
+function invoicePeriodForDate(
+  account: Pick<FinancialAccountDto, "closingDay" | "dueDay">,
+  date: Date,
+  timeZone: string,
+) {
+  const purchase = calendarParts(date, timeZone);
+  const dueDay = account.dueDay ?? 10;
+  const inferredClosing = dueDay > 7 ? dueDay - 7 : Math.min(28, dueDay + 23);
+  const closingDay = account.closingDay ?? inferredClosing;
+  const lastDay = new Date(Date.UTC(purchase.year, purchase.month, 0)).getUTCDate();
+  const effectiveClosingDay = Math.min(closingDay, lastDay);
+  // A purchase on the closing day belongs to that closing, including short
+  // months. The configured order of closing/due days determines whether its
+  // due month is the same month or the following one.
+  const closingMonthIndex = purchase.year * 12 + purchase.month - 1
+    + (purchase.day <= effectiveClosingDay ? 0 : 1);
+  const invoiceMonthIndex = closingMonthIndex + (closingDay < dueDay ? 0 : 1);
+  const year = Math.floor(invoiceMonthIndex / 12);
+  const month = (invoiceMonthIndex % 12) + 1;
+  return { year, month, key: `${year}-${String(month).padStart(2, "0")}` };
+}
+
 export function calculateInvoices(
   account: FinancialAccountDto,
   transactions: FinanceTransactionDto[],
@@ -290,26 +312,12 @@ export function calculateInvoices(
   );
   const groups = new Map<string, FinanceTransactionDto[]>();
   for (const transaction of cardTransactions) {
-    const purchaseDate = new Date(transaction.date);
-    const purchase = calendarParts(purchaseDate, timeZone);
-    const dueDay = account.dueDay ?? 10;
-    const inferredClosing = dueDay > 7 ? dueDay - 7 : Math.min(28, dueDay + 23);
-    const closingDay = account.closingDay ?? inferredClosing;
-    const closesBeforeDue = closingDay < dueDay;
-    const monthOffset = closesBeforeDue
-      ? purchase.day <= closingDay ? 0 : 1
-      : purchase.day <= closingDay ? 1 : 2;
-    const invoiceMonthIndex = purchase.year * 12 + purchase.month - 1 + monthOffset;
-    const invoiceYear = Math.floor(invoiceMonthIndex / 12);
-    const invoiceMonth = (invoiceMonthIndex % 12) + 1;
-    const key = `${invoiceYear}-${String(invoiceMonth).padStart(2, "0")}`;
-    groups.set(key, [...(groups.get(key) ?? []), transaction]);
+    const { key } = invoicePeriodForDate(account, new Date(transaction.date), timeZone);
+    const entries = groups.get(key);
+    if (entries) entries.push(transaction);
+    else groups.set(key, [transaction]);
   }
-  const current = calendarParts(now, timeZone);
-  const openMonthIndex = current.year * 12 + current.month;
-  const openYear = Math.floor(openMonthIndex / 12);
-  const openMonth = (openMonthIndex % 12) + 1;
-  const openKey = `${openYear}-${String(openMonth).padStart(2, "0")}`;
+  const { key: openKey } = invoicePeriodForDate(account, now, timeZone);
   if (!groups.has(openKey)) groups.set(openKey, []);
   return [...groups.entries()]
     .map(([key, items]) => {
@@ -322,13 +330,13 @@ export function calculateInvoices(
         month,
         dueDate: dueDate.toISOString(),
         open: key === openKey,
-        total: items
-          .filter((transaction) => isReportable(transaction) && Number(transaction.amount) < 0)
-          .reduce((total, transaction) => total + Math.abs(Number(transaction.amount)), 0),
-        totalBrl: items
-          .filter((transaction) => (reportingValue(transaction) ?? 0) < 0)
-          .reduce((total, transaction) => total + Math.abs(reportingValue(transaction) ?? 0), 0),
-        transactions: items.sort((left, right) => right.date.localeCompare(left.date)),
+        // Debits increase the invoice; reportable credits/refunds reduce it.
+        // Keep a negative net total when the customer has a credit balance.
+        total: fromCents(items.filter(isReportable)
+          .reduce((total, transaction) => total - toCents(Number(transaction.amount)), 0)),
+        totalBrl: fromCents(items
+          .reduce((total, transaction) => total - toCents(reportingValue(transaction) ?? 0), 0)),
+        transactions: items.sort((left, right) => right.date.localeCompare(left.date) || right.id.localeCompare(left.id)),
       };
     })
     .sort((left, right) => right.key.localeCompare(left.key));

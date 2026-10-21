@@ -5,8 +5,9 @@ import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type 
 import { deleteAssetAction, deleteAssetClassAction, deleteAssetHoldingAction, importPortfolioRowsAction, refreshMarketPricesAction, saveAssetAction, saveAssetAnswersAction, saveAssetHoldingAction, saveFixedIncomeGroupAction, saveAwaitingContributionPriceAction, searchBinanceAssetsAction, searchBrapiTickersAction, searchYahooTickersAction } from "../actions";
 import { notifyPortfolioSimulationInvalidated } from "../client-events";
 import { parseXlsxFile } from "../xlsx-parser";
+import { parsePortfolioImportRows } from "../portfolio-import";
 import type { YahooSearchKind } from "../yahoo-finance";
-import { FIXED_INCOME_INDEXATIONS, INVESTMENT_CLASSES, INVESTMENT_CLASS_META, MOCK_ASSET_CATALOG, RATE_CONVENTIONS, type FixedIncomeIndexationKey, type InstrumentTypeKey, type InvestmentClassKey, type RateConventionKey } from "../constants";
+import { INVESTMENT_CLASSES, INVESTMENT_CLASS_META, MOCK_ASSET_CATALOG, type FixedIncomeIndexationKey, type InstrumentTypeKey, type InvestmentClassKey } from "../constants";
 import type { AssetDto, AssetHoldingDto, PortfolioDto } from "../types";
 import { excludePluggyDiagramLinkAction, reviewPluggyDiagramLinkAction } from "@/features/open-finance/diagram-actions";
 import { excludeAccountInvestmentAction, reviewAccountInvestmentAction } from "@/features/finance/account-investment-actions";
@@ -227,6 +228,8 @@ export function useAssetsPanelController({ assets, fixedIncomeFamilies, catalog,
       quantity: Number(asset.quantity),
       unitPrice: Number(asset.unitPrice),
       manualValue: asset.manualValue == null ? null : Number(asset.manualValue),
+      investedValue: asset.investedValue == null ? null : Number(asset.investedValue),
+      investedValueCurrency: asset.investedValueCurrency ?? null,
       currency: asset.currency,
       fractional: asset.fractional,
       score: asset.score,
@@ -250,6 +253,7 @@ export function useAssetsPanelController({ assets, fixedIncomeFamilies, catalog,
       issuer: holding?.issuer ?? "",
       productName: holding?.productName ?? "",
       investedValue: holding?.investedValue == null ? null : Number(holding.investedValue),
+      investedValueCurrency: holding?.investedValueCurrency ?? null,
       currentValue: Number(holding?.currentValue ?? 0),
       rateConvention: holding?.rateConvention ?? null,
       benchmark: holding?.benchmark ?? "",
@@ -366,8 +370,10 @@ export function useAssetsPanelController({ assets, fixedIncomeFamilies, catalog,
     setMessage(undefined);
     startTransition(async () => {
       try {
+        const { investedValue, investedValueCurrency, investmentCostEdited, ...assetInput } = form;
         await saveAssetAction({
-          ...form,
+          ...assetInput,
+          ...(!form.id || investmentCostEdited ? { investedValue, investedValueCurrency } : {}),
           ...(quantityEdits.length ? {
             quantityEdits: quantityEdits.map((entry) => ({
               linkId: entry.linkId, expectedUpdatedAt: entry.expectedUpdatedAt,
@@ -411,8 +417,10 @@ export function useAssetsPanelController({ assets, fixedIncomeFamilies, catalog,
     setMessage(undefined);
     startTransition(async () => {
       try {
+        const { investedValue, investedValueCurrency, investmentCostEdited, ...holdingInput } = holdingForm;
         await saveAssetHoldingAction(holdingForm.assetId, {
-          ...holdingForm,
+          ...holdingInput,
+          ...(!holdingForm.id || investmentCostEdited ? { investedValue, investedValueCurrency } : {}),
           customTypeName: holdingForm.catalogItemId ? null : holdingForm.customTypeName,
           benchmark: holdingForm.benchmark || null,
           purchaseDate: holdingForm.purchaseDate || null,
@@ -630,113 +638,7 @@ export function useAssetsPanelController({ assets, fixedIncomeFamilies, catalog,
     setMessage("Lendo planilha…");
     try {
       const rows = await parseXlsxFile(file);
-      const read = (row: Record<string, unknown>, ...keys: string[]) => keys.map((key) => row[key]).find((value) => value !== undefined && value !== null && value !== "");
-      const classAliases: Record<string, InvestmentClassKey> = {
-        "ACOES NACIONAIS": "BRAZILIAN_STOCKS",
-        "ACOES INTERNACIONAIS": "INTERNATIONAL_STOCKS",
-        "FUNDOS IMOBILIARIOS": "REAL_ESTATE_FUNDS",
-        REITS: "REITS",
-        CRIPTOMOEDAS: "CRYPTO",
-        "RENDA FIXA": "FIXED_INCOME",
-        "RENDA FIXA INTERNACIONAL": "INTERNATIONAL_FIXED_INCOME",
-        "RESERVA DE VALOR": "STORE_OF_VALUE",
-      };
-      const normalizeText = (value: unknown) => String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toUpperCase();
-      const normalizeClass = (value: unknown): InvestmentClassKey => {
-        const normalized = normalizeText(value || "BRAZILIAN_STOCKS");
-        return classAliases[normalized] ?? normalized as InvestmentClassKey;
-      };
-      const normalizeMarketRegion = (value: unknown): FormAsset["marketRegion"] => {
-        const normalized = normalizeText(value);
-        if (["BRASIL", "BRAZIL", "BR", "NACIONAL"].includes(normalized))
-          return "BRAZIL";
-        if (["INTERNACIONAL", "INTERNATIONAL", "EXTERIOR"].includes(normalized))
-          return "INTERNATIONAL";
-        return null;
-      };
-      const normalizeIndexation = (value: unknown): FixedIncomeIndexationKey | null => {
-        const normalized = normalizeText(value).replace(/[ -]/g, "_");
-        const aliases: Record<string, FixedIncomeIndexationKey> = {
-          PRE: "PRE_FIXED",
-          PREFIXADO: "PRE_FIXED",
-          PRE_FIXADO: "PRE_FIXED",
-          POS: "POST_FIXED",
-          POSFIXADO: "POST_FIXED",
-          POS_FIXADO: "POST_FIXED",
-          INFLACAO: "INFLATION",
-          IPCA: "INFLATION",
-          OUTRO: "OTHER",
-          HIBRIDO: "OTHER",
-          OUTRO_HIBRIDO: "OTHER",
-        };
-        return FIXED_INCOME_INDEXATIONS.includes(normalized as FixedIncomeIndexationKey) ? normalized as FixedIncomeIndexationKey : aliases[normalized] ?? null;
-      };
-      const parsed = rows.map((row) => ({
-        row,
-        investmentClass: normalizeClass(read(row, "classe", "Classe", "investmentClass")),
-        instrumentType: read(row, "instrumento", "Instrumento", "instrumentType") ? normalizeText(read(row, "instrumento", "Instrumento", "instrumentType")) as InstrumentTypeKey : undefined,
-      }));
-      const fixedRows = parsed.filter(({ investmentClass, instrumentType }) => (investmentClass === "FIXED_INCOME" || investmentClass === "INTERNATIONAL_FIXED_INCOME") && instrumentType !== "ETF");
-      const marketRows = parsed.filter(({ row }) => !fixedRows.some((fixed) => fixed.row === row));
-      const normalizedFixed = fixedRows.map(({ row, investmentClass }) => {
-        const familyInput = String(read(row, "familia", "Família", "familyCode") ?? "").trim();
-        const family = fixedIncomeFamilies.find((item) => item.code === familyInput || normalizeText(item.name) === normalizeText(familyInput));
-        const indexation = normalizeIndexation(read(row, "indexacao", "Indexação", "indexation"));
-        const catalogInput = read(row, "catalogoId", "Catálogo ID", "catalogItemId", "tipoCatalogo", "Tipo do catálogo");
-        const catalogItem = catalog.find((item) => item.id === Number(catalogInput) || normalizeText(item.name) === normalizeText(catalogInput));
-        const issuer = String(read(row, "emissor", "Emissor", "issuer") ?? "").trim();
-        const productName = String(read(row, "produto", "Produto", "productName", "nome", "Nome") ?? "").trim();
-        const currentRaw = read(row, "valorAtual", "Valor atual", "currentValue", "valor", "Valor");
-        if (!family || !indexation || issuer.length < 2 || productName.length < 2 || currentRaw === undefined) {
-          throw new Error("Linhas de renda fixa exigem família, indexação, emissor, produto e valor atual. Agregados antigos não são aceitos.");
-        }
-        const customTypeName = String(read(row, "tipoPersonalizado", "Tipo personalizado", "customTypeName") ?? "").trim();
-        if (!catalogItem && customTypeName.length < 2)
-          throw new Error(`Informe um item do catálogo ou tipo personalizado para ${productName}.`);
-        const convention = normalizeText(read(row, "formatoTaxa", "Formato da taxa", "rateConvention"));
-        return {
-          familyCode: family.code,
-          indexation,
-          investmentClass: investmentClass === "INTERNATIONAL_FIXED_INCOME" ? "INTERNATIONAL_FIXED_INCOME" as const : "FIXED_INCOME" as const,
-          score: Number(read(row, "nota", "Nota", "score") ?? 0),
-          holding: {
-            id: String(read(row, "idAplicacao", "ID da aplicação", "holdingId", "id") ?? "").trim() || undefined,
-            catalogItemId: catalogItem?.id ?? null,
-            customTypeName: catalogItem ? null : customTypeName,
-            issuer,
-            productName,
-            investedValue: read(row, "valorInvestido", "Valor investido", "investedValue") == null ? null : Number(read(row, "valorInvestido", "Valor investido", "investedValue")),
-            currentValue: Number(currentRaw),
-            rateConvention: RATE_CONVENTIONS.includes(convention as RateConventionKey) ? convention as RateConventionKey : null,
-            benchmark: String(read(row, "indexador", "Indexador", "benchmark") ?? "") || null,
-            rateValue: read(row, "taxa", "Taxa", "rateValue") == null ? null : Number(read(row, "taxa", "Taxa", "rateValue")),
-            purchaseDate: String(read(row, "dataCompra", "Data da compra", "purchaseDate") ?? "") || null,
-            maturityDate: String(read(row, "vencimento", "Vencimento", "maturityDate") ?? "") || null,
-          },
-        };
-      });
-      const normalizedMarket = marketRows.map(({ row, investmentClass, instrumentType }) => {
-        const familyInput = String(read(row, "familia", "Família", "familyCode") ?? "").trim();
-        const family = fixedIncomeFamilies.find((item) => item.code === familyInput || normalizeText(item.name) === normalizeText(familyInput));
-        return {
-          ticker: String(read(row, "ticker", "Ticker", "ativo", "Ativo") ?? ""),
-          name: String(read(row, "nome", "Nome", "name", "ticker", "Ativo") ?? ""),
-          investmentClass,
-          instrumentType,
-          fixedIncomeFamilyCode: family?.code ?? null,
-          indexation: normalizeIndexation(read(row, "indexacao", "Indexação", "indexation")),
-          marketRegion: normalizeMarketRegion(read(row, "mercado", "Mercado", "marketRegion")),
-          quantity: Number(read(row, "quantidade", "Quantidade", "quantity") ?? 0),
-          unitPrice: Number(read(row, "preco", "Preço", "unitPrice") ?? 0),
-          manualValue: read(row, "valor", "Valor", "manualValue") == null ? null : Number(read(row, "valor", "Valor", "manualValue")),
-          currency: String(read(row, "moeda", "Moeda", "currency") ?? "BRL"),
-          fractional: [true, 1, "1", "true", "sim"].includes(read(row, "fracionado", "Fracionado", "fractional") as never),
-          score: Number(read(row, "nota", "Nota", "score") ?? 0),
-          yahooReitConfirmed: [true, 1, "1", "true", "sim", "yes"].includes(String(read(row, "confirmarReitYahoo", "Confirmar REIT Yahoo", "yahooReitConfirmed") ?? "")
-            .trim()
-            .toLowerCase() as never),
-        };
-      });
+      const { marketRows: normalizedMarket, fixedIncomeRows: normalizedFixed } = parsePortfolioImportRows(rows, fixedIncomeFamilies, catalog);
       await importPortfolioRowsAction({
         marketRows: normalizedMarket,
         fixedIncomeRows: normalizedFixed,

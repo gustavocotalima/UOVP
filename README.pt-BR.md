@@ -2,6 +2,11 @@
 
 [English](./README.md)
 
+<p>
+  <img width="49%" alt="Screenshot 1" src="https://github.com/user-attachments/assets/5fddede5-1495-4ee5-b5a5-5abf2bb94757" />
+  <img width="49%" alt="Screenshot 2" src="https://github.com/user-attachments/assets/e16ffa80-9fcf-4b79-a2ef-d20ed20c6ae3" />
+</p>
+
 **Uma Outra Verdade Possível** — uma aplicação financeira pessoal multiusuário para orçamento doméstico, carteira de investimentos e agregação via Open Finance, inspirada no Diagrama do Cerrado da AUVP.
 
 A interface está em português brasileiro. Frontend e backend executam na mesma aplicação Next.js. O PostgreSQL armazena os registros financeiros e o estado das integrações; o Redis opcional compartilha dados públicos de mercado entre usuários.
@@ -162,8 +167,8 @@ O manifesto inclui ícones normais/maskable e inicia em `/home?source=pwa`. A in
 - Prisma 6 com PostgreSQL; Redis opcional.
 - Autenticação por credenciais com Auth.js, Lucide, Recharts, Leaflet e React Leaflet.
 - Vitest para testes unitários/de integração e Cypress para testes de navegador.
-- Node.js **22 ou mais recente**, **pnpm 10.13.1** e PostgreSQL 16 ou compatível.
-- Docker Compose opcional para os serviços incluídos de PostgreSQL 16 e Redis 8.
+- Node.js 22 ou mais recente, pnpm 10.13.1 e PostgreSQL 18.4.
+- Docker Compose opcional para PostgreSQL 18.4 e Redis 7.2.15, nas mesmas versões dos serviços de desenvolvimento e produção.
 
 ## Configuração local
 
@@ -183,6 +188,8 @@ O manifesto inclui ícones normais/maskable e inicia em `/home?source=pwa`. A in
    Configure `CREDENTIAL_ENCRYPTION_KEYS="v1:<chave-gerada>"` e `CREDENTIAL_ENCRYPTION_ACTIVE_KEY="v1"`. Mantenha as senhas de PostgreSQL/Redis consistentes com suas URLs; codifique caracteres especiais nas strings de conexão.
 
 3. Inicie os serviços locais ou configure serviços externos:
+
+   Instalações existentes com PostgreSQL 16 exigem backup lógico do serviço antigo e restauração no PostgreSQL 18.4. O Compose usa o volume separado `uovp_postgres18`, montado em `/var/lib/postgresql`, conforme a [estrutura da imagem PostgreSQL 18](https://github.com/docker-library/docs/blob/master/postgres/README.md#pgdata). Preserve o volume antigo `uovp_postgres` até verificar a restauração. Trocar a imagem ou executar migrations do Prisma não atualiza os arquivos de dados do PostgreSQL 16.
 
    ```bash
    docker compose up -d postgres redis
@@ -243,6 +250,18 @@ pnpm build
 - O Cypress cria/remove usuários de teste e limpa registros de limites de autenticação usados nos testes. Não o execute contra produção.
 - `pnpm cypress:open` abre o executor interativo; `pnpm test:watch` executa o Vitest em modo de observação.
 - `pnpm build` gera o Prisma Client e compila o Next.js; não aplica migrations nem executa o seed.
+
+### Integração contínua e deploy
+
+O GitHub Actions executa typecheck, lint, testes unitários, testes de integração, build de produção e Cypress nos pushes para `dev`/`main` e nos pull requests destinados a essas branches. Os jobs de integração e navegador usam PostgreSQL 18.4 e Redis 7.2.15 descartáveis, com migrations e seed independentes. O CI gera segredos temporários de autenticação/criptografia e rejeita testes de integração pulados.
+
+O Cypress testa o app compilado por um proxy HTTPS local temporário em `https://uovp-ci.test:8443`, preservando a validação de segurança de produção. Falhas nos testes de navegador disponibilizam capturas de tela e logs do servidor.
+
+O check `CI passed` exige sucesso em todos os jobs de validação. A proteção de `main` exige pull request, esse check com a base atualizada e conversas de revisão resolvidas; force push e exclusão da branch ficam bloqueados. Não é exigida aprovação adicional de outro revisor.
+
+O dev só recebe deploy depois que o CI passa em `dev`. O deploy direto por push do Coolify fica desativado. O job fixa o commit testado antes de chamar a cópia versionada do CLI `coolify-deploy` do Gustavo, aguarda a conclusão e verifica a saúde do dev. Commits substituídos por versões mais novas são ignorados. Produção mantém seu deploy existente pelo Coolify em `main`, após merge protegido.
+
+O environment `development` do GitHub só permite a branch `dev`. Ele contém as variáveis `COOLIFY_URL` e `COOLIFY_DEV_APP_UUID` e o secret `COOLIFY_TOKEN`, com permissões Coolify `read`, `write` e `deploy`. A escrita é necessária para fixar o commit exato, pois a API de restart instalada não aceita um commit como parâmetro. O token só fica disponível no job de deploy; a validação de pull requests não usa credenciais de deploy. Renove o token antes do vencimento.
 
 ## Produção e manutenção
 

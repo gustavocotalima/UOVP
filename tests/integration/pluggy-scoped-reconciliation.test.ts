@@ -2,6 +2,11 @@ import { randomUUID } from "node:crypto";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { afterAll, describe, expect, it } from "vitest";
 import { reconcilePluggyInvestmentsForUser } from "@/features/open-finance/diagram-sync";
+import {
+  OperationInProgressError,
+  OperationLeaseLostError,
+  withUserOperationLease,
+} from "@/lib/operation-security";
 
 const enabled = Boolean(process.env.DATABASE_URL);
 const db = enabled ? new PrismaClient() : null;
@@ -203,5 +208,73 @@ suite("reconciliação Pluggy por conexão", () => {
     await reconcilePluggyInvestmentsForUser(f.user.id);
     expect((await db!.assetHolding.findUniqueOrThrow({ where: { id: f.first.holding.id } })).quantity.toString()).toBe("11");
     expect((await db!.assetHolding.findUniqueOrThrow({ where: { id: f.second.holding.id } })).quantity.toString()).toBe("22");
+  });
+
+  it("coordena revisão e sync pelo mesmo lease e não duplica a posição ao repetir a conciliação", async () => {
+    const f = await fixture();
+    // The asset already exists with a legitimate manual position, but the
+    // provider link has not yet acquired its own holding.
+    await db!.pluggyInvestmentDiagramLink.update({
+      where: { id: f.first.link.id }, data: { assetHoldingId: null, status: "NEEDS_REVIEW" },
+    });
+    await db!.assetHolding.update({
+      where: { id: f.first.holding.id }, data: { positionSource: "MANUAL" },
+    });
+    let entered!: () => void;
+    let release!: () => void;
+    const started = new Promise<void>((resolve) => { entered = resolve; });
+    const continueSync = new Promise<void>((resolve) => { release = resolve; });
+    const first = withUserOperationLease({
+      userId: f.user.id,
+      operation: "pluggy-sync",
+      leaseMs: 60_000,
+      action: async (lease) => {
+        entered();
+        await continueSync;
+        return reconcilePluggyInvestmentsForUser(f.user.id, lease, { pluggyItemDbId: f.first.item.id });
+      },
+    });
+    await started;
+    try {
+      await expect(reconcilePluggyInvestmentsForUser(f.user.id, undefined, {
+        pluggyItemDbId: f.first.item.id,
+      })).rejects.toBeInstanceOf(OperationInProgressError);
+    } finally {
+      release();
+      await first;
+    }
+    await reconcilePluggyInvestmentsForUser(f.user.id, undefined, { pluggyItemDbId: f.first.item.id });
+    const link = await db!.pluggyInvestmentDiagramLink.findUniqueOrThrow({ where: { id: f.first.link.id } });
+    const holdings = await db!.assetHolding.findMany({ where: { assetId: f.asset.id } });
+    expect(holdings.filter((holding) => holding.positionSource === "PLUGGY")).toHaveLength(2);
+    expect(holdings.filter((holding) => holding.id === link.assetHoldingId)).toHaveLength(1);
+    // Existing market reconciliation supersedes the manual record, rather than
+    // deleting it or counting it a second time.
+    expect(holdings.find((holding) => holding.id === f.first.holding.id)).toMatchObject({
+      positionSource: "MANUAL", includedInTotals: false,
+    });
+    expect(holdings.filter((holding) => holding.includedInTotals)
+      .reduce((sum, holding) => sum.add(holding.quantity), new Prisma.Decimal(0)).toString()).toBe("30");
+  });
+
+  it("rejeita contexto vencido antes de gravar vínculo, posição ou versão da carteira", async () => {
+    const f = await fixture();
+    const before = await db!.portfolio.findUniqueOrThrow({ where: { userId: f.user.id } });
+    await db!.pluggyInvestment.update({ where: { id: f.first.investment.id }, data: { quantity: 99 } });
+    await expect(withUserOperationLease({
+      userId: f.user.id,
+      operation: "pluggy-sync",
+      leaseMs: 60_000,
+      action: async (lease) => {
+        await db!.userOperationLease.update({
+          where: { userId_operation: { userId: f.user.id, operation: "pluggy-sync" } },
+          data: { lockedUntil: new Date(0) },
+        });
+        return reconcilePluggyInvestmentsForUser(f.user.id, lease, { pluggyItemDbId: f.first.item.id });
+      },
+    })).rejects.toBeInstanceOf(OperationLeaseLostError);
+    expect(await db!.assetHolding.findUniqueOrThrow({ where: { id: f.first.holding.id } })).toEqual(f.first.holding);
+    expect(await db!.pluggyInvestmentDiagramLink.findUniqueOrThrow({ where: { id: f.first.link.id } })).toEqual(f.first.link);
+    expect((await db!.portfolio.findUniqueOrThrow({ where: { userId: f.user.id } })).version).toBe(before.version);
   });
 });

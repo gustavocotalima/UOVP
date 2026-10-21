@@ -1,0 +1,913 @@
+#!/usr/bin/env bash
+# Coolify Deploy CLI — Vercel-like deployment from terminal
+# v2.1.0
+#
+# Usage:
+#   coolify-deploy                    Deploy current project (interactive setup on first run)
+#   coolify-deploy deploy <app-uuid>  Deploy an existing app without a project link
+#   coolify-deploy new                Create new project interactively
+#   coolify-deploy link               Link directory to existing Coolify app
+#   coolify-deploy list               List all projects and apps
+#   coolify-deploy logs               Show deployment history
+#   coolify-deploy env [sub]          Manage environment variables (list|set|rm|pull|push)
+#   coolify-deploy info               Show linked project details
+#   coolify-deploy delete             Delete project from Coolify
+#   coolify-deploy config             Configure CLI (URL + token)
+#   coolify-deploy help               Show help
+
+set -uo pipefail
+
+# ── Constants ─────────────────────────────────────────────────────────────────
+CONFIG_DIR="$HOME/.config/coolify-deploy"
+CONFIG_FILE="$CONFIG_DIR/config.json"
+PROJECT_FILE=".coolify.json"
+VERSION="2.1.0"
+
+# ── Colors (using $'...' so escape chars are real bytes) ──────────────────────
+BOLD=$'\033[1m'
+DIM=$'\033[2m'
+CYAN=$'\033[36m'
+GREEN=$'\033[32m'
+RED=$'\033[31m'
+YELLOW=$'\033[33m'
+RESET=$'\033[0m'
+
+# ── Output ────────────────────────────────────────────────────────────────────
+info()    { printf "  ${CYAN}▲${RESET} %s\n" "$*"; }
+success() { printf "  ${GREEN}✓${RESET} %s\n" "$*"; }
+warn()    { printf "  ${YELLOW}!${RESET} %s\n" "$*"; }
+err()     { printf "  ${RED}✗${RESET} %s\n" "$*" >&2; }
+die()     { err "$@"; exit 1; }
+header()  { printf "\n  ${BOLD}Coolify Deploy${RESET} ${DIM}v${VERSION}${RESET}\n\n"; }
+
+# ── Config helpers ────────────────────────────────────────────────────────────
+cfg_get() {
+  [[ -f "$CONFIG_FILE" ]] || return 1
+  python3 -c "
+import json, sys
+with open(sys.argv[1]) as f:
+    d = json.load(f)
+v = d.get(sys.argv[2], '')
+if v: print(v)
+else: sys.exit(1)
+" "$CONFIG_FILE" "$1" 2>/dev/null
+}
+
+cfg_set() {
+  mkdir -p "$CONFIG_DIR"
+  python3 -c "
+import json, sys
+path, key, value = sys.argv[1], sys.argv[2], sys.argv[3]
+d = {}
+try:
+    with open(path) as f: d = json.load(f)
+except: pass
+d[key] = value
+with open(path, 'w') as f: json.dump(d, f, indent=2)
+" "$CONFIG_FILE" "$1" "$2"
+}
+
+# ── Project config helpers ────────────────────────────────────────────────────
+find_project_file() {
+  local dir="$PWD"
+  while [[ "$dir" != "/" ]]; do
+    [[ -f "$dir/$PROJECT_FILE" ]] && echo "$dir/$PROJECT_FILE" && return 0
+    dir=$(dirname "$dir")
+  done
+  return 1
+}
+
+proj_get() {
+  local pf
+  pf=$(find_project_file) || return 1
+  python3 -c "
+import json, sys
+with open(sys.argv[1]) as f: d = json.load(f)
+v = d.get(sys.argv[2], '')
+if v: print(v)
+else: sys.exit(1)
+" "$pf" "$1" 2>/dev/null
+}
+
+proj_save() {
+  echo "$1" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+with open(sys.argv[1], 'w') as f: json.dump(d, f, indent=2)
+" "$PROJECT_FILE"
+  if [[ -d .git ]] && ! grep -qxF '.coolify.json' .gitignore 2>/dev/null; then
+    echo '.coolify.json' >> .gitignore
+  fi
+}
+
+# ── API ───────────────────────────────────────────────────────────────────────
+api() {
+  local method=$1 endpoint=$2 data=${3:-}
+  local url token
+  url=$(cfg_get url 2>/dev/null) || true
+  token=$(cfg_get token 2>/dev/null) || true
+  [[ -z "$url" || -z "$token" ]] && die "Not configured. Run: coolify-deploy config"
+
+  local tmpfile http_code body
+  tmpfile=$(mktemp)
+
+  http_code=$(curl -s -o "$tmpfile" -w '%{http_code}' -X "$method" \
+    "${url}/api/v1${endpoint}" \
+    -H "Authorization: Bearer $token" \
+    -H "Content-Type: application/json" \
+    -H "Accept: application/json" \
+    ${data:+-d "$data"})
+
+  body=$(<"$tmpfile")
+  rm -f "$tmpfile"
+
+  if (( http_code >= 400 )); then
+    local msg
+    msg=$(echo "$body" | python3 -c "import json,sys;print(json.load(sys.stdin).get('message',''))" 2>/dev/null) || true
+    err "API ($http_code): ${msg:-$body}"
+    return 1
+  fi
+  printf '%s' "$body"
+}
+
+# ── Prompts ───────────────────────────────────────────────────────────────────
+prompt_input() {
+  local prompt=$1 default=${2:-} value
+  if [[ -n "$default" ]]; then
+    printf "  ${BOLD}?${RESET} %s ${DIM}(%s)${RESET}: " "$prompt" "$default" >&2
+  else
+    printf "  ${BOLD}?${RESET} %s: " "$prompt" >&2
+  fi
+  read -r value
+  echo "${value:-$default}"
+}
+
+# Sets global SELECTED (0-based index)
+prompt_select() {
+  local prompt=$1; shift
+  local options=("$@")
+  printf "\n  ${BOLD}?${RESET} %s\n" "$prompt" >&2
+  local i=1
+  for opt in "${options[@]}"; do
+    printf "    ${DIM}%d)${RESET} %s\n" "$i" "$opt" >&2
+    ((i++))
+  done
+  while true; do
+    printf "    ${CYAN}›${RESET} " >&2
+    read -r choice
+    if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#options[@]} )); then
+      SELECTED=$((choice - 1))
+      return 0
+    fi
+    printf "    ${RED}Invalid choice${RESET}\n" >&2
+  done
+}
+
+prompt_confirm() {
+  local prompt=$1 reply
+  printf "  ${BOLD}?${RESET} %s ${DIM}(y/N)${RESET}: " "$prompt" >&2
+  read -r reply
+  [[ "$reply" =~ ^[yY] ]]
+}
+
+# ── Discovery (dynamic, no hardcoded UUIDs) ───────────────────────────────────
+fetch_servers() {
+  api GET "/servers" | python3 -c "
+import json, sys
+for s in json.load(sys.stdin):
+    if s.get('is_reachable') and s.get('is_usable'):
+        print(f\"{s['name']}|{s['uuid']}|{s['ip']}\")
+"
+}
+
+fetch_destination() {
+  local server_uuid=$1
+  local resources app_uuid
+
+  resources=$(api GET "/servers/$server_uuid/resources") || return 1
+
+  app_uuid=$(echo "$resources" | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+items = data if isinstance(data, list) else []
+if isinstance(data, dict):
+    for v in data.values():
+        if isinstance(v, list): items.extend(v)
+for item in items:
+    if isinstance(item, dict) and item.get('uuid') and item.get('type') == 'application':
+        print(item['uuid']); sys.exit(0)
+for item in items:
+    if isinstance(item, dict) and item.get('uuid'):
+        print(item['uuid']); sys.exit(0)
+" 2>/dev/null)
+
+  [[ -z "$app_uuid" ]] && return 1
+
+  api GET "/applications/$app_uuid" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+dest = d.get('destination') or {}
+uuid = dest.get('uuid', '')
+if uuid: print(uuid)
+else: sys.exit(1)
+" 2>/dev/null
+}
+
+# ── Git helpers ───────────────────────────────────────────────────────────────
+ensure_git_repo() {
+  if ! git rev-parse --is-inside-work-tree &>/dev/null; then
+    info "Initializing git repo..."
+    git init -b main -q
+    [[ ! -f .gitignore ]] && printf 'node_modules/\n.next/\n.env*.local\n' > .gitignore
+    git add -A && git commit -m "Initial commit" -q
+    success "Git repo initialized"
+  fi
+}
+
+ensure_github_remote() {
+  local repo_name=$1 remote
+  remote=$(git remote get-url origin 2>/dev/null || true)
+
+  if [[ -n "$remote" ]]; then
+    echo "$remote" | sed -E 's|.*github\.com[:/]||;s|\.git$||'
+    return 0
+  fi
+
+  info "Creating private GitHub repo: $repo_name..."
+  if ! gh repo create "$repo_name" --private --source=. --remote=origin --push -q 2>/dev/null; then
+    die "Failed to create GitHub repo. Is 'gh' installed and authenticated?"
+  fi
+  success "GitHub repo created"
+  git remote get-url origin | sed -E 's|.*github\.com[:/]||;s|\.git$||'
+}
+
+get_git_repo() {
+  local remote
+  remote=$(git remote get-url origin 2>/dev/null) || return 1
+  echo "$remote" | sed -E 's|.*github\.com[:/]||;s|\.git$||'
+}
+
+git_push_latest() {
+  local branch
+  branch=$(git branch --show-current 2>/dev/null || echo "main")
+
+  if git status --porcelain 2>/dev/null | grep -q .; then
+    info "Committing changes..."
+    git add -A && git commit -m "deploy: $(date '+%Y-%m-%d %H:%M')" -q
+  fi
+
+  git push origin "$branch" -q 2>/dev/null || git push -u origin "$branch" -q 2>/dev/null
+  success "Pushed to origin/$branch"
+}
+
+find_app_uuid() {
+  local repo=$1
+  api GET "/applications" | python3 -c "
+import json, sys
+repo = sys.argv[1]
+for app in json.load(sys.stdin):
+    if repo in app.get('git_repository', ''):
+        print(app['uuid']); break
+" "$repo" 2>/dev/null
+}
+
+# ── Commands ──────────────────────────────────────────────────────────────────
+
+cmd_config() {
+  header
+  info "Setup"
+  echo
+
+  local current_url current_token
+  current_url=$(cfg_get url 2>/dev/null || true)
+  current_token=$(cfg_get token 2>/dev/null || true)
+
+  local url token
+  url=$(prompt_input "Coolify URL" "${current_url:-https://coolify.example.com}")
+  token=$(prompt_input "API Token" "${current_token}")
+
+  echo
+  info "Verifying connection..."
+  local version
+  version=$(curl -sf "${url}/api/v1/version" \
+    -H "Authorization: Bearer $token" \
+    -H "Accept: application/json" 2>/dev/null) || die "Could not connect to $url — check URL and token"
+  success "Connected to Coolify $version"
+
+  cfg_set url "$url"
+  cfg_set token "$token"
+
+  # Discover GitHub app UUID for future app creation
+  info "Checking GitHub integration..."
+  local github_uuid
+  github_uuid=$(prompt_input "GitHub App UUID (from Coolify > Sources)" \
+    "$(cfg_get github_app_uuid 2>/dev/null || echo "xocs4oc0408g0g88swookwo8")")
+  cfg_set github_app_uuid "$github_uuid"
+
+  echo
+  success "Config saved to $CONFIG_FILE"
+  echo
+}
+
+cmd_new() {
+  header
+  cfg_get url &>/dev/null || die "Not configured. Run: coolify-deploy config"
+
+  local repo_name
+  repo_name=$(basename "$PWD")
+  repo_name=$(prompt_input "Project name" "$repo_name")
+
+  # ── Select server ──────────────────────────────────────────────────────────
+  info "Fetching servers..."
+  local server_lines=() server_names=() server_uuids=() server_ips=()
+
+  while IFS='|' read -r name uuid ip; do
+    server_lines+=("$name ${DIM}($ip)${RESET}")
+    server_names+=("$name")
+    server_uuids+=("$uuid")
+    server_ips+=("$ip")
+  done < <(fetch_servers)
+
+  [[ ${#server_lines[@]} -eq 0 ]] && die "No available servers found"
+
+  if [[ ${#server_lines[@]} -eq 1 ]]; then
+    SELECTED=0
+    info "Server: ${server_names[0]} (${server_ips[0]})"
+  else
+    prompt_select "Select server" "${server_lines[@]}"
+  fi
+  local server_uuid="${server_uuids[$SELECTED]}"
+  local server_name="${server_names[$SELECTED]}"
+
+  # ── Get destination ────────────────────────────────────────────────────────
+  info "Fetching network config for $server_name..."
+  local dest_uuid
+  dest_uuid=$(fetch_destination "$server_uuid" 2>/dev/null) || true
+  [[ -z "$dest_uuid" ]] && die "No Docker destination found on $server_name. Deploy one app via the Coolify UI first."
+  success "Network: $dest_uuid"
+
+  # ── Build pack ─────────────────────────────────────────────────────────────
+  local build_packs=("nixpacks" "dockerfile" "dockercompose")
+  local default_bp=0
+  [[ -f "Dockerfile" ]] && default_bp=1
+  [[ -f "docker-compose.yml" || -f "docker-compose.yaml" ]] && default_bp=2
+
+  prompt_select "Build pack ${DIM}(detected: ${build_packs[$default_bp]})${RESET}" "${build_packs[@]}"
+  local build_pack="${build_packs[$SELECTED]}"
+
+  # ── Port ───────────────────────────────────────────────────────────────────
+  local port=3000
+  if [[ -f "Dockerfile" ]]; then
+    local exposed
+    exposed=$(grep -m1 '^EXPOSE' Dockerfile 2>/dev/null | awk '{print $2}')
+    [[ -n "$exposed" ]] && port="$exposed"
+  elif [[ -f "package.json" ]]; then
+    grep -q '"vite"' package.json 2>/dev/null && port=5173
+    grep -q '"astro"' package.json 2>/dev/null && port=4321
+    grep -q '"@sveltejs/kit"' package.json 2>/dev/null && port=5173
+  elif [[ -f "requirements.txt" || -f "pyproject.toml" ]]; then
+    port=8000
+  elif [[ -f "go.mod" ]]; then
+    port=8080
+  fi
+  port=$(prompt_input "Port" "$port")
+
+  # ── Domain ─────────────────────────────────────────────────────────────────
+  local domain="${repo_name}.cotalima.com.br"
+  domain=$(prompt_input "Domain" "$domain")
+
+  # ── GitHub app ─────────────────────────────────────────────────────────────
+  local github_app_uuid
+  github_app_uuid=$(cfg_get github_app_uuid 2>/dev/null) || true
+  [[ -z "$github_app_uuid" ]] && die "No GitHub App configured. Run: coolify-deploy config"
+
+  # ── Git setup ──────────────────────────────────────────────────────────────
+  echo
+  ensure_git_repo
+  local repo
+  repo=$(ensure_github_remote "$repo_name") || die "Failed to setup GitHub remote"
+  git_push_latest
+
+  # ── Create project ─────────────────────────────────────────────────────────
+  echo
+  info "Creating Coolify project..."
+  local project_payload project_json project_uuid
+  project_payload=$(python3 -c "import json,sys;print(json.dumps({'name':sys.argv[1],'description':'Deployed via coolify-deploy CLI'}))" "$repo_name")
+  project_json=$(api POST "/projects" "$project_payload") || die "Failed to create project"
+  project_uuid=$(echo "$project_json" | python3 -c "import json,sys;print(json.load(sys.stdin).get('uuid',''))" 2>/dev/null)
+  [[ -z "$project_uuid" ]] && die "Failed to create project: $project_json"
+  success "Project: $project_uuid"
+
+  # ── Create application ─────────────────────────────────────────────────────
+  info "Creating application on $server_name..."
+  local branch
+  branch=$(git branch --show-current 2>/dev/null || echo "main")
+
+  local app_payload app_json app_uuid
+  app_payload=$(python3 -c "
+import json, sys
+print(json.dumps({
+    'project_uuid': sys.argv[1],
+    'environment_name': 'production',
+    'server_uuid': sys.argv[2],
+    'destination_uuid': sys.argv[3],
+    'name': sys.argv[4],
+    'git_repository': sys.argv[5],
+    'git_branch': sys.argv[6],
+    'build_pack': sys.argv[7],
+    'ports_exposes': sys.argv[8],
+    'github_app_uuid': sys.argv[9],
+    'domains': 'https://' + sys.argv[10]
+}))
+" "$project_uuid" "$server_uuid" "$dest_uuid" "$repo_name" "$repo" "$branch" "$build_pack" "$port" "$github_app_uuid" "$domain")
+
+  app_json=$(api POST "/applications/private-github-app" "$app_payload") || die "Failed to create application"
+  app_uuid=$(echo "$app_json" | python3 -c "import json,sys;print(json.load(sys.stdin).get('uuid',''))" 2>/dev/null)
+  [[ -z "$app_uuid" ]] && die "Failed to create app: $app_json"
+  success "App: $app_uuid"
+
+  # ── Deploy ─────────────────────────────────────────────────────────────────
+  api POST "/applications/$app_uuid/restart" &>/dev/null
+  success "Deploy triggered"
+
+  # ── Save project config ────────────────────────────────────────────────────
+  proj_save "$(python3 -c "
+import json, sys
+json.dump({
+    'app_uuid': sys.argv[1],
+    'project_uuid': sys.argv[2],
+    'server_uuid': sys.argv[3],
+    'server_name': sys.argv[4],
+    'domain': sys.argv[5],
+    'repo': sys.argv[6]
+}, sys.stdout, indent=2)
+" "$app_uuid" "$project_uuid" "$server_uuid" "$server_name" "$domain" "$repo")"
+
+  printf "\n  🚀 ${BOLD}https://%s${RESET}\n" "$domain"
+  printf "  ${DIM}Saved to .coolify.json — future deploys: just run coolify-deploy${RESET}\n\n"
+}
+
+cmd_link() {
+  header
+  cfg_get url &>/dev/null || die "Not configured. Run: coolify-deploy config"
+
+  info "Fetching applications..."
+  local apps_json
+  apps_json=$(api GET "/applications") || die "Failed to fetch applications"
+
+  local app_labels=() app_uuids=() app_domains=()
+
+  while IFS='|' read -r name uuid fqdn; do
+    app_labels+=("$name ${DIM}— $fqdn${RESET}")
+    app_uuids+=("$uuid")
+    app_domains+=("$fqdn")
+  done < <(echo "$apps_json" | python3 -c "
+import json, sys
+for app in json.load(sys.stdin):
+    name = app.get('name', 'unnamed')
+    uuid = app.get('uuid', '')
+    fqdn = app.get('fqdn') or 'no domain'
+    if uuid:
+        print(f'{name}|{uuid}|{fqdn}')
+")
+
+  [[ ${#app_labels[@]} -eq 0 ]] && die "No applications found"
+
+  prompt_select "Select application to link" "${app_labels[@]}"
+  local app_uuid="${app_uuids[$SELECTED]}"
+  local domain="${app_domains[$SELECTED]}"
+
+  info "Fetching app details..."
+  local detail
+  detail=$(api GET "/applications/$app_uuid") || die "Failed to fetch app details"
+
+  local server_uuid server_name project_uuid repo
+  read -r server_uuid server_name repo < <(echo "$detail" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+dest = d.get('destination') or {}
+server = dest.get('server') or {}
+print(server.get('uuid',''), server.get('name',''), d.get('git_repository',''))
+" 2>/dev/null)
+
+  proj_save "$(python3 -c "
+import json, sys
+json.dump({
+    'app_uuid': sys.argv[1],
+    'server_uuid': sys.argv[2],
+    'server_name': sys.argv[3],
+    'domain': sys.argv[4],
+    'repo': sys.argv[5]
+}, sys.stdout, indent=2)
+" "$app_uuid" "$server_uuid" "$server_name" "$domain" "$repo")"
+
+  success "Linked to $app_uuid"
+  printf "  ${DIM}Saved to .coolify.json${RESET}\n\n"
+}
+
+cmd_deploy() {
+  header
+  local app_uuid=${1:-}
+  local direct_deploy=false
+  [[ -n "$app_uuid" ]] && direct_deploy=true
+
+  # 1. Try project file
+  if [[ -z "$app_uuid" ]]; then
+    app_uuid=$(proj_get app_uuid 2>/dev/null) || true
+  fi
+
+  # 2. Try git remote match
+  if [[ -z "$app_uuid" ]]; then
+    local repo
+    repo=$(get_git_repo 2>/dev/null) || true
+    if [[ -n "$repo" ]]; then
+      app_uuid=$(find_app_uuid "$repo")
+      # Auto-link if found
+      if [[ -n "$app_uuid" ]]; then
+        info "Found existing app for $repo"
+        local detail
+        detail=$(api GET "/applications/$app_uuid" 2>/dev/null) || true
+        if [[ -n "$detail" ]]; then
+          local d_server_uuid d_server_name d_domain d_repo
+          read -r d_server_uuid d_server_name d_domain d_repo < <(echo "$detail" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+dest = d.get('destination') or {}
+server = dest.get('server') or {}
+print(server.get('uuid',''), server.get('name',''), d.get('fqdn',''), d.get('git_repository',''))
+" 2>/dev/null)
+          proj_save "$(python3 -c "
+import json, sys
+json.dump({'app_uuid':sys.argv[1],'server_uuid':sys.argv[2],'server_name':sys.argv[3],'domain':sys.argv[4],'repo':sys.argv[5]}, sys.stdout, indent=2)
+" "$app_uuid" "$d_server_uuid" "$d_server_name" "$d_domain" "$d_repo")"
+          success "Auto-linked to $app_uuid"
+        fi
+      fi
+    fi
+  fi
+
+  # 3. Nothing found — offer setup
+  if [[ -z "$app_uuid" ]]; then
+    warn "No linked project found"
+    echo
+    if prompt_confirm "Create a new project?"; then
+      cmd_new
+      return
+    elif prompt_confirm "Link to an existing app?"; then
+      cmd_link
+      app_uuid=$(proj_get app_uuid 2>/dev/null) || die "Link failed"
+    else
+      exit 0
+    fi
+  fi
+
+  local domain="" server_name=""
+  if [[ "$direct_deploy" == false ]]; then
+    domain=$(proj_get domain 2>/dev/null) || true
+    server_name=$(proj_get server_name 2>/dev/null) || true
+  fi
+
+  if [[ "$direct_deploy" == true ]]; then
+    info "Deploying application $app_uuid..."
+  else
+    info "Deploying${server_name:+ to $server_name}..."
+    git_push_latest
+  fi
+
+  echo
+  local result msg
+  result=$(api POST "/applications/$app_uuid/restart") || die "Deploy failed"
+  msg=$(echo "$result" | python3 -c "import json,sys;print(json.load(sys.stdin).get('message','Triggered'))" 2>/dev/null) || msg="Triggered"
+  success "Deploy: $msg"
+
+  [[ -n "$domain" ]] && printf "\n  🚀 ${BOLD}%s${RESET}\n" "$domain"
+  echo
+}
+
+cmd_list() {
+  header
+  info "Fetching projects..."
+  echo
+
+  local projects_json
+  projects_json=$(api GET "/projects") || die "Failed to fetch projects"
+
+  # Fetch each project's detail + environments in python to build the tree
+  echo "$projects_json" | python3 -c "
+import json, sys, urllib.request
+
+BOLD, DIM = '\033[1m', '\033[2m'
+GREEN, RED, YELLOW, CYAN = '\033[32m', '\033[31m', '\033[33m', '\033[36m'
+RESET = '\033[0m'
+
+url, token = sys.argv[1], sys.argv[2]
+projects = json.load(sys.stdin)
+
+def api_get(endpoint):
+    req = urllib.request.Request(
+        f'{url}/api/v1{endpoint}',
+        headers={'Authorization': f'Bearer {token}', 'Accept': 'application/json'})
+    try:
+        with urllib.request.urlopen(req) as r: return json.loads(r.read())
+    except: return {}
+
+def dot(status):
+    if 'running' in status: return f'{GREEN}●{RESET}'
+    if 'in_progress' in status or 'building' in status: return f'{YELLOW}◐{RESET}'
+    return f'{RED}○{RESET}'
+
+for pi, p in enumerate(projects):
+    is_last_proj = pi == len(projects) - 1
+    branch = '└── ' if is_last_proj else '├── '
+    cont   = '    ' if is_last_proj else '│   '
+
+    print(f'  {branch}{BOLD}{p[\"name\"]}{RESET}')
+
+    detail = api_get(f'/projects/{p[\"uuid\"]}')
+    envs = detail.get('environments', [])
+
+    if not envs:
+        print(f'  {cont}{DIM}(empty){RESET}')
+        continue
+
+    for ei, env in enumerate(envs):
+        is_last_env = ei == len(envs) - 1
+        env_branch = '└── ' if is_last_env else '├── '
+        env_cont   = '    ' if is_last_env else '│   '
+
+        print(f'  {cont}{env_branch}{CYAN}{env.get(\"name\", \"?\")}{RESET}')
+
+        env_detail = api_get(f'/projects/{p[\"uuid\"]}/{env[\"uuid\"]}')
+        resources = []
+        for app in env_detail.get('applications', []):
+            fqdn = app.get('fqdn') or ''
+            label = f'{app[\"name\"]}{\" — \" + fqdn if fqdn else \"\"}'
+            resources.append((dot(app.get('status','')), label))
+        for svc in env_detail.get('services', []):
+            resources.append((dot(svc.get('status','')), f'{svc[\"name\"]} {DIM}(service){RESET}'))
+        for db in env_detail.get('databases', []):
+            resources.append((dot(db.get('status','')), f'{db[\"name\"]} {DIM}(database){RESET}'))
+
+        if not resources:
+            print(f'  {cont}{env_cont}{DIM}(empty){RESET}')
+
+        for ri, (d, label) in enumerate(resources):
+            is_last_res = ri == len(resources) - 1
+            res_branch = '└── ' if is_last_res else '├── '
+            print(f'  {cont}{env_cont}{res_branch}{d} {label}')
+
+print()
+" "$(cfg_get url)" "$(cfg_get token)" 2>/dev/null
+}
+
+cmd_logs() {
+  header
+  local app_uuid=${1:-}
+
+  # Try project file, then git remote
+  if [[ -z "$app_uuid" ]]; then
+    app_uuid=$(proj_get app_uuid 2>/dev/null) || true
+  fi
+  if [[ -z "$app_uuid" ]]; then
+    local repo
+    repo=$(get_git_repo 2>/dev/null) || true
+    [[ -n "$repo" ]] && app_uuid=$(find_app_uuid "$repo")
+  fi
+  [[ -z "$app_uuid" ]] && die "No app found. Run from a linked project or: coolify-deploy logs <app-uuid>"
+
+  info "Deployments"
+  echo
+
+  api GET "/deployments/applications/$app_uuid" | python3 -c "
+import json, sys
+
+GREEN, RED, YELLOW, DIM, RESET = '\033[32m', '\033[31m', '\033[33m', '\033[2m', '\033[0m'
+
+response = json.load(sys.stdin)
+data = response.get('deployments', []) if isinstance(response, dict) else response
+for d in data[:10]:
+    s = d.get('status', '')
+    created = d.get('created_at', '')[:19].replace('T', ' ')
+    if s == 'finished':
+        dot, label = f'{GREEN}●{RESET}', 'success'
+    elif s == 'in_progress':
+        dot, label = f'{YELLOW}◐{RESET}', 'building'
+    elif s == 'cancelled':
+        dot, label = f'{DIM}○{RESET}', 'cancelled'
+    else:
+        dot, label = f'{RED}○{RESET}', s or 'unknown'
+    print(f'  {dot} {created}  {label}')
+print()
+" 2>/dev/null
+}
+
+cmd_env() {
+  local subcmd=${1:-list}
+  local app_uuid
+  app_uuid=$(proj_get app_uuid 2>/dev/null) || die "No linked project. Run: coolify-deploy link"
+
+  case "$subcmd" in
+    list|ls)
+      header
+      info "Environment variables"
+      echo
+      api GET "/applications/$app_uuid/envs" | python3 -c "
+import json, sys
+BOLD, DIM, RESET = '\033[1m', '\033[2m', '\033[0m'
+data = json.load(sys.stdin)
+if not data:
+    print('  No environment variables set')
+else:
+    max_key = max(len(e.get('key','')) for e in data)
+    for e in sorted(data, key=lambda x: x.get('key','')):
+        key = e.get('key', '')
+        val = e.get('value', '')
+        preview = e.get('is_preview', False)
+        tag = f' {DIM}(preview){RESET}' if preview else ''
+        print(f'  {BOLD}{key:<{max_key}}{RESET}  =  {val}{tag}')
+print()
+" 2>/dev/null
+      ;;
+
+    set)
+      shift
+      [[ $# -lt 1 ]] && die "Usage: coolify-deploy env set KEY=VALUE"
+      local key="${1%%=*}" value="${1#*=}"
+      local payload
+      payload=$(python3 -c "import json,sys;print(json.dumps({'key':sys.argv[1],'value':sys.argv[2],'is_preview':False}))" "$key" "$value")
+      api POST "/applications/$app_uuid/envs" "$payload" > /dev/null
+      success "Set $key"
+      ;;
+
+    rm|delete)
+      shift
+      [[ $# -lt 1 ]] && die "Usage: coolify-deploy env rm KEY"
+      local key=$1 env_uuid
+      env_uuid=$(api GET "/applications/$app_uuid/envs" | python3 -c "
+import json, sys
+key = sys.argv[1]
+for e in json.load(sys.stdin):
+    if e.get('key') == key:
+        print(e.get('uuid', '')); break
+" "$key" 2>/dev/null)
+      [[ -z "$env_uuid" ]] && die "Variable '$key' not found"
+      api DELETE "/applications/$app_uuid/envs/$env_uuid" > /dev/null
+      success "Removed $key"
+      ;;
+
+    pull)
+      info "Downloading env vars to .env..."
+      api GET "/applications/$app_uuid/envs" | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+count = 0
+with open('.env', 'w') as f:
+    for e in sorted(data, key=lambda x: x.get('key','')):
+        if not e.get('is_preview', False):
+            f.write(f\"{e['key']}={e['value']}\n\")
+            count += 1
+print(f'  Wrote {count} variables to .env')
+" 2>/dev/null
+      success "Done"
+      ;;
+
+    push)
+      [[ ! -f .env ]] && die "No .env file found"
+      info "Uploading .env to Coolify..."
+      local count=0
+      while IFS= read -r line; do
+        [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+        local key="${line%%=*}" value="${line#*=}"
+        local payload
+        payload=$(python3 -c "import json,sys;print(json.dumps({'key':sys.argv[1],'value':sys.argv[2],'is_preview':False}))" "$key" "$value")
+        api POST "/applications/$app_uuid/envs" "$payload" > /dev/null 2>&1 && ((count++))
+      done < .env
+      success "Pushed $count variables"
+      ;;
+
+    *)
+      die "Usage: coolify-deploy env [list|set KEY=VALUE|rm KEY|pull|push]"
+      ;;
+  esac
+}
+
+cmd_info() {
+  header
+  local app_uuid
+  app_uuid=$(proj_get app_uuid 2>/dev/null) || die "No linked project. Run: coolify-deploy link"
+
+  api GET "/applications/$app_uuid" | python3 -c "
+import json, sys
+
+BOLD, DIM, GREEN, RED, RESET = '\033[1m', '\033[2m', '\033[32m', '\033[31m', '\033[0m'
+
+d = json.load(sys.stdin)
+status = d.get('status', 'unknown')
+dot = f'{GREEN}●{RESET}' if 'running' in status else f'{RED}○{RESET}'
+dest = d.get('destination') or {}
+server = dest.get('server') or {}
+
+print(f'  {BOLD}Name{RESET}       {d.get(\"name\", \"?\")}')
+print(f'  {BOLD}UUID{RESET}       {d.get(\"uuid\", \"?\")}')
+print(f'  {BOLD}Status{RESET}     {dot} {status}')
+print(f'  {BOLD}Server{RESET}     {server.get(\"name\", \"?\")} ({server.get(\"ip\", \"?\")})')
+print(f'  {BOLD}Domain{RESET}     {d.get(\"fqdn\") or \"none\"}')
+print(f'  {BOLD}Repo{RESET}       {d.get(\"git_repository\", \"?\")}')
+print(f'  {BOLD}Branch{RESET}     {d.get(\"git_branch\", \"?\")}')
+print(f'  {BOLD}Build{RESET}      {d.get(\"build_pack\", \"?\")}')
+print(f'  {BOLD}Port{RESET}       {d.get(\"ports_exposes\", \"?\")}')
+print()
+" 2>/dev/null
+}
+
+cmd_delete() {
+  header
+  local app_uuid
+  app_uuid=$(proj_get app_uuid 2>/dev/null) || true
+
+  if [[ -z "$app_uuid" ]]; then
+    local repo
+    repo=$(get_git_repo 2>/dev/null) || true
+    [[ -n "$repo" ]] && app_uuid=$(find_app_uuid "$repo")
+  fi
+  [[ -z "$app_uuid" ]] && die "No app found. Run from a linked project."
+
+  local app_name
+  app_name=$(api GET "/applications/$app_uuid" | python3 -c "import json,sys;print(json.load(sys.stdin).get('name',''))" 2>/dev/null) || true
+
+  prompt_confirm "Delete ${app_name:-$app_uuid} from Coolify?" || { info "Cancelled."; exit 0; }
+
+  api DELETE "/applications/$app_uuid" > /dev/null 2>&1
+  success "Coolify app deleted"
+
+  local repo
+  repo=$(proj_get repo 2>/dev/null) || true
+  [[ -z "$repo" ]] && repo=$(get_git_repo 2>/dev/null) || true
+
+  if [[ -n "$repo" ]]; then
+    if prompt_confirm "Also delete GitHub repo $repo?"; then
+      gh repo delete "$repo" --yes 2>/dev/null
+      success "GitHub repo deleted"
+    fi
+  fi
+
+  local pf
+  pf=$(find_project_file 2>/dev/null) || true
+  [[ -n "$pf" ]] && rm -f "$pf" && success "Removed $PROJECT_FILE"
+  echo
+}
+
+cmd_help() {
+  header
+  cat <<EOF
+  ${BOLD}Usage${RESET}
+    coolify-deploy ${DIM}[command]${RESET}
+
+  ${BOLD}Commands${RESET}
+    ${CYAN}deploy${RESET}       Deploy current project ${DIM}(default)${RESET}
+                 Pass an app UUID to deploy without a project link
+    ${CYAN}new${RESET}          Create new project interactively
+    ${CYAN}link${RESET}         Link directory to existing Coolify app
+    ${CYAN}list${RESET}         List all projects and apps
+    ${CYAN}logs${RESET}         Show deployment history
+    ${CYAN}env${RESET}          Manage environment variables
+    ${CYAN}info${RESET}         Show linked project details
+    ${CYAN}delete${RESET}       Delete project from Coolify
+    ${CYAN}config${RESET}       Configure CLI (URL + token)
+
+  ${BOLD}Env Subcommands${RESET}
+    env ${DIM}list${RESET}      List variables
+    env ${DIM}set${RESET}       Set KEY=VALUE
+    env ${DIM}rm${RESET}        Remove KEY
+    env ${DIM}pull${RESET}      Download to .env
+    env ${DIM}push${RESET}      Upload from .env
+
+  ${BOLD}Examples${RESET}
+    coolify-deploy                ${DIM}# Deploy (or setup) current project${RESET}
+    coolify-deploy deploy abc123  ${DIM}# Deploy an existing app by UUID${RESET}
+    coolify-deploy new            ${DIM}# Interactive new project wizard${RESET}
+    coolify-deploy env pull       ${DIM}# Download env vars to .env${RESET}
+    coolify-deploy logs           ${DIM}# Show recent deployments${RESET}
+
+  ${BOLD}Config${RESET}
+    Global: ${DIM}$CONFIG_FILE${RESET}
+    Project: ${DIM}.coolify.json${RESET} ${DIM}(auto-added to .gitignore)${RESET}
+
+EOF
+}
+
+# ── Main ──────────────────────────────────────────────────────────────────────
+case "${1:-}" in
+  config)          cmd_config ;;
+  new)             cmd_new ;;
+  link)            cmd_link ;;
+  list|ls)         cmd_list ;;
+  logs)            cmd_logs "${2:-}" ;;
+  env)             shift; cmd_env "$@" ;;
+  info)            cmd_info ;;
+  delete|rm)       cmd_delete ;;
+  help|-h|--help)  cmd_help ;;
+  "")              cmd_deploy ;;
+  deploy)          cmd_deploy "${2:-}" ;;
+  *)               die "Unknown command: $1" ;;
+esac

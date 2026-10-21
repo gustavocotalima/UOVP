@@ -1,6 +1,10 @@
 import { Prisma } from "@prisma/client";
 import { ensureHistoricalFxRates } from "@/features/finance/fx";
 import { prisma } from "@/lib/prisma";
+import {
+  historicalFxBackfillWhere,
+  type HistoricalFxBackfillSnapshot,
+} from "./helpers/historical-fx-backfill";
 
 const BATCH_SIZE = 500;
 
@@ -10,21 +14,24 @@ async function backfillHistoricalFx() {
   let pending = 0;
 
   while (true) {
-    const transactions = await prisma.financeTransaction.findMany({
+    const transactions: HistoricalFxBackfillSnapshot[] = await prisma.financeTransaction.findMany({
       where: {
         source: "PLUGGY",
         reportingAmountBrl: null,
         fxSource: null,
         currencyCode: { not: "BRL" },
+        ...(cursor ? { id: { gt: cursor } } : {}),
       },
       orderBy: { id: "asc" },
       take: BATCH_SIZE,
-      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
       select: {
         id: true,
+        userId: true,
+        source: true,
         amount: true,
         currencyCode: true,
         date: true,
+        updatedAt: true,
       },
     });
     if (!transactions.length) break;
@@ -37,21 +44,13 @@ async function backfillHistoricalFx() {
       ratesByCurrency.set(currency, await ensureHistoricalFxRates(currency, dates));
     }
 
-    await prisma.$transaction(
+    const results = await prisma.$transaction(
       transactions.flatMap((transaction) => {
         const day = transaction.date.toISOString().slice(0, 10);
         const rate = ratesByCurrency.get(transaction.currencyCode)?.get(day);
-        if (!rate) {
-          pending += 1;
-          return [];
-        }
-        converted += 1;
+        if (!rate) return [];
         return [prisma.financeTransaction.updateMany({
-          where: {
-            id: transaction.id,
-            reportingAmountBrl: null,
-            fxSource: null,
-          },
+          where: historicalFxBackfillWhere(transaction),
           data: {
             reportingAmountBrl: transaction.amount.mul(rate.rateToBrl).toDecimalPlaces(2),
             fxRateToBrl: rate.rateToBrl,
@@ -62,6 +61,9 @@ async function backfillHistoricalFx() {
       }),
       { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
     );
+    const applied = results.reduce((total, result) => total + result.count, 0);
+    converted += applied;
+    pending += transactions.length - applied;
 
     cursor = transactions.at(-1)?.id;
     process.stdout.write(
@@ -75,7 +77,7 @@ async function backfillHistoricalFx() {
 backfillHistoricalFx()
   .then(({ converted, pending }) => {
     process.stdout.write(
-      `Backfill concluído: ${converted} convertida(s), ${pending} sem cotação disponível.\n`,
+      `Backfill concluído: ${converted} convertida(s), ${pending} sem cotação ou alterada(s) concorrentemente.\n`,
     );
   })
   .catch((error) => {

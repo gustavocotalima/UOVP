@@ -8,7 +8,7 @@ import { formatDateOnly } from "@/lib/calendar";
 import { formatCurrency, formatMoney, formatPercent } from "@/lib/money";
 import { FIXED_INCOME_INDEXATION_META, INSTRUMENT_TYPE_META, INVESTMENT_CLASS_META } from "../constants";
 import { currentValue } from "./model";
-import { TemporaryQuantityBadge, ProviderQuantity, MoneyWithNative, holdingProfitability, reviewMoney, reviewDecimal, reviewDate } from "./presentation";
+import { TemporaryQuantityBadge, ProviderQuantity, MoneyWithNative, CostValue, holdingProfitability, reviewMoney, reviewDecimal, reviewDate } from "./presentation";
 import { AssetLogo } from "./asset-logo";
 import { HoldingHistoryDesktop } from "./holding-history";
 import type { AssetsPanelController } from "./use-assets-panel-controller";
@@ -129,13 +129,15 @@ export function AssetsDesktop({ controller }: {
                     <thead className="border-b text-[var(--muted-foreground)]"><tr><th className="px-3 py-2">Tipo / produto</th><th className="px-3 py-2">Emissor</th>{holdingColumns.invested && <th className="px-3 py-2">Investido</th>}<th className="px-3 py-2">Atual</th>{holdingColumns.quantity && <th className="px-3 py-2">Quantidade atual</th>}{holdingColumns.averagePrice && <th className="px-3 py-2">Preço médio</th>}{holdingColumns.profitability && <th className="px-3 py-2">Rentabilidade</th>}{holdingColumns.purchaseDate && <th className="px-3 py-2">Compra</th>}{holdingColumns.maturityDate && <th className="px-3 py-2">Vencimento</th>}<th className="px-3 py-2 text-right">Fonte / ações</th></tr></thead>
                     <tbody>{asset.holdings.map((holding) => {
                       const movementState = holdingTransactions[holding.id];
-                      const displayedAveragePrice = movementState?.averagePricePaid ?? holding.averagePricePaid;
-                      const displayedAveragePriceCoverage = movementState?.averagePriceCoverage ?? holding.averagePriceCoverage;
+                      const hasMovementAverage = movementState && !movementState.loading && !movementState.error;
+                      const displayedAveragePrice = hasMovementAverage ? movementState.averagePricePaid : holding.averagePricePaid;
+                      const displayedAveragePriceCurrency = hasMovementAverage ? movementState.averagePriceCurrency : holding.averagePriceCurrency;
+                      const displayedAveragePriceCoverage = hasMovementAverage ? movementState.averagePriceCoverage : holding.averagePriceCoverage;
                       return (<Fragment key={holding.id}>
                         <tr className="border-b">
                           <td className="px-3 py-3"><strong className="block max-w-52 truncate" title={holding.typeName}>{holding.typeName}</strong><span className="block max-w-52 truncate text-[var(--muted-foreground)]" title={holding.productName}>{holding.productName}</span></td>
                           <td className="px-3 py-3">{holding.issuer}</td>
-                          {holdingColumns.invested && <td className="whitespace-nowrap px-3 py-3">{holding.investedValue == null ? "—" : <PrivateValue>{formatMoney(holding.investedValue)}</PrivateValue>}</td>}
+                          {holdingColumns.invested && <td className="whitespace-nowrap px-3 py-3"><CostValue value={holding.investedValue} currency={holding.investedValueCurrency} /></td>}
                           <td className="whitespace-nowrap px-3 py-3">
                             <MoneyWithNative brl={holding.currentValue} native={holding.nativeCurrentValue} currency={holding.currency} strong nativePrimary={!!holding.accountBalanceSource} unavailable={holding.accountBalanceSource?.valuationUnavailable} />
                             {holding.accountBalanceSource && holding.currency !== "BRL" && holding.fxRateToBrl && <span className="mt-1 block text-[10px] text-[var(--muted-foreground)]">1 {holding.currency} = {formatMoney(holding.fxRateToBrl)} · {holding.accountBalanceSource.fxSource ?? "Não informado"}{holding.fxUpdatedAt ? ` · ${formatDateOnly(holding.fxUpdatedAt)}` : ""}</span>}
@@ -148,15 +150,15 @@ export function AssetsDesktop({ controller }: {
                             {displayedAveragePrice === null
                               ? movementState?.loading ? "Calculando…" : "—"
                               : (<>
-                                <span><PrivateValue>{formatMoney(displayedAveragePrice)}</PrivateValue></span>
+                                <CostValue value={displayedAveragePrice} currency={displayedAveragePriceCurrency} />
                                 {displayedAveragePriceCoverage < 0.999 && (<span className="mt-1 block text-[10px] text-[var(--primary)]" title={`O histórico de compras disponível cobre ${(displayedAveragePriceCoverage * 100).toLocaleString("pt-BR", { maximumFractionDigits: 0 })}% da posição atual.`}>
                                   Histórico parcial
                                 </span>)}
                               </>)}
                           </td>)}
                           {holdingColumns.profitability && <td className="whitespace-nowrap px-3 py-3">{holdingProfitability(holding) ?? "—"}</td>}
-                          {holdingColumns.purchaseDate && <td className="whitespace-nowrap px-3 py-3">{holding.purchaseDate ? reviewDate(holding.purchaseDate, timeZone) : "—"}</td>}
-                          {holdingColumns.maturityDate && <td className="whitespace-nowrap px-3 py-3">{holding.maturityDate ? reviewDate(holding.maturityDate, timeZone) : "—"}</td>}
+                          {holdingColumns.purchaseDate && <td className="whitespace-nowrap px-3 py-3">{holding.purchaseDate ? formatDateOnly(holding.purchaseDate) : "—"}</td>}
+                          {holdingColumns.maturityDate && <td className="whitespace-nowrap px-3 py-3">{holding.maturityDate ? formatDateOnly(holding.maturityDate) : "—"}</td>}
                           <td className="px-3 py-3">
                             {holding.positionSource !== "MANUAL"
                               ? <div className="flex flex-col items-end gap-1 text-right"><span className="rounded-full bg-[var(--primary)]/12 px-2 py-1 text-[10px] font-semibold text-[var(--primary)]">{holding.accountBalanceSource ? `Saldo da conta · ${holding.accountBalanceSource.name}` : holding.positionSource === "BINANCE" ? "Binance" : "Pluggy"}</span>{holding.institution && <span className="block text-[10px] font-medium">{holding.institution}</span>}<span className="block text-[10px] text-[var(--muted-foreground)]">{holding.providerStatus ?? "Sincronizado"}</span>

@@ -84,7 +84,9 @@ export function extractAccountInvestmentSnapshots(
 
   if (detailedProvided && bankData.reservedBalances!.length > 0) {
     let complete = true;
+    let ambiguousIdentity = false;
     const snapshots: AccountInvestmentSnapshot[] = [];
+    const references = new Set<string>();
 
     bankData.reservedBalances!.forEach((reservedBalance) => {
       const amounts = reservedBalance.availableAmounts;
@@ -98,6 +100,17 @@ export function extractAccountInvestmentSnapshots(
         || String(reservedBalance.identification).trim() === ""
         ? `name:${normalizedName(reservedBalance.name)}`
         : `id:${String(reservedBalance.identification).trim()}`;
+      // Entries within one reserve are intentionally grouped by currency. Two
+      // different reserves resolving to the same reference are ambiguous: an
+      // array index is unstable and summing could merge distinct products.
+      // Inspect currencies before parsing amounts so even an invalid sibling
+      // cannot silently let the other reserve overwrite the old snapshot.
+      const currencies = new Set(amounts.map((amount) => currency(amount.currencyCode, account.currencyCode)));
+      for (const currencyCode of currencies) {
+        const reference = stableReference(account.id, "ACCOUNT_RESERVED_BALANCE", identity, currencyCode);
+        if (references.has(reference)) ambiguousIdentity = true;
+        references.add(reference);
+      }
       const grouped = new Map<string, {
         amount: Decimal;
         remunerations: Array<Record<string, unknown>>;
@@ -157,6 +170,12 @@ export function extractAccountInvestmentSnapshots(
         });
       }
     });
+
+    if (ambiguousIdentity) {
+      // Preserve the entire last complete snapshot of this account. Returning
+      // no writes and complete=false also prevents the sync writer's pruning.
+      return { managed: true, complete: false, mode: "DETAILED", snapshots: [] };
+    }
 
     return {
       managed: true,

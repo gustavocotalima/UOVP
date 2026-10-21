@@ -1,8 +1,9 @@
 "use client";
 import { PrivateValue } from "@/components/ui/private-value";
+import { formatDateOnly } from "@/lib/calendar";
 import { FIXED_INCOME_INDEXATION_META, INSTRUMENT_TYPE_META, INVESTMENT_CLASS_META } from "../constants";
 import type { ReviewForm } from "./model";
-import { reviewMoney, reviewDecimal, reviewDate, reviewDateTime, reviewOperationDate, reviewProfitability, reviewPercentage } from "./presentation";
+import { reviewMoney, reviewDecimal, reviewDateTime, reviewOperationDate, reviewProfitability, reviewPercentage } from "./presentation";
 export function ReviewDetailsGrid({ title, details }: {
   title: string;
   details: Array<{
@@ -79,11 +80,11 @@ export function PluggyReviewSourceData({ review, timeZone }: {
       { label: "Moeda", value: review.currencyCode },
     ]} />
     <ReviewDetailsGrid title="Datas e situação" details={[
-      { label: "Emissão", value: review.issueDate ? reviewDate(review.issueDate, timeZone) : null },
-      { label: "Compra", value: review.purchaseDate ? reviewDate(review.purchaseDate, timeZone) : null },
-      { label: "Fim da carência", value: review.gracePeriodDate ? reviewDate(review.gracePeriodDate, timeZone) : null },
-      { label: "Vencimento", value: review.dueDate ? reviewDate(review.dueDate, timeZone) : null },
-      { label: "Data da posição", value: review.quotaDate ? reviewDate(review.quotaDate, timeZone) : null },
+      { label: "Emissão", value: review.issueDate ? formatDateOnly(review.issueDate) : null },
+      { label: "Compra", value: review.purchaseDate ? formatDateOnly(review.purchaseDate) : null },
+      { label: "Fim da carência", value: review.gracePeriodDate ? formatDateOnly(review.gracePeriodDate) : null },
+      { label: "Vencimento", value: review.dueDate ? formatDateOnly(review.dueDate) : null },
+      { label: "Data da posição", value: review.quotaDate ? formatDateOnly(review.quotaDate) : null },
       { label: "Status no provedor", value: review.status },
       { label: "Atualizado pela instituição", value: reviewDateTime(review.updatedAt, timeZone) },
     ]} />

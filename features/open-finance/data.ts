@@ -7,10 +7,8 @@ import {
 import { connectedInvestmentMetadataDto } from "./investment-metadata-dto";
 import { pluggyQuantityChangeDto } from "./investment-quantity-change-dto";
 
-type CurrencyAmount = {
-  amount: string | number;
-  currencyCode: string | null | undefined;
-};
+import { sumAmountsByCurrency } from "./currency-totals";
+export { sumAmountsByCurrency } from "./currency-totals";
 
 export type OpenFinanceInvestmentTransaction = {
   id: string;
@@ -27,16 +25,6 @@ export type OpenFinanceInvestmentTransaction = {
   tradeDate: string | null;
   expenses: unknown;
 };
-
-export function sumAmountsByCurrency(values: CurrencyAmount[]) {
-  return values.reduce<Record<string, number>>((totals, value) => {
-    const amount = Number(value.amount);
-    if (!Number.isFinite(amount)) return totals;
-    const currency = value.currencyCode?.trim().toUpperCase() || "BRL";
-    totals[currency] = (totals[currency] ?? 0) + amount;
-    return totals;
-  }, {});
-}
 
 function accountInvestmentRemuneration(metadata: unknown) {
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null;

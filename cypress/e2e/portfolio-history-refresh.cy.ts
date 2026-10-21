@@ -18,9 +18,9 @@ describe("invalidação das movimentações da carteira", () => {
     cy.intercept("GET", "/api/portfolio/holdings/*/transactions*", (request) => {
       requests += 1;
       request.reply({
-        page: 1, pageSize: 25, total: 1, averagePricePaid: "40", averagePriceCoverage: 1,
+        page: 1, pageSize: 25, total: 1, averagePricePaid: "40", averagePriceCoverage: 1, averagePriceCurrency: "BRL",
         transactions: [{
-          id: "history-row", description: requests === 1 ? "Histórico inicial" : "Histórico atualizado",
+          id: "history-row", currencyCode: "BRL", description: requests === 1 ? "Histórico inicial" : "Histórico atualizado",
           type: "BUY", movementType: null, quantity: "110", value: "40", amount: "4400",
           netAmount: null, agreedRate: null, date: "2026-07-01T12:00:00Z", tradeDate: null,
         }],

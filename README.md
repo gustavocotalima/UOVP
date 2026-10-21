@@ -2,6 +2,11 @@
 
 [Português (Brasil)](./README.pt-BR.md)
 
+<p>
+  <img width="49%" alt="Screenshot 1" src="https://github.com/user-attachments/assets/5fddede5-1495-4ee5-b5a5-5abf2bb94757" />
+  <img width="49%" alt="Screenshot 2" src="https://github.com/user-attachments/assets/e16ffa80-9fcf-4b79-a2ef-d20ed20c6ae3" />
+</p>
+
 **Uma Outra Verdade Possível** — a multi-user personal finance application for household budgeting, investment portfolios, and Open Finance aggregation, inspired by AUVP's Diagrama do Cerrado.
 
 The interface is in Brazilian Portuguese. Frontend and backend run in the same Next.js application. PostgreSQL stores financial records and integration state; optional Redis caching shares public market data across users.
@@ -166,8 +171,8 @@ The manifest includes standard/maskable icons and starts at `/home?source=pwa`. 
 - Prisma 6 with PostgreSQL; optional Redis.
 - Auth.js credentials authentication, Lucide, Recharts, Leaflet, and React Leaflet.
 - Vitest for unit/integration tests and Cypress for browser tests.
-- Node.js **22 or newer**, **pnpm 10.13.1**, and PostgreSQL 16 or compatible.
-- Optional Docker Compose for the included PostgreSQL 16 and Redis 8 services.
+- Node.js 22 or newer, pnpm 10.13.1, and PostgreSQL 18.4.
+- Optional Docker Compose for PostgreSQL 18.4 and Redis 7.2.15, matching the development and production services.
 
 ## Local setup
 
@@ -187,6 +192,8 @@ The manifest includes standard/maskable icons and starts at `/home?source=pwa`. 
    Set `CREDENTIAL_ENCRYPTION_KEYS="v1:<generated-key>"` and `CREDENTIAL_ENCRYPTION_ACTIVE_KEY="v1"`. Keep database/Redis passwords consistent with their URLs; URL-encode special characters in connection strings.
 
 3. Start local services, or configure external ones:
+
+   Existing PostgreSQL 16 installations need a logical backup from the old service and a restore into PostgreSQL 18.4. Compose uses the separate `uovp_postgres18` volume mounted at `/var/lib/postgresql`, following the [PostgreSQL 18 image layout](https://github.com/docker-library/docs/blob/master/postgres/README.md#pgdata). Keep the old `uovp_postgres` volume until the restore is verified. Changing the image or running Prisma migrations does not upgrade PostgreSQL 16 data files.
 
    ```bash
    docker compose up -d postgres redis
@@ -247,6 +254,18 @@ pnpm build
 - Cypress creates/removes test users and clears authentication-limit fixtures. Do not run it against production.
 - `pnpm cypress:open` opens the interactive runner; `pnpm test:watch` runs Vitest in watch mode.
 - `pnpm build` generates Prisma Client and builds Next.js; it does not apply migrations or seed the database.
+
+### Continuous integration and deployment
+
+GitHub Actions runs typecheck, lint, unit tests, integration tests, a production build, and Cypress on pushes to `dev`/`main` and pull requests targeting either branch. Integration and browser jobs use disposable PostgreSQL 18.4 and Redis 7.2.15 services, migrated and seeded independently. CI generates temporary authentication/encryption secrets and rejects skipped integration tests.
+
+Cypress tests the built app through a temporary local HTTPS proxy at `https://uovp-ci.test:8443`, preserving production security validation. Failed browser checks upload screenshots and server logs.
+
+The `CI passed` check requires every validation job to succeed. Protection on `main` requires a pull request, this check against an up-to-date base, and resolved review conversations; force pushes and branch deletion are disabled. No additional reviewer approval is required.
+
+Dev deploys only after CI passes on `dev`. Coolify's direct push deployment is disabled. The deployment job pins the tested commit before invoking the checked-in copy of Gustavo's `coolify-deploy` CLI, waits for completion, and checks dev health. Superseded commits are skipped. Production keeps its existing Coolify deployment on `main` after a protected merge.
+
+The GitHub `development` environment only allows the `dev` branch. It contains `COOLIFY_URL` and `COOLIFY_DEV_APP_UUID` variables and a `COOLIFY_TOKEN` secret with Coolify `read`, `write`, and `deploy` permissions. Write access is required to pin the exact commit because the installed restart API does not accept a commit parameter. The token is available only to the deployment job; pull request validation uses no deployment credentials. Rotate it before expiry.
 
 ## Production and maintenance
 

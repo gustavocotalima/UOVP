@@ -11,9 +11,9 @@ import type { ReviewForm } from "./model";
 import { PluggyReviewSourceData } from "./review-source-data";
 import type { AssetsPanelController } from "./use-assets-panel-controller";
 export function ReviewDialog({ controller }: {
-  controller: Pick<AssetsPanelController, "fixedIncomeFamilies" | "catalog" | "timeZone" | "form" | "reviewForm" | "setReviewForm" | "message" | "pending" | "submitReview" | "excludeReview">;
+  controller: Pick<AssetsPanelController, "fixedIncomeFamilies" | "catalog" | "timeZone" | "reviewForm" | "setReviewForm" | "message" | "pending" | "submitReview" | "excludeReview">;
 }) {
-  const { fixedIncomeFamilies, catalog, timeZone, form, reviewForm, setReviewForm, message, pending, submitReview, excludeReview } = controller;
+  const { fixedIncomeFamilies, catalog, timeZone, reviewForm, setReviewForm, message, pending, submitReview, excludeReview } = controller;
   return (<Dialog privateEditor open={reviewForm !== null} mobileMode="full" onOpenChange={(open) => !open && setReviewForm(null)} dismissible={!pending} title={reviewForm?.source === "ACCOUNT_BALANCE" ? "Classificar saldo da conta" : "Revisar integração Pluggy"} className="max-w-5xl" footer={reviewForm && (<>
     <Button type="button" variant="outline" onClick={excludeReview} disabled={pending}>{reviewForm.source === "ACCOUNT_BALANCE" ? "Manter só em Contas" : "Manter só no Open Finance"}</Button>
     <Button type="submit" form="pluggy-review-form" disabled={pending}>{pending ? "Integrando…" : "Integrar ao diagrama"}</Button>

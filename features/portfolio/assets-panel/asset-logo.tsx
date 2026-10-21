@@ -1,5 +1,5 @@
 "use client";
-import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore, useTransition, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useState, useSyncExternalStore, useTransition, type ReactNode } from "react";
 import { Bitcoin, Building2, ChartNoAxesCombined, Landmark } from "lucide-react";
 import { resolveAssetLogoAction } from "../actions";
 import type { AssetDto } from "../types";
@@ -9,10 +9,7 @@ export function AssetLogoProvider({ assets, children }: {
   assets: AssetDto[];
   children: ReactNode;
 }) {
-  const cacheRef = useRef<AssetLogoCache | null>(null);
-  if (!cacheRef.current)
-    cacheRef.current = createAssetLogoCache(resolveAssetLogoAction);
-  const cache = cacheRef.current;
+  const [cache] = useState(() => createAssetLogoCache(resolveAssetLogoAction));
   const [, startTransition] = useTransition();
   useEffect(() => {
     startTransition(async () => { await Promise.all(assets.map((asset) => cache.resolve(asset))); });

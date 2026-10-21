@@ -41,6 +41,8 @@ Se aparecer o aviso de configuração do servidor, o administrador precisa concl
 
 O Client ID identifica o cliente; não é senha nem autorização. As permissões são verificadas em cada requisição e consulta de registro. O agente não pode escolher outro usuário do UOVP.
 
+`get_financial_summary` e o documento de discovery `summary:AAAA-MM` exigem `finance:read`. O campo `currentAccountTotals` só é consultado e preenchido quando a conexão também possui `accounts:read`; sem essa permissão, ele é `null`, não um saldo zero. Nesse caso, `complete` considera apenas os valores financeiros autorizados, e os avisos não incluem informações de câmbio ou sobreposição de contas omitidas. Uma conexão com somente `accounts:read` pode usar `list_accounts`, mas não obter o resumo financeiro. A ausência de permissão não é tratada como ausência de dados.
+
 ## Codex
 
 Em um Codex CLI compatível, cadastre o servidor remoto e inicie o login OAuth:
@@ -77,6 +79,7 @@ Não há campo de API key ou bearer token fixo para usuários. O cookie de login
 
 - Relatórios são consolidados em BRL. Contas e posições em outras moedas incluem valor original e equivalente BRL correspondente.
 - A cotação de uma transação permanece histórica; o câmbio atual da conta não substitui a conversão de lançamentos antigos.
+- Custos de posições informam `investedValue` e `investedValueCurrency` separadamente da moeda da cotação. `investedValueNative` só é preenchido quando a moeda do custo corresponde à moeda nativa da posição; custos legados ambíguos têm moeda `null` e `costBasisIssue: "UNKNOWN_COST_CURRENCY"`. O câmbio atual não reconstrói custos históricos desconhecidos.
 - Resumos e metas usam a compensação líquida existente, por meta e mês. O calendário mantém o valor integral dos lançamentos; tags representam entradas e saídas reais.
 - Exclusões dos relatórios, transferências internas, câmbio ausente, disponibilidade do provedor e estados de revisão/acompanhamento seguem as regras do app.
 - Informações efetivas do investimento ficam separadas do último valor original do provedor. Histórico incompleto não permite presumir rentabilidade completa.
@@ -113,6 +116,12 @@ Mantenha o PostgreSQL privado e não coloque respostas financeiras em Redis comp
 Os metadados ficam em `/.well-known/oauth-authorization-server` e `/.well-known/oauth-protected-resource/api/mcp` (com um alias na raiz para o recurso protegido). A autorização usa `/mcp/authorize`; troca e revogação de tokens usam `/api/mcp/oauth/token` e `/api/mcp/oauth/revoke`.
 
 Códigos de autorização expiram em cinco minutos. Tokens de acesso duram 15 minutos; refresh tokens são rotacionados e expiram em 30 dias. Requisições MCP têm limite de 60 por usuário/minuto e 120 por par usuário/cliente por minuto. Páginas retornam 50 registros por padrão e no máximo 100; consultas detalhadas abrangem até 12 meses. A auditoria mínima tem uma janela de retenção de 30 dias, com remoção dos registros vencidos durante atividades posteriores.
+
+Registros OAuth encerrados também têm retenção de 30 dias após a última expiração ou revogação da família. Códigos consumidos e refresh tokens rotacionados permanecem enquanto qualquer descendente puder autenticar ou renovar, preservando a revogação por replay. Após consentimento e emissão/rotação, uma limpeza limitada a 100 tokens, 100 códigos e 100 autorizações por execução remove somente registros elegíveis. Ela respeita o lock do usuário, não bloqueia uma emissão em andamento e não apaga clientes cadastrados.
+
+Para backlog de usuários sem atividade, use `pnpm exec tsx scripts/cleanup-mcp-oauth.ts --user-id=ID` para visualizar o próximo lote elegível, sem gravações. Para aplicar, acrescente `--apply`; `--max-batches=100` limita o trabalho total. Sem `--user-id`, a manutenção percorre usuários com autorizações por cursor. A prévia não soma registros que só se tornarão elegíveis após remover lotes anteriores; usuários ocupados são preservados e podem ser tratados numa execução posterior.
+
+Se atingir o limite global, retome com `--after-user-id=ID` usando o `resumeAfterUserId` retornado no resumo. Um usuário com lotes ainda pendentes não avança esse cursor; repetir a execução continua seu backlog antes de avançar.
 
 ## Problemas comuns
 

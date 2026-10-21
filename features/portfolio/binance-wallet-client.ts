@@ -1,9 +1,22 @@
 import { createHmac } from "node:crypto";
 import Decimal from "decimal.js";
 import { z } from "zod";
+import { withProviderRequestDeadline } from "@/lib/provider-request-budget";
 
 const BINANCE_API_URL = "https://api.binance.com";
 const RECEIVE_WINDOW_MS = 5_000;
+const BINANCE_REQUEST_TIMEOUT_MS = 10_000;
+const BINANCE_PERMISSIONS_TIMEOUT_MS = 30_000;
+const BINANCE_WALLET_TIMEOUT_MS = 120_000;
+const BINANCE_MAX_REQUESTS = 220;
+
+type BinanceRequestContext = { signal: AbortSignal; remainingRequests: number };
+type BinancePrivateClientOptions = {
+  signal?: AbortSignal;
+  requestTimeoutMs?: number;
+  operationTimeoutMs?: number;
+  maxRequests?: number;
+};
 
 export type BinanceWalletKind = "SPOT" | "FUNDING" | "EARN_FLEXIBLE" | "EARN_LOCKED";
 
@@ -145,18 +158,47 @@ export class BinancePrivateClient {
   constructor(
     private readonly credentials: BinancePrivateCredentials,
     private readonly fetcher: typeof fetch = fetch,
+    private readonly options: BinancePrivateClientOptions = {},
   ) {}
 
-  private async synchronizeClock(force = false) {
+  private runOperation<T>(timeoutMs: number, operation: (context: BinanceRequestContext) => Promise<T>) {
+    return withProviderRequestDeadline({
+      signal: this.options.signal,
+      timeoutMs: this.options.operationTimeoutMs ?? timeoutMs,
+      timeoutError: new BinancePrivateApiError("O prazo total de consulta à Binance foi atingido. Tente novamente.", 504),
+    }, (signal) => operation({ signal, remainingRequests: this.options.maxRequests ?? BINANCE_MAX_REQUESTS }));
+  }
+
+  private async requestJson(url: string, init: RequestInit, context: BinanceRequestContext) {
+    context.signal.throwIfAborted();
+    if (context.remainingRequests <= 0) {
+      throw new BinancePrivateApiError("O limite de consultas da carteira Binance foi atingido. Tente novamente.", 502);
+    }
+    context.remainingRequests -= 1;
+    return withProviderRequestDeadline({
+      signal: context.signal,
+      timeoutMs: this.options.requestTimeoutMs ?? BINANCE_REQUEST_TIMEOUT_MS,
+      timeoutError: new BinancePrivateApiError("A Binance demorou demais para responder. Tente novamente.", 504),
+    }, async (signal) => {
+      const response = await this.fetcher(url, { ...init, signal });
+      const payload: unknown = await response.json().catch(() => {
+        signal.throwIfAborted();
+        return null;
+      });
+      signal.throwIfAborted();
+      return { response, payload };
+    });
+  }
+
+  private async synchronizeClock(context: BinanceRequestContext, force = false) {
     if (!force && this.clockSynchronizedAt && Date.now() - this.clockSynchronizedAt < 60_000) return;
     if (this.clockRequest && !force) return this.clockRequest;
     const pending = (async () => {
       const startedAt = Date.now();
-      const response = await this.fetcher(`${BINANCE_API_URL}/api/v3/time`, {
+      const { response, payload } = await this.requestJson(`${BINANCE_API_URL}/api/v3/time`, {
         headers: { Accept: "application/json" },
         cache: "no-store",
-      });
-      const payload: unknown = await response.json().catch(() => null);
+      }, context);
       const parsed = z.object({ serverTime: z.number() }).safeParse(payload);
       if (!response.ok || !parsed.success) {
         throw new BinancePrivateApiError("Não foi possível sincronizar o relógio com a Binance.", response.status);
@@ -177,14 +219,20 @@ export class BinancePrivateClient {
     parameters = {},
     schema,
     retryClock = true,
+    context,
   }: {
     method: "GET" | "POST";
     path: string;
     parameters?: Record<string, string | number | boolean>;
     schema: z.ZodType<T>;
     retryClock?: boolean;
+    context: BinanceRequestContext;
   }): Promise<T> {
-    await this.synchronizeClock().catch(() => undefined);
+    await this.synchronizeClock(context).catch((error) => {
+      context.signal.throwIfAborted();
+      if (error instanceof BinancePrivateApiError && error.status === 504) throw error;
+    });
+    context.signal.throwIfAborted();
     const requestParameters = encodeBinanceSignedParameters({
       ...parameters,
       recvWindow: RECEIVE_WINDOW_MS,
@@ -195,7 +243,7 @@ export class BinancePrivateClient {
       .digest("hex");
     const signedPayload = `${requestParameters}&signature=${signature}`;
     const url = method === "GET" ? `${BINANCE_API_URL}${path}?${signedPayload}` : `${BINANCE_API_URL}${path}`;
-    const response = await this.fetcher(url, {
+    const { response, payload } = await this.requestJson(url, {
       method,
       headers: {
         Accept: "application/json",
@@ -204,14 +252,13 @@ export class BinancePrivateClient {
       },
       body: method === "POST" ? signedPayload : undefined,
       cache: "no-store",
-    });
-    const payload: unknown = await response.json().catch(() => null);
+    }, context);
     if (!response.ok) {
       const parsedError = errorSchema.safeParse(payload);
       const code = parsedError.success ? parsedError.data.code : undefined;
       if (code === -1021 && retryClock) {
-        await this.synchronizeClock(true);
-        return this.signedRequest({ method, path, parameters, schema, retryClock: false });
+        await this.synchronizeClock(context, true);
+        return this.signedRequest({ method, path, parameters, schema, retryClock: false, context });
       }
       const retryAfter = Number(response.headers.get("retry-after") ?? 0) || undefined;
       throw new BinancePrivateApiError(
@@ -229,10 +276,15 @@ export class BinancePrivateClient {
   }
 
   async permissions(): Promise<BinanceApiPermissions> {
+    return this.runOperation(BINANCE_PERMISSIONS_TIMEOUT_MS, (context) => this.readPermissions(context));
+  }
+
+  private async readPermissions(context: BinanceRequestContext): Promise<BinanceApiPermissions> {
     const result = await this.signedRequest({
       method: "GET",
       path: "/sapi/v1/account/apiRestrictions",
       schema: permissionsSchema,
+      context,
     });
     const tradingEnabled = result.enableSpotAndMarginTrading
       || result.enableMargin
@@ -264,7 +316,7 @@ export class BinancePrivateClient {
     });
   }
 
-  private async consolidatedSpotAndFunding(): Promise<{
+  private async consolidatedSpotAndFunding(context: BinanceRequestContext): Promise<{
     buckets: BinanceWalletBucketResult[];
     totalBtcValuations: Record<string, string>;
   }> {
@@ -273,6 +325,7 @@ export class BinancePrivateClient {
       path: "/sapi/v1/asset/wallet/balance",
       parameters: { quoteAsset: "BTC", needBalanceDetail: true },
       schema: walletSchema,
+      context,
     });
     const findRows = (pattern: RegExp) => wallets
       .filter((wallet) => pattern.test(wallet.walletName))
@@ -298,12 +351,13 @@ export class BinancePrivateClient {
     };
   }
 
-  private async fallbackSpot(): Promise<BinanceWalletBucketResult> {
+  private async fallbackSpot(context: BinanceRequestContext): Promise<BinanceWalletBucketResult> {
     const account = await this.signedRequest({
       method: "GET",
       path: "/api/v3/account",
       parameters: { omitZeroBalances: true },
       schema: spotAccountSchema,
+      context,
     });
     return {
       kind: "SPOT",
@@ -313,12 +367,13 @@ export class BinancePrivateClient {
     };
   }
 
-  private async fallbackFunding(): Promise<BinanceWalletBucketResult> {
+  private async fallbackFunding(context: BinanceRequestContext): Promise<BinanceWalletBucketResult> {
     const balances = await this.signedRequest({
       method: "POST",
       path: "/sapi/v1/asset/get-funding-asset",
       parameters: { needBtcValuation: true },
       schema: z.array(assetBalanceSchema),
+      context,
     });
     return { kind: "FUNDING", ok: true, balances: this.walletRowsToBalances(balances), error: null };
   }
@@ -326,15 +381,18 @@ export class BinancePrivateClient {
   private async earnPositions(
     kind: "EARN_FLEXIBLE" | "EARN_LOCKED",
     path: string,
+    context: BinanceRequestContext,
   ): Promise<BinanceWalletBucketResult> {
     const totals = new Map<string, BinanceWalletBalance>();
     let current = 1;
     while (current <= 100) {
+      context.signal.throwIfAborted();
       const page = await this.signedRequest({
         method: "GET",
         path,
         parameters: { current, size: 100 },
         schema: earnPageSchema,
+        context,
       });
       for (const row of page.rows) {
         const symbol = normalizeSymbol(String(row.asset ?? ""));
@@ -355,22 +413,31 @@ export class BinancePrivateClient {
         });
       }
       if (current * 100 >= page.total || page.rows.length < 100) break;
+      if (current === 100) {
+        throw new BinancePrivateApiError("O Simple Earn excedeu o limite de páginas da consulta. Os dados anteriores foram preservados.", 502);
+      }
       current += 1;
     }
     return { kind, ok: true, balances: [...totals.values()], error: null };
   }
 
   async walletSnapshot(): Promise<BinanceWalletSnapshot> {
+    return this.runOperation(BINANCE_WALLET_TIMEOUT_MS, (context) => this.readWalletSnapshot(context));
+  }
+
+  private async readWalletSnapshot(context: BinanceRequestContext): Promise<BinanceWalletSnapshot> {
     let spotAndFunding: BinanceWalletBucketResult[];
     let totalBtcValuations: Record<string, string> = {};
     let valuationsComplete = false;
     try {
-      const consolidated = await this.consolidatedSpotAndFunding();
+      const consolidated = await this.consolidatedSpotAndFunding(context);
       spotAndFunding = consolidated.buckets;
       totalBtcValuations = consolidated.totalBtcValuations;
       valuationsComplete = true;
     } catch {
-      const fallback = await Promise.allSettled([this.fallbackSpot(), this.fallbackFunding()]);
+      context.signal.throwIfAborted();
+      const fallback = await Promise.allSettled([this.fallbackSpot(context), this.fallbackFunding(context)]);
+      context.signal.throwIfAborted();
       spotAndFunding = fallback.map((result, index) => result.status === "fulfilled"
         ? result.value
         : {
@@ -381,9 +448,10 @@ export class BinancePrivateClient {
           });
     }
     const earn = await Promise.allSettled([
-      this.earnPositions("EARN_FLEXIBLE", "/sapi/v1/simple-earn/flexible/position"),
-      this.earnPositions("EARN_LOCKED", "/sapi/v1/simple-earn/locked/position"),
+      this.earnPositions("EARN_FLEXIBLE", "/sapi/v1/simple-earn/flexible/position", context),
+      this.earnPositions("EARN_LOCKED", "/sapi/v1/simple-earn/locked/position", context),
     ]);
+    context.signal.throwIfAborted();
     const earnResults = earn.map((result, index) => result.status === "fulfilled"
       ? result.value
       : {

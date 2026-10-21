@@ -6,9 +6,13 @@ const cacheMock = vi.hoisted(() => {
   return {
     quote,
     values,
+    lockDelayMs: 0,
+    lockStartedAt: 0,
     reset() {
       values.clear();
       quote.mockReset();
+      this.lockDelayMs = 0;
+      this.lockStartedAt = 0;
     },
   };
 });
@@ -42,7 +46,11 @@ vi.mock("@/lib/shared-cache", () => ({
       });
     }
   },
-  withSharedCacheCoalescing: async <T>({ operation }: { operation: () => Promise<T> }) => operation(),
+  withSharedCacheCoalescing: async <T>({ operation }: { operation: () => Promise<T> }) => {
+    if (cacheMock.lockDelayMs) vi.setSystemTime(Date.now() + cacheMock.lockDelayMs);
+    cacheMock.lockStartedAt = Date.now();
+    return operation();
+  },
 }));
 
 vi.mock("yahoo-finance2", () => ({
@@ -80,10 +88,32 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.useRealTimers();
   resetBinanceCachesForTests();
 });
 
 describe("cache compartilhado dos provedores", () => {
+  it.each(["brapi", "yahoo", "binance"] as const)("%s publica freshness posterior à aquisição do lock", async (provider) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-21T12:00:00Z"));
+    cacheMock.lockDelayMs = 1_000;
+    cacheMock.quote.mockResolvedValue({ GOOG: { symbol: "GOOG", regularMarketPrice: 100, currency: "USD" } });
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/exchangeInfo")) {
+        return jsonResponse({ symbols: [{ symbol: "BTCBRL", status: "TRADING", baseAsset: "BTC", quoteAsset: "BRL", baseAssetPrecision: 8, isSpotTradingAllowed: true }] });
+      }
+      if (provider === "binance") return jsonResponse([{ symbol: "BTCBRL", price: "100" }]);
+      return jsonResponse({ results: [{ requestedSymbol: "EMBJ3", symbol: "EMBJ3", data: { currency: "BRL", regularMarketPrice: 10 } }] });
+    }));
+    if (provider === "brapi") await fetchBrapiQuotes({ apiKey: "test", tickers: ["EMBJ3"], cacheMode: "REFRESH" });
+    else if (provider === "yahoo") await fetchYahooQuotes({ symbols: ["GOOG"], cacheMode: "REFRESH" });
+    else await fetchBinanceQuotes({ assets: ["BTC"], cacheMode: "REFRESH" });
+    const entries = [...cacheMock.values].filter(([key]) => key.startsWith(`${provider}:quote:`));
+    expect(entries.length).toBeGreaterThan(0);
+    for (const [, entry] of entries) expect(entry.cachedAt).toBeGreaterThanOrEqual(cacheMock.lockStartedAt);
+  });
+
   it("brapi atualiza somente os tickers solicitados e não armazena a chave pessoal", async () => {
     let request = 0;
     const fetcher = vi.fn(async (input: string | URL | Request) => {

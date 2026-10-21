@@ -123,6 +123,43 @@ describe("saldos reservados de contas Pluggy", () => {
     ])));
   });
 
+  it("preserva o snapshot anterior quando reservas homônimas colidem após normalização", () => {
+    const reserves = [
+      { name: "Resérva", availableAmounts: [{ amount: 100, currencyCode: "BRL" }] },
+      { name: " reserva ", availableAmounts: [{ amount: 200, currencyCode: "BRL" }] },
+      { name: "Viagem", identification: "travel", availableAmounts: [{ amount: 900, currencyCode: "BRL" }] },
+    ];
+    for (const reservedBalances of [reserves, [...reserves].reverse()]) {
+      expect(extractAccountInvestmentSnapshots(account({ bankData: {
+        hasReservedBalance: true, automaticallyInvestedBalance: 1_200, reservedBalances,
+      } }))).toEqual({ managed: true, complete: false, mode: "DETAILED", snapshots: [] });
+    }
+  });
+
+  it("também recusa identificações duplicadas e entradas irmãs com valor inválido", () => {
+    for (const secondAmount of [200, "invalid"]) {
+      expect(extractAccountInvestmentSnapshots(account({ bankData: {
+        reservedBalances: [
+          { name: "Primeira", identification: "same-id", availableAmounts: [{ amount: 100, currencyCode: "BRL" }] },
+          { name: "Segunda", identification: "same-id", availableAmounts: [{ amount: secondAmount, currencyCode: "BRL" }] },
+        ],
+      } }))).toEqual({ managed: true, complete: false, mode: "DETAILED", snapshots: [] });
+    }
+  });
+
+  it("mantém reservas homônimas em moedas distintas separadas sem inventar conversão", () => {
+    const result = extractAccountInvestmentSnapshots(account({ bankData: {
+      reservedBalances: [
+        { name: "Reserva", availableAmounts: [{ amount: 100, currencyCode: "BRL" }] },
+        { name: "Reserva", availableAmounts: [{ amount: 200, currencyCode: "USD" }] },
+      ],
+    } }));
+    expect(result.complete).toBe(true);
+    expect(result.snapshots.map(({ currencyCode, balance }) => ({ currencyCode, balance })))
+      .toEqual([{ currencyCode: "BRL", balance: "100" }, { currencyCode: "USD", balance: "200" }]);
+    expect(new Set(result.snapshots.map((snapshot) => snapshot.providerReference)).size).toBe(2);
+  });
+
   it("usa o saldo automático somente quando não existem posições detalhadas", () => {
     const result = extractAccountInvestmentSnapshots(account({
       bankData: {

@@ -5,7 +5,11 @@ import {
   type MarketRegion,
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import type { UserOperationLeaseContext } from "@/lib/operation-security";
+import {
+  OperationLeaseLostError,
+  type UserOperationLeaseContext,
+  withUserOperationLease,
+} from "@/lib/operation-security";
 import { FIXED_INCOME_INDEXATION_META } from "@/features/portfolio/constants";
 import { allowsFractionalUnits } from "@/features/portfolio/fractional-assets";
 import { fetchYahooFxRates } from "@/features/portfolio/yahoo-finance";
@@ -163,6 +167,9 @@ function linkedHoldingData(
     investedValue: market
       ? investment.amountOriginal
       : investment.amountOriginal ?? investment.amount,
+    investedValueCurrency: (market ? investment.amountOriginal : investment.amountOriginal ?? investment.amount) === null
+      ? null
+      : investment.currencyCode.trim().toUpperCase(),
     currentValue: market ? null : investment.balance,
     providerCurrentValue: investment.balance,
     includedInTotals: investment.providerAvailable && investment.status === "ACTIVE",
@@ -409,18 +416,23 @@ export async function reconcilePluggyInvestmentsForUser(
   userId: string,
   lease?: UserOperationLeaseContext,
   scope?: { pluggyItemDbId: string },
-) {
-  const portfolio = lease
-    ? await lease.runFencedTransaction((tx) => tx.portfolio.upsert({
-        where: { userId },
-        update: {},
-        create: { userId },
-      }))
-    : await prisma.portfolio.upsert({
-        where: { userId },
-        update: {},
-        create: { userId },
-      });
+): Promise<{ mapped: number; review: number; changed: boolean }> {
+  if (!lease) {
+    return withUserOperationLease({
+      userId,
+      operation: "pluggy-sync",
+      leaseMs: 10 * 60_000,
+      action: (ownedLease) => reconcilePluggyInvestmentsForUser(userId, ownedLease, scope),
+    });
+  }
+  if (lease.userId !== userId || lease.operation !== "pluggy-sync") {
+    throw new OperationLeaseLostError();
+  }
+  const portfolio = await lease.runFencedTransaction((tx) => tx.portfolio.upsert({
+    where: { userId },
+    update: {},
+    create: { userId },
+  }));
   const investments = await prisma.pluggyInvestment.findMany({
     // Include removed/unavailable positions so their old holdings are retired.
     where: { item: { userId }, ...(scope ? { pluggyItemDbId: scope.pluggyItemDbId } : {}) },
@@ -495,7 +507,7 @@ export async function reconcilePluggyInvestmentsForUser(
     return [currency];
   }))];
   const fxRates = foreignCurrencies.length
-    ? await fetchYahooFxRates({ currencies: foreignCurrencies, signal: lease?.signal }).catch(() => [])
+    ? await fetchYahooFxRates({ currencies: foreignCurrencies, signal: lease.signal }).catch(() => [])
     : [];
   const fxRateByCurrency = new Map(fxRates.map((rate) => [rate.currency, rate]));
   let mapped = 0;
@@ -509,6 +521,21 @@ export async function reconcilePluggyInvestmentsForUser(
   const reconcile = async (tx: Prisma.TransactionClient) => {
     const affectedAssetIds = new Set<string>();
     for (const investment of investments) {
+      // The source row also exists before the first diagram link. Lock it so
+      // deciding to create a holding and linking it are one serialized step.
+      const ownedInvestment = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT investment."id"
+        FROM "PluggyInvestment" investment
+        INNER JOIN "PluggyItem" item ON item."id" = investment."pluggyItemDbId"
+        WHERE investment."id" = ${investment.id} AND item."userId" = ${userId}
+        FOR UPDATE OF investment
+      `);
+      if (!ownedInvestment.length) continue;
+      await tx.$queryRaw(Prisma.sql`
+        SELECT "id" FROM "PluggyInvestmentDiagramLink"
+        WHERE "pluggyInvestmentDbId" = ${investment.id} AND "userId" = ${userId}
+        FOR UPDATE
+      `);
       const existingLink = await tx.pluggyInvestmentDiagramLink.findUnique({
         where: { pluggyInvestmentDbId: investment.id },
         include: {
@@ -904,6 +931,8 @@ export async function reconcilePluggyInvestmentsForUser(
         changed ||= holding.assetId !== asset.id
           || !sameDecimal(holding.quantity, data.quantity)
           || !sameDecimal(holding.providerCurrentValue, data.providerCurrentValue)
+          || !sameDecimal(holding.investedValue, data.investedValue)
+          || holding.investedValueCurrency !== data.investedValueCurrency
           || holding.catalogItemId !== data.catalogItemId
           || holding.customTypeName !== data.customTypeName
           || holding.issuer !== data.issuer
@@ -984,11 +1013,7 @@ export async function reconcilePluggyInvestmentsForUser(
       });
     }
   };
-  if (lease) {
-    await lease.runFencedTransaction(reconcile, { timeout: reconciliationTimeoutMs });
-  } else {
-    await prisma.$transaction(reconcile, { timeout: reconciliationTimeoutMs });
-  }
+  await lease.runFencedTransaction(reconcile, { timeout: reconciliationTimeoutMs });
 
   return { mapped, review, changed };
 }

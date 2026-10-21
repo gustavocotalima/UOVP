@@ -56,7 +56,7 @@ export function InvoicesClient({ data }: { data: FinanceInvoicesPageData }) {
                   <button type="button" aria-expanded={open} onClick={() => setExpanded(open ? null : invoice.key)} className="flex w-full items-center gap-3 p-3 text-left hover:bg-[var(--muted)]/50 sm:gap-4 sm:p-4">
                     <div className="min-w-0 flex-1"><p className="font-semibold">{String(invoice.month).padStart(2, "0")}/{invoice.year} {invoice.open && <span className="ml-2 rounded-full bg-[var(--primary)]/14 px-2 py-1 text-[10px] text-[var(--primary)]">Fatura em aberto</span>}</p><p className="mt-1 text-xs text-[var(--muted-foreground)]">{invoice.open ? "Valor estimado — pode diferir do fechamento real" : `Vencimento: ${new Intl.DateTimeFormat("pt-BR", { timeZone: data.profile.timeZone }).format(new Date(invoice.dueDate))}`}</p></div>
                     <div className="text-right">
-                      <p className={cn("font-semibold", invoice.open && "text-[var(--danger)]")}>{invoice.open ? "-" : ""}<PrivateValue>{formatCurrency(invoice.total, account.currencyCode)}</PrivateValue></p>
+                      <p className={cn("font-semibold", invoice.open && invoice.total > 0 && "text-[var(--danger)]", invoice.total < 0 && "text-[var(--success)]")}>{invoice.open && invoice.total > 0 ? "-" : ""}<PrivateValue>{formatCurrency(invoice.total, account.currencyCode)}</PrivateValue></p>
                       {account.currencyCode !== "BRL" && (
                         <p className="mt-0.5 text-[10px] text-[var(--muted-foreground)]">
                           <PrivateValue>{formatMoney(invoice.totalBrl)}</PrivateValue> em BRL

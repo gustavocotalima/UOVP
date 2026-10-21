@@ -383,12 +383,13 @@ async function fetchPairPrices(
     let request = priceRequests.get(key);
     if (!request) {
       const load = async () => {
+        const sharedCachedAt = Date.now();
         const prices = await requestAvailablePrices(batch, fetcher, now);
         if (useSharedCache) {
           await setSharedCacheMany([...prices].map(([symbol, entry]) => ({
             key: sharedCacheKey("binance:quote", symbol),
             value: { price: entry.price.toString() },
-            cachedAt: entry.fetchedAt,
+            cachedAt: sharedCachedAt,
           })));
         }
         return prices;

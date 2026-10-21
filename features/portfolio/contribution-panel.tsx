@@ -210,6 +210,7 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
                   issuer: contributionModal.newHolding.issuer,
                   productName: contributionModal.newHolding.productName,
                   investedValue: 0,
+                  investedValueCurrency: "BRL",
                   currentValue: 0,
                   rateConvention: contributionModal.newHolding.rateConvention,
                   benchmark: contributionModal.newHolding.benchmark || null,

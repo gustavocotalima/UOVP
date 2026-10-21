@@ -50,6 +50,8 @@ describe("metadados editáveis de investimentos Pluggy", () => {
       .should("contain.text", "Editado manualmente");
     cy.contains("dt", "Emissor").next("dd").should("have.text", "Banco Cypress S.A.");
     cy.contains("dt", "Rentabilidade").next("dd").should("contain.text", "14,85% a.a.");
+    cy.contains("dt", /^Compra$/).next("dd").should("have.text", "16/06/2026");
+    cy.contains("dt", /^Vencimento$/).next("dd").should("have.text", "25/08/2027");
     cy.contains("summary", "Dados originais da instituição").click();
     cy.contains("dt", "Produto").next("dd").should("have.text", "CDB ORIGINAL CYPRESS");
     cy.contains("dt", "rate").next("dd").should("have.text", "0");
@@ -59,6 +61,8 @@ describe("metadados editáveis de investimentos Pluggy", () => {
     cy.waitForHydration();
     cy.contains("button", "Investimentos").click();
     cy.contains("button", "CDB corrigido Cypress").click();
+    cy.contains("dt", /^Compra$/).next("dd").should("have.text", "16/06/2026");
+    cy.contains("dt", /^Vencimento$/).next("dd").should("have.text", "25/08/2027");
     cy.contains("button", "Editar informações").click();
     cy.get("#metadata-product-name").parent().within(() => {
       cy.get('input[type="checkbox"]').should("be.checked").uncheck();

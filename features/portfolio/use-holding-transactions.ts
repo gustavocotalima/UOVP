@@ -8,6 +8,7 @@ export type HoldingTransactionsState = {
   page: number;
   total: number;
   averagePricePaid: string | null;
+  averagePriceCurrency?: string | null;
   averagePriceCoverage: number;
   loading: boolean;
   error?: string;
@@ -38,6 +39,7 @@ export function useHoldingTransactions(assets: AssetDto[], expanded: ReadonlySet
       page: append ? previous?.page ?? 0 : 0,
       total: previous?.total ?? 0,
       averagePricePaid: previous?.averagePricePaid ?? null,
+      averagePriceCurrency: previous?.averagePriceCurrency ?? null,
       averagePriceCoverage: previous?.averagePriceCoverage ?? 0,
       loading: true,
     });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition, type FormEvent } from "react";
 import Decimal from "decimal.js";
 import { AlertTriangle, Coins, ExternalLink, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
 import { PrivateValue } from "@/components/ui/private-value";
@@ -16,6 +16,7 @@ import {
   syncBinanceWalletAction,
 } from "@/features/portfolio/binance-wallet-actions";
 import type { BinanceConnectionStatus } from "@/features/portfolio/binance-wallet-credentials";
+import { selectBinanceWalletSnapshot, type BinanceWalletSnapshotState } from "./binance-wallet-snapshot";
 
 function quantity(value: string) {
   return new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 10 }).format(Number(value));
@@ -31,47 +32,70 @@ function dateTime(value: string | null) {
 }
 
 export function BinanceWalletCard({ initialStatus }: { initialStatus: BinanceConnectionStatus }) {
-  const [status, setStatus] = useState(initialStatus);
+  const [snapshot, setSnapshot] = useState<BinanceWalletSnapshotState>({ status: initialStatus, requestId: 0 });
+  const snapshotRef = useRef(snapshot);
+  const requestSequence = useRef(0);
+  const status = snapshot.status;
   const [apiKey, setApiKey] = useState("");
   const [apiSecret, setApiSecret] = useState("");
   const [message, setMessage] = useState<{ kind: "success" | "error"; text: string }>();
   const [disconnectOpen, setDisconnectOpen] = useState(false);
   const [pending, startTransition] = useTransition();
 
+  const acceptStatus = useCallback((next: BinanceConnectionStatus, requestId: number) => {
+    const current = snapshotRef.current;
+    const selected = selectBinanceWalletSnapshot(current, { status: next, requestId });
+    if (selected === current) return false;
+    snapshotRef.current = selected;
+    setSnapshot(selected);
+    if (!selected.status.configured) setDisconnectOpen(false);
+    return true;
+  }, []);
+
+  useEffect(() => {
+    acceptStatus(initialStatus, ++requestSequence.current);
+  }, [initialStatus, acceptStatus]);
+
   function connect(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const requestId = ++requestSequence.current;
+    const submitted = { apiKey, apiSecret };
     setMessage(undefined);
     startTransition(async () => {
       try {
-        const result = await saveBinanceConnectionAction({ apiKey, apiSecret });
+        const result = await saveBinanceConnectionAction(submitted);
         if (!result.ok) {
+          if (requestId !== requestSequence.current) return;
           setMessage({ kind: "error", text: result.error });
           return;
         }
-        setStatus(result.connection);
-        setApiKey("");
-        setApiSecret("");
+        if (!acceptStatus(result.connection, requestId)) return;
+        setApiKey((current) => current === submitted.apiKey ? "" : current);
+        setApiSecret((current) => current === submitted.apiSecret ? "" : current);
         setMessage({
           kind: result.sync.status === "FAILED" ? "error" : "success",
           text: result.sync.message ?? "Binance conectada e carteira consultada.",
         });
       } catch (error) {
+        if (requestId !== requestSequence.current) return;
         setMessage({ kind: "error", text: error instanceof Error ? error.message : "Não foi possível conectar a Binance." });
       }
     });
   }
 
   function synchronize() {
+    const requestId = ++requestSequence.current;
     setMessage(undefined);
     startTransition(async () => {
       try {
         const result = await syncBinanceWalletAction();
-        setStatus(result.connection);
+        if (!acceptStatus(result.connection, requestId)) return;
         setMessage({
           kind: result.sync.status === "FAILED" || result.sync.status === "PARTIAL" ? "error" : "success",
           text: result.sync.message ?? "Carteira da Binance sincronizada.",
         });
       } catch (error) {
+        if (requestId !== requestSequence.current) return;
         setMessage({ kind: "error", text: error instanceof Error ? error.message : "Não foi possível sincronizar a Binance." });
       }
     });
@@ -81,25 +105,28 @@ export function BinanceWalletCard({ initialStatus }: { initialStatus: BinanceCon
     walletAssetId: string,
     resolution: "ADD" | "REPLACE_MANUAL" | "KEEP_BOTH" | "IGNORE",
   ) {
+    const requestId = ++requestSequence.current;
     setMessage(undefined);
     startTransition(async () => {
       try {
-        setStatus(await resolveBinanceWalletAssetAction({ walletAssetId, resolution }));
+        if (!acceptStatus(await resolveBinanceWalletAssetAction({ walletAssetId, resolution }), requestId)) return;
         setMessage({ kind: "success", text: resolution === "IGNORE" ? "Ativo ignorado." : "Ativo adicionado à carteira." });
       } catch (error) {
+        if (requestId !== requestSequence.current) return;
         setMessage({ kind: "error", text: error instanceof Error ? error.message : "Não foi possível atualizar o ativo." });
       }
     });
   }
 
   function disconnect(resolution: "KEEP_MANUAL" | "REMOVE") {
+    const requestId = ++requestSequence.current;
     startTransition(async () => {
       try {
-        await disconnectBinanceAction(resolution);
-        setStatus({ ...initialStatus, configured: false, assets: [], syncPending: false });
+        if (!acceptStatus(await disconnectBinanceAction(resolution), requestId)) return;
         setDisconnectOpen(false);
         setMessage({ kind: "success", text: resolution === "KEEP_MANUAL" ? "Binance desconectada; posições preservadas como manuais." : "Binance e posições importadas removidas." });
       } catch (error) {
+        if (requestId !== requestSequence.current) return;
         setMessage({ kind: "error", text: error instanceof Error ? error.message : "Não foi possível desconectar a Binance." });
       }
     });
@@ -111,7 +138,7 @@ export function BinanceWalletCard({ initialStatus }: { initialStatus: BinanceCon
 
   return (
     <>
-      <Card className="mt-6">
+      <Card className="mt-6" data-testid="binance-wallet-card">
         <CardHeader>
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="flex items-start gap-3">
@@ -172,7 +199,7 @@ export function BinanceWalletCard({ initialStatus }: { initialStatus: BinanceCon
                   <div><h3 className="font-semibold">Escolha os ativos</h3><p className="text-sm text-[var(--muted-foreground)]">Nada novo entra nos totais até você confirmar.</p></div>
                   <div className="grid gap-3 lg:grid-cols-2">
                     {waiting.map((asset) => (
-                      <div key={asset.id} className="rounded-xl border p-4">
+                      <div key={asset.id} data-binance-symbol={asset.symbol} className="rounded-xl border p-4">
                         <div className="flex items-start justify-between gap-3">
                           <div><p className="font-semibold">{asset.symbol}</p><p className="text-xs text-[var(--muted-foreground)]">{asset.name ?? "Criptoativo"}</p></div>
                           <p className="text-sm font-semibold"><PrivateValue>{quantity(asset.totalQuantity)}</PrivateValue></p>
@@ -205,7 +232,7 @@ export function BinanceWalletCard({ initialStatus }: { initialStatus: BinanceCon
                   <h3 className="font-semibold">Ativos acompanhados</h3>
                   <div className="divide-y rounded-xl border">
                     {tracked.map((asset) => (
-                      <div key={asset.id} className="grid gap-2 p-4 sm:grid-cols-[minmax(0,1fr)_repeat(4,minmax(80px,auto))] sm:items-center">
+                      <div key={asset.id} data-binance-symbol={asset.symbol} className="grid gap-2 p-4 sm:grid-cols-[minmax(0,1fr)_repeat(4,minmax(80px,auto))] sm:items-center">
                         <div><p className="font-semibold">{asset.symbol}</p><p className="text-xs text-[var(--muted-foreground)]">Total <PrivateValue>{quantity(asset.totalQuantity)}</PrivateValue></p></div>
                         <p className="text-xs"><span className="text-[var(--muted-foreground)]">Spot</span><br /><PrivateValue>{quantity(asset.spotQuantity)}</PrivateValue></p>
                         <p className="text-xs"><span className="text-[var(--muted-foreground)]">Funding</span><br /><PrivateValue>{quantity(asset.fundingQuantity)}</PrivateValue></p>
@@ -222,7 +249,7 @@ export function BinanceWalletCard({ initialStatus }: { initialStatus: BinanceCon
                   <h3 className="font-semibold">Ativos ignorados</h3>
                   <div className="divide-y rounded-xl border">
                     {ignored.map((asset) => (
-                      <div key={asset.id} className="flex items-center justify-between gap-3 p-4">
+                      <div key={asset.id} data-binance-symbol={asset.symbol} className="flex items-center justify-between gap-3 p-4">
                         <div><p className="font-semibold">{asset.symbol}</p><p className="text-xs text-[var(--muted-foreground)]">Excluído dos totais da carteira</p></div>
                         <p className="text-sm font-semibold"><PrivateValue>{quantity(asset.totalQuantity)}</PrivateValue></p>
                       </div>

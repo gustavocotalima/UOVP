@@ -43,7 +43,7 @@ function holding(overrides: Record<string, unknown> = {}) {
     id: "holding-1", assetId: "asset-1", catalogItemId: null, customTypeName: null,
     issuer: "Vivara", productName: "VIVA3", pricingSource: "BRAPI", positionSource: "MANUAL",
     currency: "BRL", quantity: amount(10), unitPrice: amount(10), fxRateToBrl: null, fxUpdatedAt: null,
-    investedValue: null, currentValue: null, providerCurrentValue: null, includedInTotals: true,
+    investedValue: null, investedValueCurrency: null, currentValue: null, providerCurrentValue: null, includedInTotals: true,
     supersededAt: null, fractional: false, rateConvention: null, benchmark: null, rateValue: null,
     purchaseDate: null, maturityDate: null, priceUpdatedAt: date, updatedAt: date,
     catalogItem: null, pluggyDiagramLink: null, binanceWalletAsset: null, ...overrides,
@@ -79,6 +79,35 @@ beforeEach(() => {
 });
 
 describe("read-only MCP portfolio valuation", () => {
+  it("identifies the cost currency without labeling a BRL cost as native USD", async () => {
+    database.assetHolding.findFirst.mockResolvedValue({
+      ...holding({
+        currency: "USD", pricingSource: "YAHOO", investedValue: amount(500), investedValueCurrency: "BRL",
+        fxRateToBrl: amount(6),
+      }), asset: asset({ investmentClass: "INTERNATIONAL_STOCKS" }),
+    });
+    expect((await run("get_holding_details", { holdingId: "holding-1" })).holding).toMatchObject({
+      currency: "USD", investedValue: "500", investedValueCurrency: "BRL", investedValueNative: null, costBasisIssue: null,
+    });
+    database.assetHolding.findFirst.mockResolvedValue({
+      ...holding({ currency: "USD", investedValue: amount(100), investedValueCurrency: "USD", fxRateToBrl: amount(6) }),
+      asset: asset(),
+    });
+    expect((await run("get_holding_details", { holdingId: "holding-1" })).holding).toMatchObject({
+      investedValue: "100", investedValueCurrency: "USD", investedValueNative: "100",
+    });
+  });
+
+  it("keeps ambiguous legacy costs explicit instead of assuming a currency", async () => {
+    database.assetHolding.findFirst.mockResolvedValue({
+      ...holding({ currency: "USD", investedValue: amount(500), investedValueCurrency: null, fxRateToBrl: amount(6) }),
+      asset: asset(),
+    });
+    expect((await run("get_holding_details", { holdingId: "holding-1" })).holding).toMatchObject({
+      investedValue: "500", investedValueCurrency: null, investedValueNative: null, costBasisIssue: "UNKNOWN_COST_CURRENCY",
+    });
+  });
+
   it("keeps USD native amounts separate from converted BRL values", () => {
     const value = analysisHoldingValuation(holding({
       currency: "USD", pricingSource: "YAHOO", quantity: amount(10), unitPrice: amount(20), fxRateToBrl: amount(5),

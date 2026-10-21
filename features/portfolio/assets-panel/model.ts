@@ -12,6 +12,9 @@ export type FormAsset = {
   quantity: number;
   unitPrice: number;
   manualValue: number | null;
+  investedValue: number | null;
+  investedValueCurrency: string | null;
+  investmentCostEdited?: boolean;
   currency: string;
   fractional: boolean;
   score: number;
@@ -77,6 +80,8 @@ export type HoldingForm = {
   issuer: string;
   productName: string;
   investedValue: number | null;
+  investedValueCurrency: string | null;
+  investmentCostEdited?: boolean;
   currentValue: number;
   rateConvention: RateConventionKey | null;
   benchmark: string;
@@ -113,6 +118,8 @@ export const emptyAsset: FormAsset = {
   quantity: 0,
   unitPrice: 0,
   manualValue: null,
+  investedValue: null,
+  investedValueCurrency: null,
   currency: "BRL",
   fractional: false,
   score: 0,

@@ -127,11 +127,11 @@ suite("resumos transacionais de compras Pluggy", () => {
     const purchaseSummary = {
       version: stored.purchaseSummaryVersion, quantity: stored.purchaseQuantityTotal.toString(), cost: stored.purchaseCostTotal.toString(),
     };
-    const result = calculateHoldingAveragePrice({ positionSource: "PLUGGY", quantity: 125, investedValue: null, purchaseSummary });
+    const result = calculateHoldingAveragePrice({ positionSource: "PLUGGY", quantity: 125, investedValue: null, providerCurrency: "BRL", purchaseSummary });
     expect(result.price?.toString()).toBe("24.98");
     expect(result.coverage).toBe(0.8);
     expect(calculateHoldingAveragePrice({
-      positionSource: "PLUGGY", quantity: 125, investedValue: null, amountOriginal: 5000, purchaseSummary,
+      positionSource: "PLUGGY", quantity: 125, investedValue: null, amountOriginal: 5000, providerCurrency: "BRL", purchaseSummary,
     }).price?.toString()).toBe("40");
     await expectSummary(f.first.id, "100", "2498");
   });

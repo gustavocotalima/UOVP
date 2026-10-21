@@ -314,6 +314,7 @@ model McpOAuthToken {
   @@index([grantId])
   @@index([familyId])
   @@index([accessExpiresAt])
+  @@index([authCodeHash])
 }
 
 model McpAuditEvent {
@@ -516,6 +517,7 @@ model AssetHolding {
   fxRateToBrl          Decimal?                     @db.Decimal(20, 10)
   fxUpdatedAt          DateTime?
   investedValue        Decimal?                     @db.Decimal(30, 2)
+  investedValueCurrency String?
   currentValue         Decimal?                     @db.Decimal(30, 2)
   providerCurrentValue Decimal?                     @db.Decimal(30, 2)
   includedInTotals     Boolean                      @default(true)
@@ -831,6 +833,7 @@ model FinanceTransaction {
   classificationRule     FinanceClassificationRule? @relation(fields: [classificationRuleId], references: [id], onDelete: SetNull)
 
   @@index([userId, referenceYear, referenceMonth])
+  @@index([userId, source, deleted, id])
   @@index([userId, deleted, referenceYear, referenceMonth, date])
   @@index([userId, providerLifecycle, date])
   @@index([userId, date])
@@ -937,6 +940,8 @@ model PluggyItem {
   providerUpdatedAt     DateTime?
   lastSyncAt            DateTime?
   syncPending           Boolean            @default(true)
+  syncRequestedVersion  Int                @default(0)
+  syncProcessedVersion  Int                @default(0)
   disconnectedAt        DateTime?
   disconnectionResolution PluggyDisconnectionResolution?
   createdAt             DateTime           @default(now())

@@ -12,7 +12,7 @@ import { syncStalePluggyItemsForUser } from "@/features/open-finance/automatic-s
 const now = new Date("2026-10-20T15:00:00Z");
 const summary = {
   itemCount: 2, pendingItemCount: 1, succeededItemCount: 2,
-  failedItemCount: 0, partialItemCount: 0,
+  failedItemCount: 0, partialItemCount: 0, changed: true,
 };
 
 describe("sincronização automática seletiva Pluggy", () => {
@@ -54,14 +54,21 @@ describe("sincronização automática seletiva Pluggy", () => {
     });
     mocks.selected.mockResolvedValueOnce({ ...summary, partialItemCount: 1 });
     expect(await syncStalePluggyItemsForUser("user-a")).toMatchObject({ status: "PARTIAL", failedConnections: 0 });
-    mocks.selected.mockResolvedValueOnce({ ...summary, succeededItemCount: 0, failedItemCount: 2 });
+    mocks.selected.mockResolvedValueOnce({ ...summary, succeededItemCount: 0, failedItemCount: 2, changed: false });
     expect(await syncStalePluggyItemsForUser("user-a")).toMatchObject({ status: "FAILED", changed: false, failedConnections: 2 });
   });
 
   it("reavalia o motivo e os contadores depois da seleção autenticada final", async () => {
     mocks.selected.mockResolvedValueOnce({ ...summary, itemCount: 1, pendingItemCount: 0, succeededItemCount: 1 });
     expect(await syncStalePluggyItemsForUser("user-a")).toMatchObject({ reason: "AUTOMATIC_STALE", requestedConnections: 1 });
-    mocks.selected.mockResolvedValueOnce({ ...summary, itemCount: 0, pendingItemCount: 0, succeededItemCount: 0 });
+    mocks.selected.mockResolvedValueOnce({ ...summary, itemCount: 0, pendingItemCount: 0, succeededItemCount: 0, changed: false });
     expect(await syncStalePluggyItemsForUser("user-a")).toMatchObject({ status: "SKIPPED", changed: false, reason: null, requestedConnections: 0 });
+  });
+
+  it("propaga alteração parcial mesmo quando nenhuma conexão chega ao fim", async () => {
+    mocks.selected.mockResolvedValueOnce({ ...summary, succeededItemCount: 0, failedItemCount: 2, changed: true });
+    expect(await syncStalePluggyItemsForUser("user-a")).toMatchObject({
+      status: "PARTIAL", changed: true, updatedConnections: 0, failedConnections: 2,
+    });
   });
 });

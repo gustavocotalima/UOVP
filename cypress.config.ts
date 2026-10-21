@@ -66,6 +66,32 @@ export default defineConfig({
       on("before:spec", cleanupCypressUsers);
       on("after:run", cleanupCypressUsers);
       on("task", {
+        async setBinanceWalletFixture({ email, configured = true, quantity = "2" }: { email: string; configured?: boolean; quantity?: string }) {
+          if (!/^cypress-[^@]+@example\.com$/.test(email)) throw new Error("Only Cypress users may be updated");
+          if (!/^\d+(\.\d+)?$/.test(quantity)) throw new Error("Invalid fixture quantity");
+          const prisma = new PrismaClient();
+          try {
+            const user = await prisma.user.findUniqueOrThrow({ where: { email } });
+            if (!configured) {
+              await prisma.binanceConnection.deleteMany({ where: { userId: user.id } });
+              return null;
+            }
+            const now = new Date();
+            const connection = await prisma.binanceConnection.upsert({
+              where: { userId: user.id },
+              create: { userId: user.id, apiKeyCiphertext: "cypress-not-decrypted", apiSecretCiphertext: "cypress-not-decrypted", apiKeyLastFour: "1234", ipRestricted: true, syncPending: false, lastSyncAt: now },
+              update: { syncPending: false, lastSyncAt: now, lastError: null },
+            });
+            await prisma.binanceWalletAsset.upsert({
+              where: { connectionId_symbol: { connectionId: connection.id, symbol: "BTC" } },
+              create: { connectionId: connection.id, symbol: "BTC", name: "Bitcoin", status: "AVAILABLE", spotQuantity: quantity, valuationSupported: true, lastSyncAt: now },
+              update: { spotQuantity: quantity, lastSyncAt: now },
+            });
+            return null;
+          } finally {
+            await prisma.$disconnect();
+          }
+        },
         async invalidateContributionSimulations({ email }: { email: string }) {
           if (!/^cypress-[^@]+@example\.com$/.test(email)) throw new Error("Only Cypress users may be updated");
           const prisma = new PrismaClient();
@@ -251,6 +277,26 @@ export default defineConfig({
                 },
               });
             }
+            return null;
+          } finally {
+            await prisma.$disconnect();
+          }
+        },
+        async seedYahooMarketLogo({ email, quantity = 1 }: { email: string; quantity?: number }) {
+          if (!/^cypress-[^@]+@example\.com$/.test(email)) throw new Error("Only Cypress users may be seeded");
+          if (!Number.isFinite(quantity) || quantity <= 0) throw new Error("Invalid fixture quantity");
+          const prisma = new PrismaClient();
+          try {
+            const user = await prisma.user.findUniqueOrThrow({ where: { email } });
+            const portfolio = await prisma.portfolio.upsert({ where: { userId: user.id }, update: {}, create: { userId: user.id } });
+            await prisma.asset.create({ data: {
+              portfolioId: portfolio.id, investmentClass: "INTERNATIONAL_STOCKS", instrumentType: "STOCK", ticker: "AAPL", name: "Apple Inc.",
+              holdings: { create: {
+                issuer: "Apple Inc.", productName: "Apple Inc.", pricingSource: "YAHOO", ticker: "AAPL", currency: "USD",
+                quantity, unitPrice: 200, fxRateToBrl: 5, fractional: true,
+                logoUrl: "https://s.yimg.com/uc/finance/logos/AAPL.svg", priceUpdatedAt: new Date(), fxUpdatedAt: new Date(),
+              } },
+            } });
             return null;
           } finally {
             await prisma.$disconnect();
