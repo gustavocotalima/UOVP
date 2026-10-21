@@ -67,16 +67,21 @@ def sync(pr_number):
             print("Skipped: main changed while preparing synchronization.")
             return
         if not push_dev(expected, target):
-            if branch_sha("dev") != expected:
+            observed = branch_sha("dev")
+            if observed == expected:
+                raise RuntimeError("Could not synchronize dev; its expected head is unchanged. Retry after fixing the push failure.")
+            if observed != target:
                 print("Skipped: dev changed during the push; the lease preserved its commits.")
                 return
-            raise RuntimeError("Could not synchronize dev; its expected head is unchanged. Retry after fixing the push failure.")
+            print("Push reported a transport failure, but GitHub confirms dev reached the target.")
         print("Synchronized dev to main:", target)
     else:
         print("Dev is already synchronized; retrying its CI dispatch.")
     if branch_sha("dev") != target:
         print("Skipped CI dispatch: dev advanced after synchronization; its own push runs CI.")
         return
+    if branch_sha("main") != target:
+        raise RuntimeError("Main advanced during synchronization. Dev reached the earlier merged commit; no newer commits were overwritten. CI dispatch was withheld; reconcile with the new main head before retrying.")
     # GITHUB_TOKEN pushes do not trigger push workflows. This explicit dispatch
     # runs all validations on dev before the existing gated deployment job.
     api("/actions/workflows/ci.yml/dispatches", {"ref": "dev"})

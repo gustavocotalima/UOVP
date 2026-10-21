@@ -115,7 +115,7 @@ class DevSynchronizationTests(unittest.TestCase):
             return True
 
         with patch.object(sync, "api", side_effect=api), \
-                patch.object(sync, "branch_sha", side_effect=[MERGED, HEAD, MERGED, MERGED]), \
+                patch.object(sync, "branch_sha", side_effect=[MERGED, HEAD, MERGED, MERGED, MERGED]), \
                 patch.object(sync.subprocess, "run") as git, patch.object(sync, "push_dev", side_effect=push):
             sync.main()
             git.assert_called_once_with(["git", "fetch", "--no-tags", "origin", MERGED], check=True, timeout=90)
@@ -134,6 +134,21 @@ class DevSynchronizationTests(unittest.TestCase):
                 patch.object(sync.subprocess, "run"), patch.object(sync, "push_dev", return_value=False):
             with self.assertRaisesRegex(RuntimeError, "Could not synchronize"):
                 sync.main()
+
+    def test_transport_failure_after_remote_update_still_dispatches_ci(self):
+        with patch.object(sync, "api", return_value=merged_pr()) as api, \
+                patch.object(sync, "branch_sha", side_effect=[MERGED, HEAD, MERGED, MERGED, MERGED, MERGED]), \
+                patch.object(sync.subprocess, "run"), patch.object(sync, "push_dev", return_value=False):
+            sync.main()
+            api.assert_called_with("/actions/workflows/ci.yml/dispatches", {"ref": "dev"})
+
+    def test_main_racing_with_push_is_reported_before_dispatch(self):
+        with patch.object(sync, "api", return_value=merged_pr()) as api, \
+                patch.object(sync, "branch_sha", side_effect=[MERGED, HEAD, MERGED, MERGED, NEW]), \
+                patch.object(sync.subprocess, "run"), patch.object(sync, "push_dev", return_value=True):
+            with self.assertRaisesRegex(RuntimeError, "Main advanced during synchronization"):
+                sync.main()
+            self.assertEqual(api.call_count, 1)
 
     def test_dispatch_does_not_use_newer_unchecked_head(self):
         with patch.object(sync, "api", return_value=merged_pr()) as api, \
