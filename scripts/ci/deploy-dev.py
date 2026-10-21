@@ -63,7 +63,7 @@ def main():
         raise RuntimeError("Refusing to overwrite an existing coolify-deploy configuration.")
     config.parent.mkdir(parents=True, exist_ok=True)
     try:
-        with config.open("x", opener=lambda path, flags: os.open(path, flags, 0o600)) as stream:
+        with open(config, "x", opener=lambda path, flags: os.open(path, flags, 0o600)) as stream:
             json.dump({"url": base, "token": token}, stream)
         subprocess.run(["bash", "scripts/coolify-deploy", "deploy", app_uuid], check=True)
     finally:
