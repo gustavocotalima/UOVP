@@ -101,8 +101,10 @@ describe("layout responsivo", () => {
       .and("contain", "Ocultar dos relatórios")
       .within(() => {
         cy.get('button[aria-expanded="true"]').should("exist");
-        cy.contains("label", "Meta").find("select").should("have.value", "COMFORT");
       });
+    // Re-query after the RSC update rather than retaining the previous card node.
+    cy.contains('[data-testid="mobile-transaction-card"]:visible', "Mercado classificado", { timeout: 15_000 })
+      .contains("label", "Meta").find("select").should("have.value", "COMFORT");
     expectNoPageOverflow();
   });
 

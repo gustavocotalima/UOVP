@@ -30,7 +30,9 @@ describe("atualização do card Binance", () => {
   it("atualiza quantidades e preserva o diálogo de desconexão durante refresh", () => {
     cy.get<string>("@testUserEmail").then((email) => cy.task("setBinanceWalletFixture", { email, quantity: "2" }));
     cy.get("#settings-time-zone").select("America/Manaus");
-    cy.get('[data-binance-symbol="BTC"]').should("contain.text", "Spot 2");
+    cy.contains("Fuso horário atualizado.").should("be.visible");
+    cy.get("#settings-time-zone").should("be.enabled");
+    cy.get('[data-binance-symbol="BTC"]', { timeout: 15_000 }).should("contain.text", "Spot 2");
     cy.get('[data-testid="binance-wallet-card"]').contains("button", "Desconectar").click();
     cy.contains('[role="dialog"]', "Desconectar a Binance").should("be.visible");
 
@@ -38,7 +40,9 @@ describe("atualização do card Binance", () => {
     // Dispatch an independent settings refresh behind the modal to exercise the
     // same RSC update that a completed background sync delivers.
     cy.get("#settings-time-zone").select("America/Rio_Branco", { force: true });
-    cy.get('[data-binance-symbol="BTC"]').should("contain.text", "Spot 3");
+    cy.contains("Fuso horário atualizado.").should("be.visible");
+    cy.get("#settings-time-zone").should("be.enabled");
+    cy.get('[data-binance-symbol="BTC"]', { timeout: 15_000 }).should("contain.text", "Spot 3");
     cy.contains('[role="dialog"]', "Desconectar a Binance").should("be.visible");
     cy.contains('[role="dialog"] button', "Remover posições importadas").click();
     cy.get('[role="dialog"]').should("not.exist");

@@ -40,7 +40,7 @@ describe("quantidade temporária de investimentos Pluggy", () => {
     openWithdrawnInvestment();
     cy.get('[role="dialog"]').contains("Nenhuma movimentação será criada ou alterada").should("be.visible");
     saveQuantity("110");
-    cy.contains("button", "ITUB3").should("contain.text", "Quantidade temporária");
+    cy.contains("button:visible", "ITUB3", { timeout: 15_000 }).should("contain.text", "Quantidade temporária");
     cy.contains("dt", "Quantidade usada na Carteira").next("dd").should("have.text", "110");
     assertStoredQuantity("110", true);
 

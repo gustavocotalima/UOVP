@@ -3,7 +3,7 @@ import { PrismaClient } from "@prisma/client";
 import { createClient } from "redis";
 
 assert.equal(process.env.GITHUB_ACTIONS, "true", "CI services must run on an isolated Actions runner.");
-for (const name of ["DATABASE_URL", "REDIS_URL", "UOVP_TEST_REDIS_URL", "AUTH_SECRET", "AUTH_RATE_LIMIT_PEPPER", "CREDENTIAL_ENCRYPTION_KEYS", "CREDENTIAL_ENCRYPTION_ACTIVE_KEY"]) {
+for (const name of ["DATABASE_URL", "REDIS_URL", "UOVP_TEST_REDIS_URL", "AUTH_SECRET", "AUTH_RATE_LIMIT_PEPPER", "CREDENTIAL_ENCRYPTION_KEYS", "CREDENTIAL_ENCRYPTION_ACTIVE_KEY", "MCP_OAUTH_SIGNING_KEYS", "MCP_OAUTH_ACTIVE_KEY"]) {
   assert.ok(process.env[name], `${name} is required; integration suites must not silently skip.`);
 }
 const databaseUrl = new URL(process.env.DATABASE_URL);

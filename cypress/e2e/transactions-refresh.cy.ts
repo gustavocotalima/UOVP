@@ -52,6 +52,7 @@ describe("invalidação e paginação das transações", () => {
           ...realTransaction, id: `pagination-${index}`, description: `Registro de paginação ${index + 1}`,
         }));
         let removed = false;
+        let releasePageOne: (() => void) | undefined;
         const requests: number[] = [];
         cy.intercept("GET", "/api/finance/transactions?*", (request) => {
           const params = new URL(request.url).searchParams;
@@ -59,13 +60,19 @@ describe("invalidação e paginação das transações", () => {
           const page = Number(params.get("page"));
           requests.push(page);
           request.alias = "page";
-          request.reply({
-            delay: removed && page === 1 ? 1000 : 0,
+          const reply = () => request.reply({
             body: {
               ...body, page, pageSize: 25, total: removed ? 25 : 26,
               transactions: page === 1 ? pageOne : removed ? [] : [realTransaction],
             },
           });
+          if (removed && page === 1) {
+            // Hold the response until the loading-state assertion observes it.
+            return new Promise<void>((resolve) => {
+              releasePageOne = () => { reply(); resolve(); };
+            });
+          }
+          reply();
         });
         cy.visit("/transacoes?year=2026&month=9");
         cy.waitForHydration();
@@ -79,10 +86,11 @@ describe("invalidação e paginação das transações", () => {
         cy.then(() => { removed = true; });
         cy.get('[role="dialog"]').contains("button", "Deletar").click();
         cy.contains("Transação removida.").should("be.visible");
-        cy.get('[data-testid="transaction-results"]').should("have.attr", "aria-busy", "true");
+        cy.get('[data-testid="transaction-results"]:visible').should("have.attr", "aria-busy", "true");
+        cy.then(() => { expect(releasePageOne).to.be.a("function"); releasePageOne!(); });
         cy.contains("Página 1 de 1").should("be.visible");
         cy.get("table tbody tr").should("have.length", 25);
-        cy.get('[data-testid="transaction-results"]').should("have.attr", "aria-busy", "false");
+        cy.get('[data-testid="transaction-results"]:visible').should("have.attr", "aria-busy", "false");
         cy.get('button[aria-label="Página anterior"]').should("be.disabled");
         cy.get('button[aria-label="Próxima página"]').should("be.disabled");
         cy.contains("Nenhuma transação encontrada.").should("not.exist");
