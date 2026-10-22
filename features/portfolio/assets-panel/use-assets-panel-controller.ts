@@ -36,7 +36,9 @@ export function useAssetsPanelController({ assets, fixedIncomeFamilies, catalog,
   const [activeTickerIndex, setActiveTickerIndex] = useState(-1);
   const [message, setMessage] = useState<string>();
   const [pendingPriceByAsset, setPendingPriceByAsset] = useState<Record<string, string>>({});
-  const [pending, startTransition] = useTransition();
+  const [actionPending, startTransition] = useTransition();
+  const [refreshingPrices, startRefreshTransition] = useTransition();
+  const pending = actionPending || refreshingPrices;
   const panelRef = useRef<HTMLDivElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const mobileActions = useRef<HTMLDetailsElement>(null);
@@ -459,7 +461,7 @@ export function useAssetsPanelController({ assets, fixedIncomeFamilies, catalog,
   }
   function refreshMarketPrices() {
     setMessage(undefined);
-    startTransition(async () => {
+    startRefreshTransition(async () => {
       try {
         const result = await refreshMarketPricesAction();
         const parts = [
@@ -719,6 +721,7 @@ export function useAssetsPanelController({ assets, fixedIncomeFamilies, catalog,
     pendingPriceByAsset,
     setPendingPriceByAsset,
     pending,
+    refreshingPrices,
     panelRef,
     fileInput,
     mobileActions,
