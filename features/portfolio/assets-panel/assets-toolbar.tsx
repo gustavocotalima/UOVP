@@ -7,17 +7,17 @@ import { formatMoney } from "@/lib/money";
 import { exportPortfolioXlsx } from "../xlsx-export";
 import type { AssetsPanelController } from "./use-assets-panel-controller";
 export function AssetsToolbar({ controller }: {
-  controller: Pick<AssetsPanelController, "assets" | "pending" | "fileInput" | "mobileActions" | "total" | "hasRefreshableQuotes" | "startAdding" | "refreshMarketPrices">;
+  controller: Pick<AssetsPanelController, "assets" | "pending" | "refreshingPrices" | "fileInput" | "mobileActions" | "total" | "hasRefreshableQuotes" | "startAdding" | "refreshMarketPrices">;
 }) {
-  const { assets, pending, fileInput, mobileActions, total, hasRefreshableQuotes, startAdding, refreshMarketPrices } = controller;
+  const { assets, pending, refreshingPrices, fileInput, mobileActions, total, hasRefreshableQuotes, startAdding, refreshMarketPrices } = controller;
   return (<CardHeader className="gap-4 @5xl:flex-row @5xl:items-center @5xl:justify-between">
     <div>
       <CardTitle>Seus ativos</CardTitle>
       <p className="mt-1 text-sm text-[var(--muted-foreground)]">{assets.length} ativos · <PrivateValue>{formatMoney(total)}</PrivateValue>{assets.some((asset) => asset.holdings.some((holding) => holding.accountBalanceSource?.valuationUnavailable)) ? " (subtotal conhecido; há saldos sem câmbio)" : ""}</p>
     </div>
     <div className="hidden flex-wrap gap-2 @5xl:flex">
-      <Button variant="outline" onClick={refreshMarketPrices} disabled={pending || !hasRefreshableQuotes} title="Atualiza ativos da B3 pela brapi, ativos internacionais pelo Yahoo Finance e criptomoedas pela Binance.">
-        <RefreshCw className="size-4" /> Atualizar cotações
+      <Button variant="outline" onClick={refreshMarketPrices} disabled={pending || !hasRefreshableQuotes} aria-busy={refreshingPrices} title="Atualiza ativos da B3 pela brapi, ativos internacionais pelo Yahoo Finance e criptomoedas pela Binance.">
+        <RefreshCw className={refreshingPrices ? "size-4 motion-safe:animate-spin" : "size-4"} /> Atualizar cotações
       </Button>
       <Button variant="outline" onClick={() => exportPortfolioXlsx(assets)} disabled={!assets.length}><Download className="size-4" /> Exportar XLSX</Button>
       <Button variant="outline" onClick={() => fileInput.current?.click()}><Upload className="size-4" /> Importar XLSX</Button>
@@ -33,7 +33,7 @@ export function AssetsToolbar({ controller }: {
           <button type="button" className="flex min-h-11 items-center gap-2 rounded-xl px-3 text-left text-sm hover:bg-[var(--muted)]" onClick={() => {
             mobileActions.current?.removeAttribute("open");
             void refreshMarketPrices();
-          }} disabled={pending || !hasRefreshableQuotes}><RefreshCw className="size-4" /> Atualizar cotações</button>
+          }} disabled={pending || !hasRefreshableQuotes} aria-busy={refreshingPrices}><RefreshCw className={refreshingPrices ? "size-4 motion-safe:animate-spin" : "size-4"} /> Atualizar cotações</button>
           <button type="button" className="flex min-h-11 items-center gap-2 rounded-xl px-3 text-left text-sm hover:bg-[var(--muted)]" onClick={() => {
             mobileActions.current?.removeAttribute("open");
             exportPortfolioXlsx(assets);
