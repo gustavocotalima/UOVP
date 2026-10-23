@@ -22,11 +22,22 @@ A interface está em português brasileiro. Frontend e backend executam na mesma
 | **Carteira** (`/carteira`) | Ativos e posições, metas de alocação, sugestões de aporte, perguntas de pontuação e mapa da carteira. |
 | **Open Finance** (`/open-finance`) | Conexões Pluggy, contas, transações e investimentos importados, além dos controles de sincronização. |
 | **Ferramentas** (`/ferramentas`) | Projeção do primeiro milhão e quadro de ativos versus passivos. |
+| Perfil (`/perfil`) | Nome, renda mensal, objetivos e início do mês financeiro. |
 | **Configurações** (`/configuracoes`) | Credenciais das integrações, seleção de ativos da Binance, fuso horário, convites para administradores e instalação do app. |
 
-O layout atende desktop e celular, com navegação mobile e espaçamento para as áreas seguras da tela.
+A interface atende desktop e celular.
+
+## Análise com agentes de IA via MCP
+
+Em **Configurações → Agentes de IA / MCP**, habilite voluntariamente análises financeiras somente para leitura no ChatGPT, Codex ou clientes MCP remotos compatíveis. Cada cliente exige autorização OAuth separada e pode ser revogado; o MCP não altera dados financeiros nem sincroniza provedores. Consulte o [guia de conexão e deploy MCP](./docs/mcp.pt-BR.md) para permissões, configuração, privacidade e publicação.
 
 ## Comportamento financeiro
+
+### Perfil e mês financeiro
+
+Em Perfil, configure nome, renda mensal, objetivos e Início do Mês Financeiro, entre os dias 1 e 28. Transações anteriores ao dia escolhido pertencem ao mês de referência anterior, considerando o fuso horário do usuário. Por exemplo, com início no dia 5, um lançamento de 3 de março pertence à referência de fevereiro.
+
+Alterar esse dia ou o fuso horário recalcula as referências das transações existentes que usam a classificação mensal automática. Referências ajustadas manualmente são preservadas. A data original da transação não muda; painel, metas e histórico passam a usar a referência recalculada.
 
 ### Resumos, transações e tags
 
@@ -40,7 +51,7 @@ Todos os relatórios consolidados usam BRL. Os cards do painel aparecem nesta or
 
 As transações individuais preservam seus valores integrais. **Saídas por dia** usa o valor completo de relatório em BRL nas células, totais e detalhes; lançamentos em moeda estrangeira também mostram o valor original. Lançamentos atribuídos ao mês financeiro selecionado, mas com data fora da grade do calendário, aparecem separadamente.
 
-**Transações por Tags** mostra os totais reais de **Entrada** e **Saída** pertencentes a cada tag. O gráfico não distribui a compensação de uma meta entre suas tags. As entradas usam uma tonalidade 20% mais clara que a cor das saídas. O **Total movimentado** do gráfico é a soma de entradas e saídas, não o resultado líquido do período. Valores com múltiplas tags são divididos igualmente em centavos, com arredondamento determinístico.
+**Transações por Tags** mostra os totais reais de **Entrada** e **Saída** pertencentes a cada tag. O gráfico não distribui a compensação de uma meta entre suas tags. O **Total movimentado** do gráfico é a soma de entradas e saídas, não o resultado líquido do período. Valores com múltiplas tags são divididos igualmente em centavos, com arredondamento determinístico.
 
 A tela Transações mantém entradas, saídas e saldo brutos disponíveis para auditoria. Transações ocultas, transferências internas, registros removidos pelo provedor e valores aguardando conversão seguem as regras de exclusão dos relatórios.
 
@@ -67,6 +78,7 @@ A conta continua sendo a única fonte do valor da posição. Alterações do sal
 
 - Classes de alocação: ações internacionais, ações nacionais, FIIs, REITs, criptoativos, renda fixa nacional, renda fixa internacional e Reserva de valor.
 - Tipo do instrumento e classe de alocação são separados. ETFs podem representar exposições diferentes; ativos de reserva de valor permitem classificação nacional ou internacional.
+- Fundos de investimento também são suportados como instrumento próprio (`MUTUAL_FUND`), distinto de ETF, FII e REIT. ETFs e fundos permitem selecionar a classe de exposição e definir uma nota manual; posições conectadas continuam vinculadas aos dados do provedor.
 - Grupos de renda fixa organizam aplicações por família e indexação. As posições exibem emissor, produto, taxas, datas, valores e operações quando disponíveis.
 - Notas, classificações e grupos definidos pelo usuário sobrevivem à sincronização. As perguntas de pontuação podem ser personalizadas.
 - Ativos internacionais exibem valores nativos junto dos equivalentes em BRL.
@@ -77,11 +89,38 @@ A conta continua sendo a única fonte do valor da posição. Alterações do sal
 
 As ações de aporte registram a atividade da carteira no UOVP; elas não enviam ordens a corretoras ou exchanges.
 
+### Custo, preço médio e taxas
+
+- O valor investido possui moeda própria (`investedValueCurrency`), que pode ser diferente da moeda da cotação ou do relatório em BRL. Custos legados sem moeda conhecida são sinalizados; o câmbio atual não reconstrói um custo histórico desconhecido.
+- Um custo consolidado só é exibido quando todas as posições têm custo informado na mesma moeda conhecida. Dados ausentes ou moedas incompatíveis produzem informação indisponível, não custo zero nem soma de moedas diferentes.
+- O preço médio usa o valor original informado pelo provedor quando disponível; caso contrário, posições conectadas usam os resumos das compras importadas. Posições manuais usam custo informado dividido pela quantidade. A moeda acompanha o preço; históricos incompletos recebem o aviso Histórico parcial, e dados insuficientes não geram um preço presumido.
+- A coluna Rentabilidade dos detalhes de renda fixa apresenta as condições descritivas da taxa, como percentual do indexador, indexador mais spread ou taxa anual. Ela não representa um cálculo de retorno realizado nem gera juros automaticamente.
+
+### Importação e exportação XLSX
+
+Use uma exportação da própria carteira como modelo de cabeçalhos. As células numéricas devem conter números; datas de compra e vencimento usam `AAAA-MM-DD`. Preserve a data/hora ISO 8601 exportada em `Data do câmbio`. Os limites de importação são 2 MB, 1.000 linhas de dados e 40 colunas.
+
+| Colunas | Uso |
+| --- | --- |
+| `ID da aplicação` | Identifica uma posição manual existente do próprio usuário para atualização. Preserve o ID ao editar uma exportação; posições controladas por provedores não são sobrescritas pela importação. |
+| `Classe`, `Instrumento`, `Mercado` | Definem alocação, instrumento e mercado. O arquivo exportado usa valores como `FIXED_INCOME`, `ETF`, `MUTUAL_FUND`, `Nacional` e `Internacional`. |
+| `Ticker`, `Nome`, `Quantidade`, `Preço`, `Moeda`, `Fracionado`, `Nota` | Identificação, posição, preço e classificação dos ativos de mercado. |
+| `Família`, `Indexação`, `Emissor`, `Produto`, `Valor atual` | Obrigatórias nas linhas de renda fixa; informe também `Catálogo ID` válido ou `Tipo personalizado`. Grupos agregados antigos sem os dados das aplicações não são aceitos. |
+| `Valor investido`, `Moeda investimento` | Devem ser informadas juntas ou ficar ambas vazias. A moeda descreve o custo, não necessariamente a moeda da cotação. |
+| `Valor atual nativo`, `Câmbio para BRL`, `Data do câmbio` | Preservam o valor original e sua conversão nas posições estrangeiras com valor manual. O `Valor atual` exportado é consolidado em BRL e não pode ser reinterpretado como valor nativo. |
+| `Formato da taxa`, `Indexador`, `Taxa`, `Data da compra`, `Vencimento` | Informações complementares das aplicações de renda fixa. |
+
+Uma nova posição estrangeira com valor manual exige câmbio válido. Na atualização, o câmbio existente só pode ser reaproveitado quando o ID identifica a mesma posição manual e a moeda não mudou. Uma planilha sem IDs pode ser ambígua quando há várias posições manuais do mesmo ativo; preserve os identificadores para evitar essa situação.
+
 ### Correções de investimentos conectados
 
 Use **Editar informações** na Carteira ou no Open Finance para personalizar o nome e o emissor exibido de uma posição conectada, além de tipo do produto, remuneração, compra e vencimento quando aplicável.
 
-As alterações persistem por usuário e posição. O editor mostra os valores efetivos e os últimos dados originais da Pluggy, com restauração por campo e **Restaurar tudo**. A sincronização continua controlando valores monetários, quantidades, moeda, status, identificadores e operações importadas. Converter uma posição para manual preserva seus metadados efetivos.
+As alterações persistem por usuário e posição. O editor mostra os valores efetivos e os últimos dados originais da Pluggy, com restauração por campo e **Restaurar tudo**. A sincronização continua controlando os dados originais recebidos da instituição, incluindo valores monetários, quantidades, moeda, status, identificadores e operações. Converter uma posição para manual preserva seus metadados efetivos.
+
+Posições Pluggy elegíveis de ações, ETFs, FIIs e REITs permitem definir uma Quantidade temporária. A Carteira usa essa quantidade com a cotação de mercado, mantendo o valor original da instituição separado. A correção persiste nas sincronizações até ser restaurada; zero retira a posição dos totais. Ela não altera a Pluggy, não cria movimentações e não confirma aportes aguardando sincronização.
+
+Quando a quantidade informada pela instituição muda em relação à referência reconhecida, o app apresenta as quantidades anterior, atual e manual para revisão. Escolha entre manter a correção ou usar novamente a quantidade da instituição; a substituição não é automática. Conexões desconectadas, posições indisponíveis ou excluídas não podem receber novas correções.
 
 ### Caixinhas e saldos reservados
 
@@ -168,6 +207,7 @@ O manifesto inclui ícones normais/maskable e inicia em `/home?source=pwa`. A in
 - Autenticação por credenciais com Auth.js, Lucide, Recharts, Leaflet e React Leaflet.
 - Vitest para testes unitários/de integração e Cypress para testes de navegador.
 - Node.js 22 ou mais recente, pnpm 10.13.1 e PostgreSQL 18.4.
+- Python 3 para os testes dos scripts de CI/deploy; não é necessário para executar a aplicação.
 - Docker Compose opcional para PostgreSQL 18.4 e Redis 7.2.15, nas mesmas versões dos serviços de desenvolvimento e produção.
 
 ## Configuração local
@@ -186,6 +226,14 @@ O manifesto inclui ícones normais/maskable e inicia em `/home?source=pwa`. A in
    ```
 
    Configure `CREDENTIAL_ENCRYPTION_KEYS="v1:<chave-gerada>"` e `CREDENTIAL_ENCRYPTION_ACTIVE_KEY="v1"`. Mantenha as senhas de PostgreSQL/Redis consistentes com suas URLs; codifique caracteres especiais nas strings de conexão.
+
+   Para habilitar MCP, gere outra chave independente de 32 bytes em base64url, sem padding:
+
+   ```bash
+   node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"
+   ```
+
+   Defina `MCP_OAUTH_SIGNING_KEYS="v1:<nova-chave>"` e `MCP_OAUTH_ACTIVE_KEY="v1"`. Não reutilize os segredos de autenticação, criptografia ou provedores. Deixar o keyring vazio mantém o MCP indisponível, mas a suíte Cypress completa exige essa configuração.
 
 3. Inicie os serviços locais ou configure serviços externos:
 
@@ -229,13 +277,21 @@ Use pnpm de forma consistente. `pnpm db:migrate` executa `prisma migrate dev` pa
 | `AUTH_TRUST_HOST`, `AUTH_TRUST_PROXY` | Ambos devem ser `true` na execução em produção; configure um proxy reverso confiável. O exemplo local usa `false`. |
 | `CREDENTIAL_ENCRYPTION_ACTIVE_KEY` | Identificador da chave ativa de criptografia das credenciais. |
 | `CREDENTIAL_ENCRYPTION_KEYS` | Keyring separado por vírgulas, como `v1:<chave-base64url>,v2:<chave-base64url>`; cada chave decodificada deve ter exatamente 32 bytes. |
+| `MCP_OAUTH_ACTIVE_KEY` | Identificador da chave ativa de assinatura OAuth do MCP, como `v1`. |
+| `MCP_OAUTH_SIGNING_KEYS` | Keyring independente do MCP, como `v1:<chave-base64url>`; cada chave deve ter 32 bytes, codificados em 43 caracteres base64url sem padding. Necessário para habilitar MCP e seus testes de navegador. |
+| `UOVP_TEST_REDIS_URL` | Apenas testes: Redis isolado em loopback para a suíte de coordenação entre processos. Exporte explicitamente; não é substituído por `REDIS_URL`. |
 
 As credenciais da brapi, Pluggy e carteira Binance são informadas por usuário em Configurações, não como variáveis de ambiente compartilhadas. Yahoo e cotações públicas Binance não exigem credenciais do usuário.
 
 ## Validação
 
+Prepare um banco de teste dedicado, com migrations e seed aplicados, e um Redis de teste isolado antes de executar as suítes que os utilizam. Exporte `DATABASE_URL`, `REDIS_URL` e `UOVP_TEST_REDIS_URL` para os processos de teste; as duas URLs Redis devem apontar ao serviço de teste. `UOVP_TEST_REDIS_URL` aceita somente hosts de loopback, como `127.0.0.1` e `localhost`.
+
+Disponibilize também os segredos de autenticação, o keyring de criptografia e as chaves MCP independentes ao app de teste e aos processos que precisam deles. O `.env` carregado pelo Next.js não substitui variáveis exportadas para Vitest ou tarefas Cypress. Para Cypress local, mantenha `AUTH_URL` e o app de desenvolvimento em `http://localhost:3000`; a execução de produção no CI usa o proxy HTTPS descrito abaixo.
+
 ```bash
 pnpm db:generate
+python3 -m unittest discover -s tests/ci
 pnpm typecheck
 pnpm test
 pnpm test:integration
@@ -245,7 +301,8 @@ pnpm build
 ```
 
 - `pnpm test` cobre `tests/unit`; `pnpm test:integration` cobre `tests/integration`.
-- Exporte `DATABASE_URL` para os processos de teste apontando para um banco dedicado, com migrations aplicadas. As suítes de integração são puladas quando a variável está ausente; isso não valida o banco.
+- As suítes de integração com banco são puladas sem `DATABASE_URL`; a suíte de coordenação entre processos é pulada sem `UOVP_TEST_REDIS_URL`, mesmo quando o banco está configurado. Um resultado com testes pulados não comprova a validação completa.
+- O comando Python cobre as proteções de sincronização de branches e deploy em `tests/ci`, incluindo a rejeição de commits substituídos e os cenários de concorrência. Ele também é executado pelo job Code quality do CI.
 - O Cypress espera um app em execução em `http://localhost:3000`. O app e as tarefas Cypress devem usar o mesmo banco de teste e os segredos necessários.
 - O Cypress cria/remove usuários de teste e limpa registros de limites de autenticação usados nos testes. Não o execute contra produção.
 - `pnpm cypress:open` abre o executor interativo; `pnpm test:watch` executa o Vitest em modo de observação.
@@ -281,6 +338,26 @@ Configure a instalação com `pnpm install --frozen-lockfile`, o build com `pnpm
 - `pnpm fx:backfill` processa transações Pluggy em moeda estrangeira sem conversão, em lotes de 500, preservando conversões existentes e manuais. Exporte `DATABASE_URL` para esse script; taxas não encontradas continuam pendentes.
 - O app atual não possui fluxo de recuperação de senha pelo próprio usuário.
 
+### Diagnóstico e reparos
+
+Exporte `DATABASE_URL` para o banco que será inspecionado e aplique as migrations necessárias. Os comandos abaixo são de manutenção, não fazem parte da inicialização normal. Sem `--apply`, todos executam apenas uma prévia. Faça backup antes de aplicar alterações e use `--user-id=ID` para limitar a análise a uma pessoa; sem esse filtro, os scripts percorrem os usuários ou registros aplicáveis.
+
+| Comando de prévia | Finalidade e limites |
+| --- | --- |
+| `pnpm exec tsx scripts/repair-finance-setup.ts` | Cria, no modo de aplicação, somente configurações financeiras ausentes; preserva personalizações e aponta conflitos de nomes para revisão. |
+| `pnpm exec tsx scripts/repair-financial-references.ts` | Recalcula as referências mensais automáticas conforme início do mês financeiro e fuso do usuário; preserva referências ajustadas manualmente. |
+| `pnpm exec tsx scripts/repair-purchase-summaries.ts` | Reconstrói os resumos de quantidade e custo das compras importadas da Pluggy. Exige a migration dos resumos de compras e coordena atualizações concorrentes. |
+| `pnpm exec tsx scripts/repair-financial-integrity.ts` | Diagnostica posições externas órfãs ou ambíguas e valores de relatório. Só repara casos comprovados de snapshots BRL/NATIVE/1; posições externas não são mescladas nem excluídas. Aceita `--batch-size=100`. |
+
+Exemplo de análise e aplicação para um usuário:
+
+```bash
+pnpm exec tsx scripts/repair-financial-references.ts --user-id=ID
+pnpm exec tsx scripts/repair-financial-references.ts --user-id=ID --apply
+```
+
+Registros alterados concorrentemente podem ser preservados ou reportados para nova análise, conforme o script. Consulte também o [guia MCP](./docs/mcp.pt-BR.md) para a limpeza de registros OAuth encerrados e o comando `pnpm fx:backfill` descrito acima para conversões históricas pendentes.
+
 ## Organização do código
 
 | Caminho | Responsabilidade |
@@ -294,10 +371,6 @@ Configure a instalação com `pnpm install --frozen-lockfile`, o build com `pnpm
 | `lib` | Autenticação, autorização, bloqueios de operação, criptografia e cache compartilhado. |
 | `prisma`, `scripts` | Schema, migrations, catálogos e utilitários de manutenção. |
 | `tests`, `cypress` | Cobertura unitária, de integração e de navegador. |
-
-## Análise com agentes de IA via MCP
-
-Em **Configurações → Agentes de IA / MCP**, habilite voluntariamente análises financeiras somente para leitura no ChatGPT, Codex ou clientes MCP remotos compatíveis. Cada cliente exige autorização OAuth separada e pode ser revogado; o MCP não altera dados financeiros nem sincroniza provedores. Consulte o [guia de conexão e deploy MCP](./docs/mcp.pt-BR.md) para permissões, configuração, privacidade e publicação.
 
 ## Modelo de segurança
 

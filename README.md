@@ -22,15 +22,22 @@ The interface is in Brazilian Portuguese. Frontend and backend run in the same N
 | **Carteira** (`/carteira`) | Assets and holdings, allocation targets, contribution suggestions, scoring questions, and a portfolio map. |
 | **Open Finance** (`/open-finance`) | Pluggy connections, imported accounts, transactions, investments, and synchronization controls. |
 | **Ferramentas** (`/ferramentas`) | First-million projection and an assets-versus-liabilities worksheet. |
+| Perfil (`/perfil`) | Name, monthly income, objectives, and the financial month's start day. |
 | **Configurações** (`/configuracoes`) | Integration credentials, Binance wallet selection, time zone, invitations for administrators, and app installation. |
 
-The layout supports desktop and mobile, with mobile navigation and safe-area spacing.
+The interface supports desktop and mobile.
 
 ## AI analysis through MCP
 
 In **Configurações → Agentes de IA / MCP**, opt in to read-only financial analysis from ChatGPT, Codex, or compatible remote MCP clients. Each client requires separate OAuth consent and can be revoked; MCP does not edit financial data or trigger provider synchronization. See the [MCP connection and deployment guide](./docs/mcp.en.md) for permissions, client setup, privacy, and server configuration.
 
 ## Financial behavior
+
+### Profile and financial month
+
+In Perfil, configure your name, monthly income, objectives, and Início do Mês Financeiro, from day 1 to 28. Transactions before that day belong to the previous reference month, using the user's time zone. For example, with a start day of 5, a March 3 transaction belongs to the February reference period.
+
+Changing that day or the time zone recalculates existing transactions that use automatic monthly references. Manually overridden references are preserved. The original transaction date does not change; the dashboard, goals, and history use the recalculated reference.
 
 ### Summaries, transactions, and tags
 
@@ -44,7 +51,7 @@ All consolidated reports use BRL. The dashboard cards appear in this order: **Sa
 
 Individual transactions retain their full amounts. **Saídas por dia** uses full BRL reporting amounts for its day cells, totals, and detail dialogs; foreign-currency entries also show their original amount. Entries assigned to the selected financial month but dated outside its calendar grid are listed separately.
 
-**Transações por Tags** shows actual **Entrada** and **Saída** totals belonging to each tag. It does not distribute a goal's compensation across its tags. Entries use a shade 20% lighter than the tag's outflow color. The donut's **Total movimentado** is inflows plus outflows, not the net period result. Multi-tag amounts are split equally in integer cents, with deterministic rounding.
+**Transações por Tags** shows actual **Entrada** and **Saída** totals belonging to each tag. It does not distribute a goal's compensation across its tags. The donut's **Total movimentado** is inflows plus outflows, not the net period result. Multi-tag amounts are split equally in integer cents, with deterministic rounding.
 
 The Transactions screen keeps gross inflows, outflows, and balance available for auditing. Hidden transactions, internal transfers, removed provider records, and amounts awaiting currency conversion follow the report-exclusion rules.
 
@@ -71,6 +78,7 @@ The account remains the only source of the position's value. Balance changes and
 
 - Allocation classes: international stocks, Brazilian stocks, FIIs, REITs, cryptoassets, Brazilian fixed income, international fixed income, and Store of value.
 - Instrument type is separate from allocation class. ETFs can represent different exposures; store-of-value assets support domestic/international classification.
+- Investment funds are also supported as a separate instrument (`MUTUAL_FUND`), distinct from ETFs, FIIs, and REITs. ETFs and funds allow selection of an exposure class and a manual score; connected holdings remain linked to provider data.
 - Fixed-income groups organize individual positions by family and indexation. Positions expose issuer, product, rates, dates, values, and operations when available.
 - User scores, classifications, and groups survive provider synchronization. Scoring questions can be customized.
 - International assets display native values alongside BRL equivalents.
@@ -81,11 +89,38 @@ The account remains the only source of the position's value. Balance changes and
 
 Contribution actions record portfolio activity in UOVP; they do not place broker or exchange orders.
 
+### Cost, average price, and rates
+
+- Invested cost has its own currency (`investedValueCurrency`), which may differ from the quote currency or BRL reporting currency. Legacy costs with unknown currencies are flagged; current FX does not reconstruct an unknown historical cost.
+- Consolidated cost is displayed only when every holding has a reported cost in the same known currency. Missing data or incompatible currencies produce unavailable information, not zero cost or a sum of different currencies.
+- Average price uses the provider's original invested amount when available; otherwise, connected holdings use summaries of imported purchases. Manual holdings use reported cost divided by quantity. Prices retain their currency; incomplete histories show Histórico parcial, and insufficient data does not produce an assumed price.
+- The Rentabilidade column in fixed-income details displays descriptive rate terms, such as a percentage of a benchmark, a benchmark plus spread, or an annual rate. It is not a realized-return calculation and does not accrue interest automatically.
+
+### XLSX import and export
+
+Use an export from the portfolio itself as the header template. Numeric cells must contain numbers; purchase and maturity dates use `YYYY-MM-DD`. Preserve the exported ISO 8601 timestamp in `Data do câmbio`. Import limits are 2 MB, 1,000 data rows, and 40 columns.
+
+| Columns | Usage |
+| --- | --- |
+| `ID da aplicação` | Identifies an existing manual holding owned by the user for updates. Preserve the ID when editing an export; provider-controlled holdings are not overwritten by import. |
+| `Classe`, `Instrumento`, `Mercado` | Define allocation, instrument, and market. Exported values include `FIXED_INCOME`, `ETF`, `MUTUAL_FUND`, `Nacional`, and `Internacional`. |
+| `Ticker`, `Nome`, `Quantidade`, `Preço`, `Moeda`, `Fracionado`, `Nota` | Identification, position, price, and classification for market assets. |
+| `Família`, `Indexação`, `Emissor`, `Produto`, `Valor atual` | Required for fixed-income rows; also supply a valid `Catálogo ID` or `Tipo personalizado`. Legacy aggregate groups without individual holding details are not accepted. |
+| `Valor investido`, `Moeda investimento` | Supply both or leave both empty. This currency describes cost, not necessarily the quote currency. |
+| `Valor atual nativo`, `Câmbio para BRL`, `Data do câmbio` | Preserve the original value and its conversion for foreign-currency holdings with a manual value. Exported `Valor atual` is consolidated BRL and cannot be reinterpreted as a native amount. |
+| `Formato da taxa`, `Indexador`, `Taxa`, `Data da compra`, `Vencimento` | Additional fixed-income holding details. |
+
+A new foreign-currency holding with a manual value requires valid FX. On updates, existing FX can be reused only when the ID identifies the same manual holding and its currency has not changed. A workbook without IDs can be ambiguous when an asset has multiple manual holdings; preserve identifiers to avoid this situation.
+
 ### Connected investment corrections
 
 Use **Editar informações** in Carteira or Open Finance to override a connected position's name and displayed issuer, plus product type, rate terms, purchase date, and maturity when applicable.
 
-Overrides persist per user and position. The editor shows the effective values and the latest raw Pluggy values, with per-field restoration and **Restaurar tudo**. Synchronization continues to control monetary values, quantities, currency, status, identity fields, and imported operations. Converting a position to manual preserves its effective metadata.
+Overrides persist per user and position. The editor shows the effective values and the latest raw Pluggy values, with per-field restoration and **Restaurar tudo**. Synchronization continues to control the original data received from the institution, including monetary values, quantities, currency, status, identity fields, and operations. Converting a position to manual preserves its effective metadata.
+
+Eligible Pluggy stock, ETF, FII, and REIT holdings support a Quantidade temporária override. The portfolio uses that quantity with the market quote while keeping the institution's original value separate. The correction persists across synchronization until restored; zero removes the holding from totals. It does not modify Pluggy, create movements, or confirm contributions awaiting synchronization.
+
+When the institution's quantity changes from the acknowledged baseline, the app shows the previous, current, and manual quantities for review. Choose whether to retain the correction or use the institution's quantity again; replacement is not automatic. Disconnected connections, unavailable holdings, or excluded positions cannot receive new corrections.
 
 ### Caixinhas and reserved balances
 
@@ -172,6 +207,7 @@ The manifest includes standard/maskable icons and starts at `/home?source=pwa`. 
 - Auth.js credentials authentication, Lucide, Recharts, Leaflet, and React Leaflet.
 - Vitest for unit/integration tests and Cypress for browser tests.
 - Node.js 22 or newer, pnpm 10.13.1, and PostgreSQL 18.4.
+- Python 3 for CI/deployment script tests; it is not required to run the application.
 - Optional Docker Compose for PostgreSQL 18.4 and Redis 7.2.15, matching the development and production services.
 
 ## Local setup
@@ -190,6 +226,14 @@ The manifest includes standard/maskable icons and starts at `/home?source=pwa`. 
    ```
 
    Set `CREDENTIAL_ENCRYPTION_KEYS="v1:<generated-key>"` and `CREDENTIAL_ENCRYPTION_ACTIVE_KEY="v1"`. Keep database/Redis passwords consistent with their URLs; URL-encode special characters in connection strings.
+
+   To enable MCP, generate another independent 32-byte key in unpadded base64url:
+
+   ```bash
+   node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"
+   ```
+
+   Set `MCP_OAUTH_SIGNING_KEYS="v1:<new-key>"` and `MCP_OAUTH_ACTIVE_KEY="v1"`. Do not reuse authentication, encryption, or provider secrets. Leaving the keyring empty keeps MCP unavailable, but the complete Cypress suite requires this configuration.
 
 3. Start local services, or configure external ones:
 
@@ -233,13 +277,21 @@ Use pnpm consistently. `pnpm db:migrate` runs `prisma migrate dev` for developin
 | `AUTH_TRUST_HOST`, `AUTH_TRUST_PROXY` | Both must be `true` at production runtime; configure a trusted reverse proxy accordingly. Local example values are `false`. |
 | `CREDENTIAL_ENCRYPTION_ACTIVE_KEY` | Identifier of the active credential encryption key. |
 | `CREDENTIAL_ENCRYPTION_KEYS` | Comma-separated keyring, e.g. `v1:<base64url-key>,v2:<base64url-key>`; each decoded key must be exactly 32 bytes. |
+| `MCP_OAUTH_ACTIVE_KEY` | Identifier of the active MCP OAuth signing key, e.g. `v1`. |
+| `MCP_OAUTH_SIGNING_KEYS` | Independent MCP keyring, e.g. `v1:<base64url-key>`; each key must be 32 bytes encoded as 43 unpadded base64url characters. Required to enable MCP and its browser tests. |
+| `UOVP_TEST_REDIS_URL` | Tests only: isolated loopback Redis for the cross-process coordination suite. Export it explicitly; `REDIS_URL` does not replace it. |
 
 brapi, Pluggy, and Binance wallet credentials are entered per user in Configurações, not as shared environment variables. Yahoo and Binance public quotes require no user credentials.
 
 ## Validation
 
+Prepare a dedicated test database with migrations and seed applied, plus an isolated test Redis, before running the suites that use them. Export `DATABASE_URL`, `REDIS_URL`, and `UOVP_TEST_REDIS_URL` for test processes; both Redis URLs must point to the test service. `UOVP_TEST_REDIS_URL` accepts only loopback hosts, such as `127.0.0.1` and `localhost`.
+
+Also provide authentication secrets, the encryption keyring, and independent MCP keys to the test app and processes that need them. The `.env` loaded by Next.js does not replace exported variables for Vitest or Cypress tasks. For local Cypress, keep `AUTH_URL` and the development app at `http://localhost:3000`; CI production runs use the HTTPS proxy described below.
+
 ```bash
 pnpm db:generate
+python3 -m unittest discover -s tests/ci
 pnpm typecheck
 pnpm test
 pnpm test:integration
@@ -249,7 +301,8 @@ pnpm build
 ```
 
 - `pnpm test` covers `tests/unit`; `pnpm test:integration` covers `tests/integration`.
-- Export `DATABASE_URL` for the test processes and point it at a dedicated migrated test database. Integration suites conditionally skip when it is absent; a skipped run is not database validation.
+- Database integration suites skip without `DATABASE_URL`; the cross-process coordination suite skips without `UOVP_TEST_REDIS_URL`, even when the database is configured. A run with skipped tests does not prove complete validation.
+- The Python command covers branch synchronization and deployment guards in `tests/ci`, including rejection of superseded commits and concurrency scenarios. CI also runs it in the Code quality job.
 - Cypress expects a running app at `http://localhost:3000`. The app and Cypress tasks must use the same test database and required secrets.
 - Cypress creates/removes test users and clears authentication-limit fixtures. Do not run it against production.
 - `pnpm cypress:open` opens the interactive runner; `pnpm test:watch` runs Vitest in watch mode.
@@ -284,6 +337,26 @@ Configure installation with `pnpm install --frozen-lockfile`, build with `pnpm b
 - `pnpm db:studio` opens Prisma Studio. Keep it local or behind a private tunnel.
 - `pnpm fx:backfill` processes unresolved foreign-currency Pluggy transactions in batches of 500, preserving existing and manual conversions. Export `DATABASE_URL` for this script; unresolved rates remain pending.
 - There is no self-service password-reset flow in the current app.
+
+### Diagnostics and repairs
+
+Export `DATABASE_URL` for the database being inspected and apply the required migrations. These are maintenance commands, not part of normal startup. Without `--apply`, all commands below only preview changes. Back up before applying repairs and use `--user-id=ID` to limit inspection to one person; without that filter, the scripts traverse applicable users or records.
+
+| Preview command | Purpose and limits |
+| --- | --- |
+| `pnpm exec tsx scripts/repair-finance-setup.ts` | In apply mode, creates only missing financial configuration; preserves customizations and reports name conflicts for review. |
+| `pnpm exec tsx scripts/repair-financial-references.ts` | Recalculates automatic monthly references from the user's financial start day and time zone; preserves manual reference overrides. |
+| `pnpm exec tsx scripts/repair-purchase-summaries.ts` | Rebuilds quantity and cost summaries of imported Pluggy purchases. Requires the purchase-summary migration and coordinates concurrent updates. |
+| `pnpm exec tsx scripts/repair-financial-integrity.ts` | Diagnoses orphaned or ambiguous external holdings and reporting amounts. Repairs only proven BRL/NATIVE/1 reporting snapshots; external holdings are never merged or deleted. Accepts `--batch-size=100`. |
+
+Example preview and application for one user:
+
+```bash
+pnpm exec tsx scripts/repair-financial-references.ts --user-id=ID
+pnpm exec tsx scripts/repair-financial-references.ts --user-id=ID --apply
+```
+
+Concurrently changed records may be preserved or reported for another inspection, depending on the script. See the [MCP guide](./docs/mcp.en.md) for cleanup of ended OAuth records and the `pnpm fx:backfill` command described above for pending historical conversions.
 
 ## Code map
 
