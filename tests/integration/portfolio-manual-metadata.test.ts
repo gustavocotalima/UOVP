@@ -17,6 +17,7 @@ vi.mock("@/features/portfolio/brapi", async (importOriginal) => ({
 vi.mock("@/features/portfolio/brapi-credentials", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/features/portfolio/brapi-credentials")>(),
   requireBrapiApiKey: async () => "test-only",
+  requireBrapiCredentials: async () => ({ apiKey: "test-only", plan: "FREE" }),
 }));
 vi.mock("@/features/portfolio/yahoo-finance", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/features/portfolio/yahoo-finance")>(),
@@ -93,6 +94,9 @@ suite("metadados de ativos com múltiplas posições manuais", () => {
 
     await saveAssetAction({ id: asset.id, investmentClass: scenario.investmentClass, instrumentType: scenario.instrumentType, ticker: "NEW", name: "Novo ativo", quantity: 5, unitPrice: 999 });
 
+    if (scenario.pricingSource === "BRAPI") {
+      expect(mocks.quoteBrapi).toHaveBeenCalledWith({ apiKey: "test-only", plan: "FREE", tickers: ["NEW"] });
+    }
     expect((await db!.asset.findUniqueOrThrow({ where: { id: asset.id } })).ticker).toBe("NEW");
     for (const original of asset.holdings) {
       const stored = await db!.assetHolding.findUniqueOrThrow({ where: { id: original.id } });

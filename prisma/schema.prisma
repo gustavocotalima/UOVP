@@ -368,6 +368,12 @@ model VerificationToken {
   @@unique([identifier, token])
 }
 
+enum BrapiPlan {
+  FREE
+  STARTUP
+  PRO
+}
+
 model UserPreference {
   id                           String    @id @default(cuid())
   userId                       String    @unique
@@ -377,6 +383,7 @@ model UserPreference {
   brapiApiKeyCiphertext        String?   @db.Text
   brapiApiKeyLastFour          String?
   brapiApiKeyUpdatedAt         DateTime?
+  brapiPlan                   BrapiPlan @default(FREE)
   pluggyClientIdCiphertext     String?   @db.Text
   pluggyClientIdLastFour       String?
   pluggyClientSecretCiphertext String?   @db.Text

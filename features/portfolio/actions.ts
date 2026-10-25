@@ -42,7 +42,8 @@ import {
   type BinanceQuote,
 } from "./binance";
 import { fetchAvailableBrapiQuotes, fetchBrapiQuotes, normalizeBrapiSymbol, readCachedBrapiQuotes, searchBrapiEtfTickers, searchBrapiTickers, type BrapiQuote } from "./brapi";
-import { clearBrapiApiKey, requireBrapiApiKey, storeBrapiApiKey } from "./brapi-credentials";
+import { clearBrapiApiKey, requireBrapiApiKey, requireBrapiCredentials, storeBrapiApiKey, storeBrapiPlan } from "./brapi-credentials";
+import { BRAPI_PLANS, type BrapiPlan } from "./brapi-plans";
 import { ensurePortfolio, getPortfolioData } from "./data";
 import { FIXED_INCOME_INDEXATIONS, INSTRUMENT_TYPES, INVESTMENT_CLASSES, RATE_CONVENTIONS, FIXED_INCOME_INDEXATION_META, type InvestmentClassKey } from "./constants";
 import { DEFAULT_QUESTIONS, defaultQuestionTemplateKey } from "./questions";
@@ -133,6 +134,7 @@ const brapiApiKeySchema = z.string()
   .trim()
   .transform((value) => value.replace(/^Bearer\s+/i, ""))
   .pipe(z.string().min(8, "Informe uma chave válida da brapi.").max(2000));
+const brapiPlanSchema = z.enum(BRAPI_PLANS);
 
 const tickerSearchSchema = z.string().trim().min(1).max(60);
 const assetLogoRepairSchema = z.object({
@@ -267,7 +269,7 @@ export async function saveAssetAction(input: AssetInput) {
     || existingPositions.some((holding) => holding.positionSource === "MANUAL" && holding.ticker !== parsed.ticker)
     || Boolean(selectedPricingSource && existingQuoteHolding?.pricingSource !== selectedPricingSource);
   if (mustResolveMarketQuote && usesBrapiQuotes(parsed.investmentClass, instrumentType, parsed.marketRegion)) {
-    const apiKey = await requireBrapiApiKey(userId);
+    const { apiKey, plan } = await requireBrapiCredentials(userId);
     const matches = instrumentType === "ETF"
       ? await searchBrapiEtfTickers({ query: parsed.ticker })
       : await searchBrapiTickers({ query: parsed.ticker, subType: parsed.investmentClass === "REAL_ESTATE_FUNDS" ? "fii" : undefined });
@@ -276,7 +278,7 @@ export async function saveAssetAction(input: AssetInput) {
     if (!brapiMatch) {
       throw new Error(`${parsed.ticker} não foi identificado como um ativo válido pela brapi.`);
     }
-    [brapiQuote] = await fetchBrapiQuotes({ apiKey, tickers: [parsed.ticker] });
+    [brapiQuote] = await fetchBrapiQuotes({ apiKey, plan, tickers: [parsed.ticker] });
     if (!brapiQuote) throw new Error(`A brapi não retornou uma cotação para ${parsed.ticker}.`);
   }
   if (mustResolveMarketQuote && usesYahooQuotes(parsed.investmentClass, instrumentType, parsed.marketRegion)) {
@@ -824,9 +826,10 @@ export async function importPortfolioRowsAction(input: {
   const brapiQuotes = new Map<string, BrapiQuote>();
   const brapiLogoMetadata = new Map<string, Awaited<ReturnType<typeof resolveBrapiLogo>>>();
   if (brapiRows.length) {
-    const apiKey = await requireBrapiApiKey(userId);
+    const { apiKey, plan } = await requireBrapiCredentials(userId);
     const quotes = await fetchBrapiQuotes({
       apiKey,
+      plan,
       tickers: brapiRows.map((row) => row.ticker),
       signal: lease.signal,
     });
@@ -1225,7 +1228,7 @@ export async function deleteAssetClassAction(investmentClass: InvestmentClassKey
   revalidatePath("/open-finance");
 }
 
-export async function saveBrapiApiKeyAction(input: string) {
+export async function saveBrapiApiKeyAction(input: string, planInput: BrapiPlan = "FREE") {
   const userId = await requireUserId();
   await assertUserOperationRateLimit({
     userId,
@@ -1234,9 +1237,18 @@ export async function saveBrapiApiKeyAction(input: string) {
     windowMs: 60 * 60_000,
   });
   const apiKey = brapiApiKeySchema.parse(input);
-  await fetchBrapiQuotes({ apiKey, tickers: ["WEGE3"] });
-  const status = await storeBrapiApiKey(userId, apiKey);
+  const plan = brapiPlanSchema.parse(planInput);
+  await fetchBrapiQuotes({ apiKey, plan, tickers: ["WEGE3"] });
+  const status = await storeBrapiApiKey(userId, apiKey, plan);
   revalidatePath("/carteira");
+  revalidatePath("/configuracoes");
+  return status;
+}
+
+export async function saveBrapiPlanAction(input: BrapiPlan) {
+  const userId = await requireUserId();
+  const plan = brapiPlanSchema.parse(input);
+  const status = await storeBrapiPlan(userId, plan);
   revalidatePath("/configuracoes");
   return status;
 }
@@ -1642,9 +1654,10 @@ async function refreshMarketPricesForUser(
           quotes: [] as BrapiQuote[],
         };
       }
-      const apiKey = await requireBrapiApiKey(userId);
+      const { apiKey, plan } = await requireBrapiCredentials(userId);
       const quotes = await fetchAvailableBrapiQuotes({
         apiKey,
+        plan,
         tickers: brapiHoldings.flatMap((holding) => holding.ticker ? [holding.ticker] : []),
         signal: lease?.signal,
         cacheMode: "REFRESH",

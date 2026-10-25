@@ -9,8 +9,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { InstallAppCard } from "@/components/pwa/install-app-card";
-import { removeBrapiApiKeyAction, saveBrapiApiKeyAction } from "@/features/portfolio/actions";
+import { removeBrapiApiKeyAction, saveBrapiApiKeyAction, saveBrapiPlanAction } from "@/features/portfolio/actions";
 import type { BrapiCredentialStatus } from "@/features/portfolio/brapi-credentials";
+import { BRAPI_PLANS, BRAPI_PLAN_LIMITS, type BrapiPlan } from "@/features/portfolio/brapi-plans";
 import {
   removePluggyCredentialsAction,
   savePluggyCredentialsAction,
@@ -55,6 +56,7 @@ export function SettingsClient({
 }) {
   const [credential, setCredential] = useState(initialCredential);
   const [apiKey, setApiKey] = useState("");
+  const [brapiPlan, setBrapiPlan] = useState<BrapiPlan>(initialCredential.plan);
   const [message, setMessage] = useState<{ kind: "success" | "error"; text: string }>();
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [pluggyCredential, setPluggyCredential] = useState(initialPluggyCredential);
@@ -75,6 +77,8 @@ export function SettingsClient({
   const [timeZone, setTimeZone] = useState(initialTimeZone);
   const [timeZonePending, startTimeZoneTransition] = useTransition();
   const [timeZoneMessage, setTimeZoneMessage] = useState<string>();
+  const brapiPlanLimits = BRAPI_PLAN_LIMITS[brapiPlan];
+  const savingBrapiPlanOnly = credential.configured && !apiKey.trim();
 
   function saveTimeZone(value: string) {
     setTimeZone(value);
@@ -135,14 +139,24 @@ export function SettingsClient({
     setMessage(undefined);
     startBrapiTransition(async () => {
       try {
-        const status = await saveBrapiApiKeyAction(apiKey);
-        setCredential({ configured: true, lastFour: status.lastFour, updatedAt: status.updatedAt });
-        setApiKey("");
-        setMessage({ kind: "success", text: "Chave da brapi validada e salva." });
+        if (savingBrapiPlanOnly) {
+          const status = await saveBrapiPlanAction(brapiPlan);
+          setCredential((current) => ({ ...current, plan: status.plan }));
+          setBrapiPlan(status.plan);
+          setMessage({ kind: "success", text: "Plano da brapi salvo para as consultas do app." });
+        } else {
+          const status = await saveBrapiApiKeyAction(apiKey, brapiPlan);
+          setCredential({ configured: true, lastFour: status.lastFour, updatedAt: status.updatedAt, plan: status.plan });
+          setBrapiPlan(status.plan);
+          setApiKey("");
+          setMessage({ kind: "success", text: "Chave da brapi validada e plano salvo." });
+        }
       } catch (error) {
         setMessage({
           kind: "error",
-          text: error instanceof Error ? error.message : "Não foi possível validar a chave da brapi.",
+          text: error instanceof Error ? error.message : savingBrapiPlanOnly
+            ? "Não foi possível salvar o plano da brapi."
+            : "Não foi possível validar a chave da brapi.",
         });
       }
     });
@@ -153,7 +167,8 @@ export function SettingsClient({
     startBrapiTransition(async () => {
       try {
         await removeBrapiApiKeyAction();
-        setCredential({ configured: false, lastFour: null, updatedAt: null });
+        setCredential((current) => ({ ...current, configured: false, lastFour: null, updatedAt: null }));
+        setBrapiPlan(credential.plan);
         setApiKey("");
         setConfirmRemove(false);
         setMessage({ kind: "success", text: "Chave da brapi removida." });
@@ -311,6 +326,30 @@ export function SettingsClient({
               )}
 
               <div className="space-y-2">
+                <Label htmlFor="settings-brapi-plan">Plano da sua conta brapi</Label>
+                <Select
+                  id="settings-brapi-plan"
+                  value={brapiPlan}
+                  onChange={(event) => setBrapiPlan(event.target.value as BrapiPlan)}
+                  disabled={brapiPending}
+                  aria-describedby="settings-brapi-plan-limits settings-brapi-plan-help"
+                  className="w-full"
+                >
+                  {BRAPI_PLANS.map((plan) => (
+                    <option key={plan} value={plan}>{BRAPI_PLAN_LIMITS[plan].label}</option>
+                  ))}
+                </Select>
+                <p id="settings-brapi-plan-limits" className="text-sm text-[var(--muted-foreground)]">
+                  Até {brapiPlanLimits.symbolsPerRequest} {brapiPlanLimits.symbolsPerRequest === 1 ? "ativo por requisição" : "ativos por requisição"}
+                  {" e "}{brapiPlanLimits.concurrentRequests} {brapiPlanLimits.concurrentRequests === 1 ? "requisição simultânea" : "requisições simultâneas"}.
+                </p>
+                <p id="settings-brapi-plan-help" className="text-sm text-[var(--muted-foreground)]">
+                  Selecione o plano contratado para ajustar os limites das consultas. Esta opção não altera sua assinatura na brapi.
+                  {credential.configured ? " Para mudar apenas o plano, deixe o campo da chave vazio." : ""}
+                </p>
+              </div>
+
+              <div className="space-y-2">
                 <Label htmlFor="quote-provider">Provedor</Label>
                 <div id="quote-provider" className="flex min-h-11 items-center justify-between rounded-xl border px-4">
                   <span className="font-semibold">brapi</span>
@@ -345,7 +384,8 @@ export function SettingsClient({
                   placeholder={credential.configured ? "Cole uma nova chave" : "Cole sua chave da brapi"}
                   autoComplete="off"
                   maxLength={2000}
-                  required
+                  required={!credential.configured}
+                  disabled={brapiPending}
                 />
               </div>
 
@@ -364,8 +404,13 @@ export function SettingsClient({
                       Remover
                     </Button>
                   )}
-                  <Button type="submit" disabled={brapiPending || apiKey.trim().length < 8}>
-                    {brapiPending ? "Validando…" : credential.configured ? "Validar e substituir" : "Validar e conectar"}
+                  <Button
+                    type="submit"
+                    disabled={brapiPending || (savingBrapiPlanOnly ? brapiPlan === credential.plan : apiKey.trim().length < 8)}
+                  >
+                    {brapiPending
+                      ? savingBrapiPlanOnly ? "Salvando…" : "Validando…"
+                      : savingBrapiPlanOnly ? "Salvar plano" : credential.configured ? "Validar e substituir" : "Validar e conectar"}
                   </Button>
                 </div>
               </div>

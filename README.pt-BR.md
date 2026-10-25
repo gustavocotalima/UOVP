@@ -138,7 +138,7 @@ O campo `bankData.reservedBalances` das contas Pluggy pode fornecer investimento
 | Provedor | Dados | Credenciais |
 | --- | --- | --- |
 | Pluggy | Contas, cartões, transações, investimentos e movimentações de investimentos disponíveis. | Client ID, Client Secret e segredo de webhook por usuário em Configurações. |
-| brapi | Ações da B3, FIIs e ETFs. | Chave de API por usuário em Configurações. |
+| brapi | Ações da B3, FIIs e ETFs. | Chave de API e plano por usuário em Configurações. |
 | Yahoo Finance | Ações internacionais, ETFs, REITs e câmbio atual/histórico. | Sem chave de API do usuário. |
 | Binance: dados públicos | Símbolos Spot e preços de criptoativos, priorizando pares BRL e convertendo USDT quando necessário. | Sem chave de API do usuário. |
 | Binance: carteira | Saldos privados de Spot, Funding e Simple Earn. | Chave de API HMAC e segredo por usuário em Configurações. |
@@ -184,7 +184,7 @@ A sincronização da Pluggy e da carteira Binance ocorre em paralelo. A verifica
 
 As operações retornam resultados separados: `SKIPPED`, `UPDATED`, `PARTIAL` ou `FAILED`. A navegação abre imediatamente; mudanças atualizam a tela, e falhas preservam os valores anteriores com um aviso. Os botões manuais ignoram a janela de 12 horas, mantendo os limites de operação. Não há tarefa agendada que continue atualizando um app fechado.
 
-Normalmente, a brapi recebe todos os símbolos B3 do usuário em uma requisição autenticada de cotação. Falhas por símbolos inválidos podem gerar novas requisições menores. Uma falha da brapi não impede atualizações de preços pelo Yahoo ou pela Binance.
+Escolha seu plano da brapi em Configurações: Gratuito (padrão) envia um símbolo B3 por requisição, com uma chamada por vez; Startup usa lotes de até 10 símbolos e até 4 chamadas simultâneas; Pro usa lotes de até 20 símbolos e até 16 chamadas simultâneas. A preferência é individual e pode ser alterada sem substituir a chave; ela não muda a assinatura na brapi. O cache compartilhado continua por símbolo e evita consultas de cotações já armazenadas fora de uma atualização explícita. A atualização de mercado isola símbolos inválidos dentro de cada lote. Uma falha da brapi não impede atualizações de preços pelo Yahoo ou pela Binance.
 
 ### Preços e logos
 

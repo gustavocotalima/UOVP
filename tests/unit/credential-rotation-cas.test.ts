@@ -30,7 +30,7 @@ import {
   requirePluggyWebhookSecret,
   rotatePluggyWebhookSecretEncryption,
 } from "@/features/open-finance/pluggy-credentials";
-import { requireBrapiApiKey } from "@/features/portfolio/brapi-credentials";
+import { requireBrapiApiKey, requireBrapiCredentials } from "@/features/portfolio/brapi-credentials";
 
 describe("CAS da rotação lazy de credenciais", () => {
   beforeEach(() => {
@@ -93,5 +93,20 @@ describe("CAS da rotação lazy de credenciais", () => {
         brapiApiKeyCiphertext: "brapi-old",
       },
     }));
+  });
+
+  it("carrega o plano junto com a chave sem alterá-lo na rotação", async () => {
+    mocks.findUnique.mockResolvedValue({ brapiApiKeyCiphertext: "brapi-old", brapiPlan: "PRO" });
+
+    await expect(requireBrapiCredentials("user-c")).resolves.toEqual({ apiKey: "plain-brapi", plan: "PRO" });
+    expect(mocks.findUnique).toHaveBeenCalledOnce();
+    expect(mocks.findUnique).toHaveBeenCalledWith({
+      where: { userId: "user-c" },
+      select: { brapiApiKeyCiphertext: true, brapiPlan: true },
+    });
+    expect(mocks.updateMany).toHaveBeenCalledWith({
+      where: { userId: "user-c", brapiApiKeyCiphertext: "brapi-old" },
+      data: { brapiApiKeyCiphertext: "rotated:brapi:plain-brapi", brapiApiKeyUpdatedAt: expect.any(Date) },
+    });
   });
 });
