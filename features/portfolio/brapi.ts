@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
   getSharedCache,
@@ -10,9 +11,51 @@ import {
   type MarketCacheMode,
 } from "@/lib/shared-cache";
 import { usableBrapiLogoUrl } from "./market-logo";
+import { BRAPI_PLAN_LIMITS, normalizeBrapiPlan, type BrapiPlan } from "./brapi-plans";
 
 const BRAPI_QUOTE_URL = "https://brapi.dev/api/v2/stocks/quote";
 const BRAPI_TICKERS_URL = "https://brapi.dev/api/v2/tickers";
+type QuoteRequestQueue = {
+  active: Map<symbol, number>;
+  pending: Array<{ concurrency: number; start: (release: () => void) => void }>;
+};
+const quoteRequestQueues = new Map<string, QuoteRequestQueue>();
+
+function drainQuoteRequestQueue(key: string, queue: QuoteRequestQueue) {
+  while (queue.pending.length) {
+    const next = queue.pending[0];
+    const limit = Math.min(next.concurrency, ...queue.active.values());
+    if (queue.active.size >= limit) return;
+    queue.pending.shift();
+    const token = Symbol();
+    queue.active.set(token, next.concurrency);
+    next.start(() => {
+      queue.active.delete(token);
+      if (!queue.active.size && !queue.pending.length) quoteRequestQueues.delete(key);
+      else drainQuoteRequestQueue(key, queue);
+    });
+  }
+}
+
+function withQuoteRequestQueue<T>(apiKey: string, concurrency: number, signal: AbortSignal | undefined, operation: () => Promise<T>): Promise<T> {
+  // Share capacity across callers in this process without retaining raw keys.
+  // If a tier changes during a request, honor the more conservative limit.
+  const key = createHash("sha256").update(apiKey).digest("hex");
+  const queue: QuoteRequestQueue = quoteRequestQueues.get(key) ?? { active: new Map(), pending: [] };
+  quoteRequestQueues.set(key, queue);
+  return new Promise<T>((resolve, reject) => {
+    queue.pending.push({
+      concurrency,
+      start: (release) => {
+        void Promise.resolve().then(() => {
+          signal?.throwIfAborted();
+          return operation();
+        }).then(resolve, reject).finally(release);
+      },
+    });
+    drainQuoteRequestQueue(key, queue);
+  });
+}
 
 const quoteResponseSchema = z.object({
   results: z.array(z.object({
@@ -302,21 +345,30 @@ function errorMessage(status: number) {
   return "Não foi possível consultar as cotações na brapi.";
 }
 
-export async function fetchBrapiQuotes({
-  apiKey,
-  tickers,
-  fetcher = fetch,
-  signal,
-  cacheMode = "USE_CACHE",
-}: {
+type BrapiQuoteRequest = {
   apiKey: string;
   tickers: string[];
+  plan?: BrapiPlan;
   fetcher?: typeof fetch;
   signal?: AbortSignal;
   cacheMode?: MarketCacheMode;
-}) {
-  const symbols = [...new Set(tickers.map(normalizeBrapiSymbol).filter(Boolean))];
+};
+
+async function loadBrapiQuotes({
+  apiKey,
+  tickers,
+  plan = "FREE",
+  fetcher = fetch,
+  signal,
+  cacheMode = "USE_CACHE",
+}: BrapiQuoteRequest, skipMissing: boolean): Promise<BrapiQuote[]> {
+  const normalized = [...new Set(tickers.map(normalizeBrapiSymbol).filter(Boolean))];
+  if (!skipMissing && normalized.some((symbol) => symbol.includes(","))) {
+    throw new BrapiApiError("Informe apenas um ticker por ativo.", 400);
+  }
+  const symbols = normalized.filter((symbol) => !symbol.includes(","));
   if (!symbols.length) return [];
+  const limits = BRAPI_PLAN_LIMITS[normalizeBrapiPlan(plan)];
   const useSharedCache = fetcher === fetch && isSharedCacheConfigured();
   const keysBySymbol = new Map(symbols.map((symbol) => [
     symbol,
@@ -338,10 +390,13 @@ export async function fetchBrapiQuotes({
   const missing = symbols.filter((symbol) => !cached.has(symbol));
   if (!missing.length) return symbols.flatMap((symbol) => cached.get(symbol) ?? []);
 
-  const load = async () => {
+  let failed = false;
+  let failure: unknown;
+  const load = (group: string[]) => withQuoteRequestQueue(apiKey, limits.concurrentRequests, signal, async () => {
+    if (failed) throw failure;
     const startedAt = Date.now();
     const url = new URL(BRAPI_QUOTE_URL);
-    url.searchParams.set("symbols", missing.join(","));
+    url.searchParams.set("symbols", group.join(","));
 
     let response: Response;
     try {
@@ -369,6 +424,7 @@ export async function fetchBrapiQuotes({
     if (!parsed.success) throw new BrapiApiError("A brapi retornou uma resposta inválida.", 502);
     const requestedAt = dateOrFallback(parsed.data.requestedAt, new Date());
     const fetched = parsed.data.results.flatMap<BrapiQuote>((result) => {
+      if (!group.includes(normalizeBrapiSymbol(result.requestedSymbol))) return [];
       const price = result.data.regularMarketPrice;
       if (price == null || !Number.isFinite(price) || price <= 0) return [];
       return [{
@@ -388,44 +444,26 @@ export async function fetchBrapiQuotes({
         cachedAt: startedAt,
       })));
     }
-    return new Map(fetched.map((quote) => [quote.requestedSymbol, quote]));
-  };
-
-  const fetched = !useSharedCache
-    ? await load()
-    : await withSharedCacheCoalescing({
-        key: sharedCacheKey("brapi:quote-flight", missing.slice().sort()),
-        operation: load,
-        readAfterWait: async (lockStartedAt) => {
-          const waited = await readCached(missing, cacheMode === "REFRESH" ? lockStartedAt : 0);
-          return waited.size === missing.length ? waited : null;
-        },
-      });
-  return symbols.flatMap((symbol) => cached.get(symbol) ?? fetched.get(symbol) ?? []);
-}
-
-export async function fetchAvailableBrapiQuotes({
-  apiKey,
-  tickers,
-  fetcher = fetch,
-  signal,
-  cacheMode = "USE_CACHE",
-}: {
-  apiKey: string;
-  tickers: string[];
-  fetcher?: typeof fetch;
-  signal?: AbortSignal;
-  cacheMode?: MarketCacheMode;
-}): Promise<BrapiQuote[]> {
-  const symbols = [...new Set(tickers.map(normalizeBrapiSymbol).filter(Boolean))];
+    return fetched;
+  });
 
   async function fetchGroup(group: string[]): Promise<BrapiQuote[]> {
-    if (!group.length) return [];
+    signal?.throwIfAborted();
+    if (failed) throw failure;
     try {
-      return await fetchBrapiQuotes({ apiKey, tickers: group, fetcher, signal, cacheMode });
+      return !useSharedCache
+        ? await load(group)
+        : await withSharedCacheCoalescing({
+            key: sharedCacheKey("brapi:quote-flight", group.slice().sort()),
+            operation: () => load(group),
+            readAfterWait: async (lockStartedAt) => {
+              const waited = await readCached(group, cacheMode === "REFRESH" ? lockStartedAt : 0);
+              return waited.size === group.length ? [...waited.values()] : null;
+            },
+          });
     } catch (error) {
-      const recoverable = error instanceof BrapiApiError && (error.status === 400 || error.status === 404);
-      if (!recoverable) throw error;
+      const missingTicker = error instanceof BrapiApiError && (error.status === 400 || error.status === 404);
+      if (!skipMissing || !missingTicker) throw error;
       if (group.length === 1) return [];
       const middle = Math.ceil(group.length / 2);
       const left = await fetchGroup(group.slice(0, middle));
@@ -434,5 +472,33 @@ export async function fetchAvailableBrapiQuotes({
     }
   }
 
-  return fetchGroup(symbols);
+  const groups: string[][] = [];
+  for (let index = 0; index < missing.length; index += limits.symbolsPerRequest) {
+    groups.push(missing.slice(index, index + limits.symbolsPerRequest));
+  }
+  let nextGroup = 0;
+  await Promise.all(Array.from({ length: Math.min(limits.concurrentRequests, groups.length) }, async () => {
+    while (!failed && nextGroup < groups.length) {
+      const group = groups[nextGroup++];
+      try {
+        const fetched = await fetchGroup(group);
+        for (const quote of fetched) cached.set(quote.requestedSymbol, quote);
+      } catch (error) {
+        if (!failed) {
+          failed = true;
+          failure = error;
+        }
+      }
+    }
+  }));
+  if (failed) throw failure;
+  return symbols.flatMap((symbol) => cached.get(symbol) ?? []);
+}
+
+export async function fetchBrapiQuotes(request: BrapiQuoteRequest): Promise<BrapiQuote[]> {
+  return loadBrapiQuotes(request, false);
+}
+
+export async function fetchAvailableBrapiQuotes(request: BrapiQuoteRequest): Promise<BrapiQuote[]> {
+  return loadBrapiQuotes(request, true);
 }

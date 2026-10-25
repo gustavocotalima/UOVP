@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => ({
   reconcile: vi.fn(),
   invalidate: vi.fn(),
   revalidatePath: vi.fn(),
-  brapiCache: vi.fn(), brapiFetch: vi.fn(), requireBrapiKey: vi.fn(),
+  brapiCache: vi.fn(), brapiFetch: vi.fn(), requireBrapiCredentials: vi.fn(),
   yahooCache: vi.fn(), yahooFetch: vi.fn(), yahooFx: vi.fn(),
   insideTransaction: false,
 }));
@@ -38,7 +38,7 @@ vi.mock("@/features/portfolio/brapi", () => ({
   fetchBrapiQuotes: mocks.brapiFetch,
   normalizeBrapiSymbol: (value: string) => value.trim().toUpperCase(),
 }));
-vi.mock("@/features/portfolio/brapi-credentials", () => ({ requireBrapiApiKey: mocks.requireBrapiKey }));
+vi.mock("@/features/portfolio/brapi-credentials", () => ({ requireBrapiCredentials: mocks.requireBrapiCredentials }));
 vi.mock("@/features/portfolio/yahoo-finance", () => ({
   readCachedYahooQuotes: mocks.yahooCache,
   fetchYahooQuotes: mocks.yahooFetch,
@@ -127,7 +127,7 @@ describe("quantidade temporária de investimentos Pluggy", () => {
     mocks.brapiFetch.mockResolvedValue([]);
     mocks.yahooFetch.mockResolvedValue([]);
     mocks.yahooFx.mockResolvedValue([]);
-    mocks.requireBrapiKey.mockResolvedValue("individual-key");
+    mocks.requireBrapiCredentials.mockResolvedValue({ apiKey: "individual-key", plan: "PRO" });
   });
 
   it("persiste a quantidade sem alterar o snapshot bruto nem as operações", async () => {
@@ -200,7 +200,7 @@ describe("quantidade temporária de investimentos Pluggy", () => {
   it("rejeita preço indisponível depois de tentar recuperação direcionada", async () => {
     link.holding.unitPrice = new Prisma.Decimal(0);
     await expect(savePluggyInvestmentMetadataOverridesAction(input({ mode: "CUSTOM", value: 110 }))).rejects.toThrow("obter uma cotação válida");
-    expect(mocks.brapiFetch).toHaveBeenCalledWith(expect.objectContaining({ tickers: ["ITUB3"], apiKey: "individual-key" }));
+    expect(mocks.brapiFetch).toHaveBeenCalledWith(expect.objectContaining({ tickers: ["ITUB3"], apiKey: "individual-key", plan: "PRO" }));
     expect(mocks.tx.pluggyInvestmentDiagramLink.update).not.toHaveBeenCalled();
   });
 
@@ -239,7 +239,7 @@ describe("quantidade temporária de investimentos Pluggy", () => {
   it("bloqueia vínculo pertencente a outro usuário", async () => {
     link.investment.item.userId = "user-b";
     await expect(savePluggyInvestmentMetadataOverridesAction(input({ mode: "CUSTOM", value: 110 }))).rejects.toThrow("não encontrado");
-    expect(mocks.requireBrapiKey).not.toHaveBeenCalled();
+    expect(mocks.requireBrapiCredentials).not.toHaveBeenCalled();
     expect(mocks.brapiCache).not.toHaveBeenCalled();
     expect(mocks.brapiFetch).not.toHaveBeenCalled();
     expect(mocks.yahooFetch).not.toHaveBeenCalled();
@@ -257,7 +257,7 @@ describe("quantidade temporária de investimentos Pluggy", () => {
       quote: { requestedSymbol: "ITUB3", price: 55, currency: "BRL", asOf: new Date("2026-10-14T11:00:00Z") },
     }]]));
     await savePluggyInvestmentMetadataOverridesAction(input({ mode: "CUSTOM", value: 110 }));
-    expect(mocks.requireBrapiKey).toHaveBeenCalledWith("user-a");
+    expect(mocks.requireBrapiCredentials).toHaveBeenCalledWith("user-a");
     expect(mocks.brapiCache).toHaveBeenCalledWith(["ITUB3"]);
     expect(mocks.brapiFetch).not.toHaveBeenCalled();
     expect(mocks.tx.assetHolding.update.mock.calls[0][0].data.unitPrice.toString()).toBe("55");
@@ -276,7 +276,7 @@ describe("quantidade temporária de investimentos Pluggy", () => {
 
   it("não usa cache brapi sem chave individual", async () => {
     link.holding.unitPrice = new Prisma.Decimal(0);
-    mocks.requireBrapiKey.mockRejectedValue(new Error("Configure sua chave da brapi"));
+    mocks.requireBrapiCredentials.mockRejectedValue(new Error("Configure sua chave da brapi"));
     await expect(savePluggyInvestmentMetadataOverridesAction(input({ mode: "CUSTOM", value: 110 }))).rejects.toThrow("Configure sua chave");
     expect(mocks.brapiCache).not.toHaveBeenCalled();
   });

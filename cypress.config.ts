@@ -3,6 +3,9 @@ import { PrismaClient } from "@prisma/client";
 import { createHash, randomBytes } from "node:crypto";
 import { createClient } from "redis";
 
+const CYPRESS_BRAPI_FIXTURE_CIPHERTEXT = "cypress-not-decrypted";
+const CYPRESS_BRAPI_FIXTURE_UPDATED_AT = new Date("2026-09-01T12:00:00.000Z");
+
 async function clearCypressMarketMetadataCache(provider: "BRAPI" | "YAHOO", symbol: string) {
   const redisUrl = process.env.REDIS_URL?.trim();
   if (!redisUrl) return;
@@ -66,6 +69,44 @@ export default defineConfig({
       on("before:spec", cleanupCypressUsers);
       on("after:run", cleanupCypressUsers);
       on("task", {
+        async seedBrapiPlanCredential({ email }: { email: string }) {
+          if (!/^cypress-[^@]+@example\.com$/.test(email)) throw new Error("Only Cypress users may be seeded");
+          const prisma = new PrismaClient();
+          try {
+            const user = await prisma.user.findUniqueOrThrow({ where: { email } });
+            // Deliberately invalid ciphertext: saving only the plan must never decrypt or validate this key.
+            const data = {
+              brapiPlan: "FREE" as const,
+              brapiApiKeyCiphertext: CYPRESS_BRAPI_FIXTURE_CIPHERTEXT,
+              brapiApiKeyLastFour: "1234",
+              brapiApiKeyUpdatedAt: CYPRESS_BRAPI_FIXTURE_UPDATED_AT,
+            };
+            await prisma.userPreference.upsert({ where: { userId: user.id }, create: { userId: user.id, ...data }, update: data });
+            return null;
+          } finally {
+            await prisma.$disconnect();
+          }
+        },
+        async getBrapiPlanCredentialState({ email }: { email: string }) {
+          if (!/^cypress-[^@]+@example\.com$/.test(email)) throw new Error("Only Cypress users may be inspected");
+          const prisma = new PrismaClient();
+          try {
+            const user = await prisma.user.findUniqueOrThrow({ where: { email } });
+            const preference = await prisma.userPreference.findUniqueOrThrow({
+              where: { userId: user.id },
+              select: { brapiPlan: true, brapiApiKeyCiphertext: true, brapiApiKeyLastFour: true, brapiApiKeyUpdatedAt: true },
+            });
+            return {
+              plan: preference.brapiPlan,
+              configured: Boolean(preference.brapiApiKeyCiphertext),
+              lastFour: preference.brapiApiKeyLastFour,
+              keyPreserved: preference.brapiApiKeyCiphertext === CYPRESS_BRAPI_FIXTURE_CIPHERTEXT
+                && preference.brapiApiKeyUpdatedAt?.getTime() === CYPRESS_BRAPI_FIXTURE_UPDATED_AT.getTime(),
+            };
+          } finally {
+            await prisma.$disconnect();
+          }
+        },
         async setBinanceWalletFixture({ email, configured = true, quantity = "2" }: { email: string; configured?: boolean; quantity?: string }) {
           if (!/^cypress-[^@]+@example\.com$/.test(email)) throw new Error("Only Cypress users may be updated");
           if (!/^\d+(\.\d+)?$/.test(quantity)) throw new Error("Invalid fixture quantity");

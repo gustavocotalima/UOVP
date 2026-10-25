@@ -70,7 +70,7 @@ vi.mock("yahoo-finance2", () => ({
   },
 }));
 
-import { fetchBrapiQuotes } from "@/features/portfolio/brapi";
+import { fetchAvailableBrapiQuotes, fetchBrapiQuotes } from "@/features/portfolio/brapi";
 import { fetchBinanceQuotes, resetBinanceCachesForTests } from "@/features/portfolio/binance";
 import { fetchYahooQuotes } from "@/features/portfolio/yahoo-finance";
 
@@ -133,12 +133,12 @@ describe("cache compartilhado dos provedores", () => {
     });
     vi.stubGlobal("fetch", fetcher);
 
-    await fetchBrapiQuotes({
+    const initial = await fetchBrapiQuotes({
       apiKey: "chave-usuario-a",
       tickers: ["EMBJ3", "ITUB3"],
       cacheMode: "REFRESH",
     });
-    await fetchBrapiQuotes({
+    const reused = await fetchBrapiQuotes({
       apiKey: "chave-usuario-b",
       tickers: ["EMBJ3", "ITUB3"],
     });
@@ -147,10 +147,100 @@ describe("cache compartilhado dos provedores", () => {
       tickers: ["EMBJ3"],
       cacheMode: "REFRESH",
     });
+    const afterRefresh = await fetchBrapiQuotes({
+      apiKey: "chave-usuario-b",
+      tickers: ["EMBJ3", "ITUB3"],
+    });
 
-    expect(fetcher).toHaveBeenCalledTimes(2);
-    expect(new URL(String(fetcher.mock.calls[1][0])).searchParams.get("symbols")).toBe("EMBJ3");
-    expect(refreshed[0].price).toBe(20);
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(fetcher.mock.calls.map(([input]) => new URL(String(input)).searchParams.get("symbols")))
+      .toEqual(["EMBJ3", "ITUB3", "EMBJ3"]);
+    expect(initial.map(({ symbol, price }) => ({ symbol, price }))).toEqual([
+      { symbol: "EMBJ3", price: 10 },
+      { symbol: "ITUB3", price: 20 },
+    ]);
+    expect(reused).toEqual(initial);
+    expect(refreshed[0].price).toBe(30);
+    expect(afterRefresh.map(({ symbol, price }) => ({ symbol, price }))).toEqual([
+      { symbol: "EMBJ3", price: 30 },
+      { symbol: "ITUB3", price: 20 },
+    ]);
+    expect(JSON.stringify([...cacheMock.values])).not.toContain("chave-usuario");
+  });
+
+  it("brapi mantém no cache uma cotação válida quando o ticker seguinte é bloqueado pelo plano", async () => {
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      const symbol = new URL(String(input)).searchParams.get("symbols") ?? "";
+      if (symbol === "BLOCKED") {
+        return new Response(JSON.stringify({ error: true }), { status: 403 });
+      }
+      return jsonResponse({
+        results: [{ requestedSymbol: symbol, symbol, data: { currency: "BRL", regularMarketPrice: 25 } }],
+      });
+    });
+    vi.stubGlobal("fetch", fetcher);
+
+    await expect(fetchAvailableBrapiQuotes({
+      apiKey: "chave-usuario-a",
+      tickers: ["EMBJ3", "BLOCKED", "ITUB3"],
+      cacheMode: "REFRESH",
+    })).rejects.toMatchObject({ name: "BrapiApiError", status: 403 });
+    const preserved = await fetchBrapiQuotes({ apiKey: "chave-usuario-b", tickers: ["EMBJ3"] });
+
+    expect(preserved).toEqual([expect.objectContaining({ symbol: "EMBJ3", price: 25 })]);
+    expect(fetcher.mock.calls.map(([input]) => new URL(String(input)).searchParams.get("symbols")))
+      .toEqual(["EMBJ3", "BLOCKED"]);
+    expect(JSON.stringify([...cacheMock.values])).not.toContain("chave-usuario");
+  });
+
+  it.each([
+    { plan: "STARTUP" as const, batchSize: 10 },
+    { plan: "PRO" as const, batchSize: 20 },
+  ])("brapi $plan compartilha o cache por ativo entre planos e atualiza somente o subconjunto solicitado", async ({ plan, batchSize }) => {
+    const tickers = Array.from({ length: 23 }, (_, index) => `TICK${index}`);
+    let requestCount = 0;
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      requestCount += 1;
+      const symbols = new URL(String(input)).searchParams.get("symbols")?.split(",") ?? [];
+      return jsonResponse({
+        results: symbols.map((symbol) => ({
+          requestedSymbol: symbol,
+          symbol,
+          data: { currency: "BRL", regularMarketPrice: requestCount * 10 },
+        })),
+      });
+    });
+    vi.stubGlobal("fetch", fetcher);
+
+    const initial = await fetchBrapiQuotes({
+      apiKey: "chave-usuario-pago",
+      plan,
+      tickers,
+      cacheMode: "REFRESH",
+    });
+    const reused = await fetchBrapiQuotes({ apiKey: "chave-usuario-gratuito", plan: "FREE", tickers });
+    expect(reused).toEqual(initial);
+    expect(fetcher).toHaveBeenCalledTimes(Math.ceil(tickers.length / batchSize));
+    const subset = [tickers[1], tickers[21]];
+    const refreshed = await fetchBrapiQuotes({
+      apiKey: "chave-usuario-pago",
+      plan,
+      tickers: subset,
+      cacheMode: "REFRESH",
+    });
+    const afterRefresh = await fetchBrapiQuotes({ apiKey: "chave-usuario-gratuito", plan: "FREE", tickers });
+
+    expect(fetcher).toHaveBeenCalledTimes(Math.ceil(tickers.length / batchSize) + 1);
+    const lastRequest = fetcher.mock.calls[fetcher.mock.calls.length - 1][0];
+    expect(new URL(String(lastRequest)).searchParams.get("symbols")?.split(",")).toEqual(subset);
+    expect(refreshed.map((quote) => quote.symbol)).toEqual(subset);
+    const initialPrices = new Map(initial.map((quote) => [quote.symbol, quote.price]));
+    const refreshedPrices = new Map(refreshed.map((quote) => [quote.symbol, quote.price]));
+    expect(afterRefresh.map((quote) => quote.symbol)).toEqual(tickers);
+    for (const quote of afterRefresh) {
+      expect(quote.price).toBe(refreshedPrices.get(quote.symbol) ?? initialPrices.get(quote.symbol));
+    }
+    expect([...cacheMock.values.keys()].filter((key) => key.startsWith("brapi:quote:"))).toHaveLength(tickers.length);
     expect(JSON.stringify([...cacheMock.values])).not.toContain("chave-usuario");
   });
 

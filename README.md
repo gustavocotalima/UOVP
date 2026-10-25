@@ -138,7 +138,7 @@ Pluggy account `bankData.reservedBalances` can supply investments that are absen
 | Provider | Data | Credentials |
 | --- | --- | --- |
 | Pluggy | Accounts, cards, transactions, investments, and available investment operations. | Per-user Client ID, Client Secret, and webhook secret in Configurações. |
-| brapi | B3 stocks, FIIs, and ETFs. | Per-user API key in Configurações. |
+| brapi | B3 stocks, FIIs, and ETFs. | Per-user API key and plan in Configurações. |
 | Yahoo Finance | International stocks, ETFs, REITs, and current/historical FX. | No user API key. |
 | Binance public market data | Spot symbols and crypto prices, prioritizing BRL pairs with USDT conversion as needed. | No user API key. |
 | Binance wallet | Private Spot, Funding, and Simple Earn balances. | Per-user HMAC API key and secret in Configurações. |
@@ -184,7 +184,7 @@ Pluggy and Binance wallet synchronization run in parallel. The market-price chec
 
 These operations return separate `SKIPPED`, `UPDATED`, `PARTIAL`, or `FAILED` results. Navigation renders immediately; changed data triggers a refresh, and failures retain prior values with a notice. Manual refresh buttons bypass the 12-hour freshness check and still obey operation limits. There is no scheduled job that keeps refreshing a closed app.
 
-brapi normally receives the user's B3 symbols together in one authenticated quote request. Invalid-symbol failures can cause smaller retry requests. A brapi failure does not prevent Yahoo or Binance price updates.
+Choose your brapi plan in Configurações: Free (the default) sends one B3 symbol per request, with one request at a time; Startup uses batches of up to 10 symbols and up to 4 simultaneous requests; Pro uses batches of up to 20 symbols and up to 16 simultaneous requests. The preference belongs to each user and can be changed without replacing the key; it does not change the subscription with brapi. Shared cache remains per symbol and avoids requests for already cached quotes outside an explicit refresh. Market refresh isolates invalid symbols within each batch. A brapi failure does not prevent Yahoo or Binance price updates.
 
 ### Prices and logos
 

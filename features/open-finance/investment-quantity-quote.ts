@@ -1,6 +1,6 @@
 import { Prisma, type PricingSource } from "@prisma/client";
 import { fetchBrapiQuotes, normalizeBrapiSymbol, readCachedBrapiQuotes } from "@/features/portfolio/brapi";
-import { requireBrapiApiKey } from "@/features/portfolio/brapi-credentials";
+import { requireBrapiCredentials } from "@/features/portfolio/brapi-credentials";
 import {
   fetchYahooFxRates,
   fetchYahooQuotes,
@@ -74,12 +74,12 @@ export async function resolvePluggyQuantityQuote({
     let resolved: PublicQuote | null = null;
     if (pricingSource === "BRAPI") {
       // Shared quotes follow the same individual-key requirement as manual refresh.
-      const apiKey = await requireBrapiApiKey(userId);
+      const { apiKey, plan } = await requireBrapiCredentials(userId);
       const cached = await readCachedBrapiQuotes([symbol]).catch(() => new Map());
       const hit = cached.get(symbol)?.quote;
       if (usable(hit)) resolved = hit;
       if (!resolved) {
-        const fetched = await fetchBrapiQuotes({ apiKey, tickers: [symbol], signal }).catch(() => []);
+        const fetched = await fetchBrapiQuotes({ apiKey, plan, tickers: [symbol], signal }).catch(() => []);
         resolved = fetched.find(usable) ?? null;
       }
     } else {

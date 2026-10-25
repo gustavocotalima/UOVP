@@ -1,9 +1,40 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fetchAvailableBrapiQuotes, fetchBrapiQuotes, fetchBrapiTickerMetadata, isBrapiOddLotSymbol, normalizeBrapiSymbol, preferredBrapiLogoUrl, searchBrapiEtfTickers, searchBrapiTickers } from "@/features/portfolio/brapi";
+import { normalizeBrapiPlan } from "@/features/portfolio/brapi-plans";
 import { decryptCredential, encryptCredential } from "@/lib/credential-cipher";
 
 const originalCredentialKeys = process.env.CREDENTIAL_ENCRYPTION_KEYS;
 const originalActiveKey = process.env.CREDENTIAL_ENCRYPTION_ACTIVE_KEY;
+
+function quotePayload(symbol: string) {
+  return {
+    results: [{
+      requestedSymbol: symbol,
+      symbol,
+      data: { longName: symbol, currency: "BRL", regularMarketPrice: 10 },
+    }],
+  };
+}
+
+function quoteResponse(symbol: string) {
+  return new Response(JSON.stringify(quotePayload(symbol)), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+function batchQuoteResponse(symbols: string[]) {
+  return new Response(JSON.stringify({
+    results: symbols.flatMap((symbol) => quotePayload(symbol).results),
+  }), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+function requestedSymbols(input: string | URL | Request) {
+  return new URL(String(input)).searchParams.get("symbols")?.split(",") ?? [];
+}
 
 afterEach(() => {
   if (originalCredentialKeys === undefined) delete process.env.CREDENTIAL_ENCRYPTION_KEYS;
@@ -246,6 +277,176 @@ describe("integração brapi", () => {
     })).resolves.toEqual([]);
   });
 
+  it("consulta um ticker por requisição, preservando a ordem após normalização e deduplicação", async () => {
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      const symbol = new URL(String(input)).searchParams.get("symbols") ?? "";
+      return quoteResponse(symbol);
+    });
+
+    const quotes = await fetchBrapiQuotes({
+      apiKey: "token-individual",
+      tickers: [" wege3.sa ", "WEGE3", "itsa4f.sa", "ITSA4F", "", "petr4"],
+      fetcher,
+    });
+
+    expect(fetcher.mock.calls.map(([input]) => new URL(String(input)).searchParams.get("symbols")))
+      .toEqual(["WEGE3", "ITSA4", "PETR4"]);
+    expect(quotes.map((quote) => quote.symbol)).toEqual(["WEGE3", "ITSA4", "PETR4"]);
+  });
+
+  it("mantém os planos conhecidos e usa o gratuito para configurações ausentes ou inválidas", async () => {
+    for (const plan of ["FREE", "STARTUP", "PRO"] as const) {
+      expect(normalizeBrapiPlan(plan)).toBe(plan);
+    }
+    for (const plan of [undefined, null, "", "ENTERPRISE", 42, {}]) {
+      expect(normalizeBrapiPlan(plan)).toBe("FREE");
+    }
+    const fetcher = vi.fn(async (input: string | URL | Request) => batchQuoteResponse(requestedSymbols(input)));
+
+    await fetchBrapiQuotes({
+      apiKey: "plano-invalido",
+      plan: "ENTERPRISE" as Parameters<typeof fetchBrapiQuotes>[0]["plan"],
+      tickers: ["WEGE3", "ITUB4"],
+      fetcher,
+    });
+
+    expect(fetcher.mock.calls.map(([input]) => requestedSymbols(input))).toEqual([["WEGE3"], ["ITUB4"]]);
+  });
+
+  it.each([
+    { plan: "STARTUP" as const, batchSize: 10 },
+    { plan: "PRO" as const, batchSize: 20 },
+  ])("$plan divide 53 tickers em lotes de até $batchSize e ordena respostas recebidas fora de ordem", async ({ plan, batchSize }) => {
+    const tickers = Array.from({ length: 53 }, (_, index) => `TICK${index}`);
+    const completed: string[] = [];
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      const symbols = requestedSymbols(input);
+      for (let step = 0; step < (symbols[0] === tickers[0] ? 8 : 1); step += 1) await Promise.resolve();
+      completed.push(symbols[0]);
+      return batchQuoteResponse([...symbols].reverse());
+    });
+
+    const quotes = await fetchBrapiQuotes({ apiKey: `lotes-${plan}`, plan, tickers, fetcher });
+
+    const batches = fetcher.mock.calls.map(([input]) => requestedSymbols(input));
+    expect(batches).toHaveLength(Math.ceil(tickers.length / batchSize));
+    expect(batches.every((symbols) => symbols.length > 0 && symbols.length <= batchSize)).toBe(true);
+    expect(batches.flat().sort()).toEqual([...tickers].sort());
+    expect(completed[0]).not.toBe(tickers[0]);
+    expect(quotes.map((quote) => quote.symbol)).toEqual(tickers);
+  });
+
+  it.each([
+    { plan: "STARTUP" as const, batchSize: 10, concurrency: 4 },
+    { plan: "PRO" as const, batchSize: 20, concurrency: 16 },
+  ])("$plan limita chamadas concorrentes da mesma chave a $concurrency, incluindo o consumo do JSON", async ({ plan, batchSize, concurrency }) => {
+    let activeRequests = 0;
+    let maximumActiveRequests = 0;
+    const firstTickers = Array.from({ length: batchSize * concurrency }, (_, index) => `FIRST${index}`);
+    const secondTickers = Array.from({ length: batchSize * concurrency }, (_, index) => `SECOND${index}`);
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      activeRequests += 1;
+      maximumActiveRequests = Math.max(maximumActiveRequests, activeRequests);
+      const response = batchQuoteResponse(requestedSymbols(input));
+      const readJson = response.json.bind(response);
+      response.json = async () => {
+        for (let step = 0; step < 8; step += 1) await Promise.resolve();
+        try {
+          return await readJson();
+        } finally {
+          activeRequests -= 1;
+        }
+      };
+      return response;
+    });
+
+    const [firstQuotes, secondQuotes] = await Promise.all([
+      fetchBrapiQuotes({ apiKey: `concorrencia-${plan}`, plan, tickers: firstTickers, fetcher }),
+      fetchAvailableBrapiQuotes({ apiKey: `concorrencia-${plan}`, plan, tickers: secondTickers, fetcher }),
+    ]);
+
+    expect(maximumActiveRequests).toBe(concurrency);
+    expect(activeRequests).toBe(0);
+    expect(fetcher).toHaveBeenCalledTimes(concurrency * 2);
+    expect(firstQuotes.map((quote) => quote.symbol)).toEqual(firstTickers);
+    expect(secondQuotes.map((quote) => quote.symbol)).toEqual(secondTickers);
+  });
+
+  it("rejeita localmente um ticker com vírgula em vez de enviar vários símbolos na mesma requisição", async () => {
+    const fetcher = vi.fn(async (input: string | URL | Request) =>
+      quoteResponse(new URL(String(input)).searchParams.get("symbols") ?? ""));
+
+    await expect(fetchBrapiQuotes({
+      apiKey: "token-individual",
+      tickers: ["WEGE3,PETR4"],
+      fetcher,
+    })).rejects.toMatchObject({ name: "BrapiApiError", status: 400 });
+
+    expect(fetcher).not.toHaveBeenCalled();
+    await expect(fetchAvailableBrapiQuotes({
+      apiKey: "token-individual",
+      tickers: ["WEGE3,PETR4", "ITUB4"],
+      fetcher,
+    })).resolves.toEqual([expect.objectContaining({ symbol: "ITUB4" })]);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(new URL(String(fetcher.mock.calls[0][0])).searchParams.get("symbols")).toBe("ITUB4");
+  });
+
+  it("serializa chamadas concorrentes da mesma chave até terminar de consumir o JSON", async () => {
+    let activeRequests = 0;
+    let maximumActiveRequests = 0;
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      activeRequests += 1;
+      maximumActiveRequests = Math.max(maximumActiveRequests, activeRequests);
+      await Promise.resolve();
+      const response = quoteResponse(new URL(String(input)).searchParams.get("symbols") ?? "");
+      const readJson = response.json.bind(response);
+      response.json = async () => {
+        await Promise.resolve();
+        try {
+          return await readJson();
+        } finally {
+          activeRequests -= 1;
+        }
+      };
+      return response;
+    });
+
+    const [firstQuotes, secondQuotes] = await Promise.all([
+      fetchBrapiQuotes({ apiKey: "mesma-chave", tickers: ["WEGE3", "ITUB4"], fetcher }),
+      fetchAvailableBrapiQuotes({ apiKey: "mesma-chave", tickers: ["PETR4", "VALE3"], fetcher }),
+    ]);
+
+    expect(maximumActiveRequests).toBe(1);
+    expect(activeRequests).toBe(0);
+    expect(firstQuotes.map((quote) => quote.symbol)).toEqual(["WEGE3", "ITUB4"]);
+    expect(secondQuotes.map((quote) => quote.symbol)).toEqual(["PETR4", "VALE3"]);
+    expect(fetcher).toHaveBeenCalledTimes(4);
+    for (const [input] of fetcher.mock.calls) {
+      expect(new URL(String(input)).searchParams.get("symbols")).not.toContain(",");
+    }
+  });
+
+  it("permite que chaves diferentes consultem suas cotações independentemente", async () => {
+    let activeRequests = 0;
+    let maximumActiveRequests = 0;
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      activeRequests += 1;
+      maximumActiveRequests = Math.max(maximumActiveRequests, activeRequests);
+      await Promise.resolve();
+      activeRequests -= 1;
+      return quoteResponse(new URL(String(input)).searchParams.get("symbols") ?? "");
+    });
+
+    await Promise.all([
+      fetchBrapiQuotes({ apiKey: "chave-a", tickers: ["WEGE3"], fetcher }),
+      fetchBrapiQuotes({ apiKey: "chave-b", tickers: ["ITUB4"], fetcher }),
+    ]);
+
+    expect(maximumActiveRequests).toBe(2);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
   it("traduz falhas de autenticação sem vazar a chave", async () => {
     const fetcher = vi.fn(async () => new Response(JSON.stringify({
       error: true,
@@ -262,12 +463,15 @@ describe("integração brapi", () => {
       }));
   });
 
-  it("isola tickers inválidos sem impedir a atualização dos demais ativos", async () => {
+  it.each([
+    { status: 400, tickers: ["INVALID", "WEGE3", "ITUB4"] },
+    { status: 404, tickers: ["WEGE3", "INVALID", "ITUB4"] },
+  ])("isola ticker inválido com status $status sem repetir consultas válidas", async ({ status, tickers }) => {
     const fetcher = vi.fn(async (input: string | URL | Request) => {
       const symbols = new URL(String(input)).searchParams.get("symbols")?.split(",") ?? [];
       if (symbols.includes("INVALID")) {
         return new Response(JSON.stringify({ error: true, code: "NOT_FOUND" }), {
-          status: 404,
+          status,
           headers: { "Content-Type": "application/json" },
         });
       }
@@ -282,12 +486,170 @@ describe("integração brapi", () => {
 
     const quotes = await fetchAvailableBrapiQuotes({
       apiKey: "token-individual",
-      tickers: ["WEGE3", "INVALID"],
+      tickers,
       fetcher,
     });
 
-    expect(quotes.map((quote) => quote.symbol)).toEqual(["WEGE3"]);
+    expect(quotes.map((quote) => quote.symbol)).toEqual(["WEGE3", "ITUB4"]);
+    expect(vi.mocked(fetcher).mock.calls.map(([input]) => new URL(String(input)).searchParams.get("symbols")))
+      .toEqual(tickers);
     expect(fetcher).toHaveBeenCalledTimes(3);
+  });
+
+  it.each([400, 404])("a consulta estrita rejeita status %i sem consultar o próximo ticker", async (status) => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ error: true }), { status }));
+
+    await expect(fetchBrapiQuotes({
+      apiKey: "token-individual",
+      tickers: ["INVALID", "WEGE3"],
+      fetcher,
+    })).rejects.toMatchObject({ name: "BrapiApiError", status });
+
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([400, 404])("isola um ticker inválido no Startup após status %i sem repetir lotes válidos", async (status) => {
+    const tickers = Array.from({ length: 20 }, (_, index) => `TICK${index}`);
+    const invalidTicker = tickers[4];
+    const successfulSymbols: string[] = [];
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      const symbols = requestedSymbols(input);
+      if (symbols.includes(invalidTicker)) {
+        return new Response(JSON.stringify({ error: true }), { status });
+      }
+      successfulSymbols.push(...symbols);
+      return batchQuoteResponse([...symbols].reverse());
+    });
+
+    const quotes = await fetchAvailableBrapiQuotes({
+      apiKey: `isola-pago-${status}`,
+      plan: "STARTUP",
+      tickers,
+      fetcher,
+    });
+
+    const validTickers = tickers.filter((ticker) => ticker !== invalidTicker);
+    expect(quotes.map((quote) => quote.symbol)).toEqual(validTickers);
+    expect([...successfulSymbols].sort()).toEqual([...validTickers].sort());
+    const batches = fetcher.mock.calls.map(([input]) => requestedSymbols(input));
+    expect(batches.every((symbols) => symbols.length <= 10)).toBe(true);
+    expect(batches).toContainEqual(tickers.slice(10));
+    for (const ticker of tickers.slice(10)) {
+      expect(batches.flat().filter((symbol) => symbol === ticker)).toHaveLength(1);
+    }
+  });
+
+  it("interrompe novos lotes após um erro de plano e aguarda os lotes já ativos antes de rejeitar", async () => {
+    const tickers = Array.from({ length: 90 }, (_, index) => `TICK${index}`);
+    let activeRequests = 0;
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      const symbols = requestedSymbols(input);
+      const blocked = symbols.includes(tickers[0]);
+      activeRequests += 1;
+      const response = blocked
+        ? new Response(JSON.stringify({ error: true }), { status: 403 })
+        : batchQuoteResponse(symbols);
+      const readJson = response.json.bind(response);
+      response.json = async () => {
+        for (let step = 0; step < (blocked ? 1 : 8); step += 1) await Promise.resolve();
+        try {
+          return await readJson();
+        } finally {
+          activeRequests -= 1;
+        }
+      };
+      return response;
+    });
+
+    await expect(fetchAvailableBrapiQuotes({
+      apiKey: "erro-plano-pago",
+      plan: "STARTUP",
+      tickers,
+      fetcher,
+    })).rejects.toMatchObject({ name: "BrapiApiError", status: 403 });
+
+    expect(activeRequests).toBe(0);
+    expect(fetcher.mock.calls.length).toBeLessThanOrEqual(4);
+    expect(fetcher.mock.calls.map(([input]) => requestedSymbols(input)).flat()
+      .every((symbol) => tickers.slice(0, 40).includes(symbol))).toBe(true);
+  });
+
+  it.each([401, 403, 429, 500])("interrompe as duas consultas no status %i sem retries ou próximos tickers", async (status) => {
+    for (const loadQuotes of [fetchBrapiQuotes, fetchAvailableBrapiQuotes]) {
+      const fetcher = vi.fn(async () => new Response(JSON.stringify({ error: true }), { status }));
+
+      await expect(loadQuotes({
+        apiKey: "token-individual",
+        tickers: ["WEGE3", "ITUB4", "PETR4"],
+        fetcher,
+      })).rejects.toMatchObject({ name: "BrapiApiError", status });
+
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("libera a fila após uma falha para permitir uma nova consulta com a mesma chave", async () => {
+    const failedFetcher = vi.fn(async () => new Response(JSON.stringify({ error: true }), { status: 429 }));
+    await expect(fetchBrapiQuotes({ apiKey: "chave-reutilizada", tickers: ["WEGE3"], fetcher: failedFetcher }))
+      .rejects.toMatchObject({ status: 429 });
+    const successfulFetcher = vi.fn(async () => quoteResponse("ITUB4"));
+
+    await expect(fetchBrapiQuotes({ apiKey: "chave-reutilizada", tickers: ["ITUB4"], fetcher: successfulFetcher }))
+      .resolves.toEqual([expect.objectContaining({ symbol: "ITUB4" })]);
+    expect(successfulFetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("não consulta os próximos tickers quando o chamador cancela a atualização", async () => {
+    for (const loadQuotes of [fetchBrapiQuotes, fetchAvailableBrapiQuotes]) {
+      const controller = new AbortController();
+      const fetcher = vi.fn(async () => {
+        const response = quoteResponse("WEGE3");
+        const readJson = response.json.bind(response);
+        response.json = async () => {
+          const payload = await readJson();
+          controller.abort();
+          return payload;
+        };
+        return response;
+      });
+
+      await expect(loadQuotes({
+        apiKey: "token-individual",
+        tickers: ["WEGE3", "ITUB4"],
+        fetcher,
+        signal: controller.signal,
+      })).rejects.toMatchObject({ name: "AbortError" });
+
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("não envia uma consulta cancelada enquanto aguardava outra requisição da mesma chave", async () => {
+    let notifyStarted!: () => void;
+    let releaseResponse!: () => void;
+    const started = new Promise<void>((resolve) => { notifyStarted = resolve; });
+    const released = new Promise<void>((resolve) => { releaseResponse = resolve; });
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      notifyStarted();
+      await released;
+      return quoteResponse(new URL(String(input)).searchParams.get("symbols") ?? "");
+    });
+    const first = fetchBrapiQuotes({ apiKey: "fila-cancelada", tickers: ["WEGE3"], fetcher });
+    await started;
+    const controller = new AbortController();
+    const queued = fetchAvailableBrapiQuotes({
+      apiKey: "fila-cancelada",
+      tickers: ["ITUB4"],
+      fetcher,
+      signal: controller.signal,
+    });
+    const queuedRejection = expect(queued).rejects.toMatchObject({ name: "AbortError" });
+    controller.abort();
+    releaseResponse();
+
+    await expect(first).resolves.toEqual([expect.objectContaining({ symbol: "WEGE3" })]);
+    await queuedRejection;
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
   it("protege a chave individual com criptografia autenticada", () => {

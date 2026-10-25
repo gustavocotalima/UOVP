@@ -89,12 +89,59 @@ describe("modais da carteira", () => {
     cy.waitForHydration();
     cy.contains("h1", "Configurações").should("be.visible");
     cy.get("#settings-brapi-api-key").should("have.attr", "type", "password").and("have.attr", "autocomplete", "off");
+    cy.get("#settings-brapi-plan").should("have.value", "FREE");
+    cy.get("#settings-brapi-plan-limits").should("have.text", "Até 1 ativo por requisição e 1 requisição simultânea.");
+    cy.get("#settings-brapi-plan").select("STARTUP");
+    cy.get("#settings-brapi-plan-limits").should("have.text", "Até 10 ativos por requisição e 4 requisições simultâneas.");
+    cy.get("#settings-brapi-plan").select("PRO");
+    cy.get("#settings-brapi-plan-limits").should("have.text", "Até 20 ativos por requisição e 16 requisições simultâneas.");
+    cy.get("#settings-brapi-plan-help").should("contain", "não altera sua assinatura na brapi");
+    cy.get("#settings-brapi-api-key").should("have.prop", "required", true);
+    cy.contains("button", "Validar e conectar").should("be.disabled");
     cy.contains("a", "Obter chave na brapi").should("have.attr", "href", "https://brapi.dev/dashboard");
     cy.contains("Yahoo Finance").should("be.visible");
     cy.contains("Carteira Binance").should("be.visible");
     cy.get("#binance-api-key").should("have.attr", "type", "password").and("have.attr", "autocomplete", "off");
     cy.get("#binance-api-secret").should("have.attr", "type", "password").and("have.attr", "autocomplete", "off");
     cy.contains("Sem chave").should("be.visible");
+  });
+
+  it("persiste mudanças de plano brapi sem substituir a chave e mantém o plano após removê-la", () => {
+    cy.get<string>("@testUserEmail").then((email) => {
+      cy.task("seedBrapiPlanCredential", { email });
+      cy.visit("/configuracoes");
+      cy.waitForHydration();
+      cy.get("#settings-brapi-plan").should("have.value", "FREE");
+      cy.get("#settings-brapi-api-key").should("have.value", "").and("have.prop", "required", false);
+      cy.contains("button", "Salvar plano").should("be.disabled");
+      cy.contains("Chave terminando em").should("contain", "••••1234");
+
+      for (const plan of ["STARTUP", "FREE", "PRO"]) {
+        cy.get("#settings-brapi-plan").select(plan);
+        cy.contains("button", "Salvar plano").should("be.enabled").click();
+        cy.contains('[role="status"]', "Plano da brapi salvo para as consultas do app.").should("be.visible");
+        cy.task("getBrapiPlanCredentialState", { email }).should("deep.equal", {
+          plan, configured: true, lastFour: "1234", keyPreserved: true,
+        });
+        cy.reload();
+        cy.waitForHydration();
+        cy.get("#settings-brapi-plan").should("have.value", plan);
+        cy.get("#settings-brapi-api-key").should("have.value", "").and("have.prop", "required", false);
+        cy.contains("button", "Salvar plano").should("be.disabled");
+      }
+
+      cy.contains("button", /^Remover$/).click();
+      cy.get('[role="dialog"]').within(() => cy.contains("button", "Remover chave").click());
+      cy.contains('[role="status"]', "Chave da brapi removida.").should("be.visible");
+      cy.task("getBrapiPlanCredentialState", { email }).should("deep.equal", {
+        plan: "PRO", configured: false, lastFour: null, keyPreserved: false,
+      });
+      cy.reload();
+      cy.waitForHydration();
+      cy.get("#settings-brapi-plan").should("have.value", "PRO");
+      cy.get("#settings-brapi-api-key").should("have.prop", "required", true);
+      cy.contains("button", "Validar e conectar").should("be.disabled");
+    });
   });
 
   it("exibe descoberta, conciliação e bloqueia a quantidade controlada pela Binance", () => {
