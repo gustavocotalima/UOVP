@@ -40,7 +40,7 @@ export function AssetsPanel(props: AssetsPanelProps) {
           <AssetsDesktop controller={controller} />
         </CardContent>
       </Card>
-      <Card className="self-start @7xl:sticky @7xl:top-6">
+      <Card className="self-start max-lg:-order-1 @7xl:sticky @7xl:top-6">
         <CardHeader><CardTitle>Distribuição atual</CardTitle></CardHeader>
         <CardContent>
           {chartData.length ? <DonutChart data={chartData} centerLabel="Patrimônio" /> : <div className="grid h-64 place-items-center text-sm text-[var(--muted-foreground)]">Adicione ativos para visualizar.</div>}
