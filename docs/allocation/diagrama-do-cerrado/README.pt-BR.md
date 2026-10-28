@@ -32,6 +32,8 @@ O resultado identifica método e versão. Os percentuais finais exibidos pelo UO
 
 Trocar de método invalida rascunhos e exige novo cálculo. Histórico executado e aportes aguardando sincronização são preservados. O MCP só retorna uma prévia; calcular nunca envia ordens ao mercado.
 
+Os dois métodos compartilham o limite por conta de um cálculo em andamento e seis inícios por minuto móvel em cada processo do servidor, somando interface e clientes MCP. Veja os [limites de execução](../melhorado/README.pt-BR.md#limites-de-execução).
+
 ## Implementação e verificação
 
 - Motor puro: `features/portfolio/calculation/cerrado.ts`.

@@ -42,6 +42,8 @@ Fractional monetary steps of at least one cent use their exact increments. Coars
 
 Native Node workers run calculations outside the main thread and database transactions. At most two workers run concurrently, with a queue limited to 16 and a memory limit per worker. Each stage has three seconds and up to 10,000 search nodes. Models accept at most 256 asset groups to bound memory.
 
+Before building a model, the shared service admits at most one outstanding calculation and six starts per sliding minute per authenticated account, across the UI, MCP clients and both methods. A single account therefore cannot fill the FIFO worker queue. MCP reports tool errors with the codes `ALLOCATION_BUSY` or `ALLOCATION_RATE_LIMIT`. These operational limits are held in memory per server process; restarting the process resets the window.
+
 If a limit or numerical difficulty prevents proof, the result says so. A valid combination can be displayed with a warning; it is not presented as proven optimal. If no valid combination is found, calculation fails explicitly. The method never silently switches to Cerrado.
 
 Indivisible prices, currency filters, missing eligible classes and overweight positions may still leave a remainder. The allowance can represent many percentage points for contributions small relative to unit prices. Fees, broker-specific minimums and order execution are outside this calculation.
@@ -53,6 +55,7 @@ New and existing accounts default to Improved. Changing methods invalidates draf
 - Rules and objectives: `features/portfolio/calculation/improved.ts`.
 - Original search: `features/portfolio/calculation/integer-search.ts`.
 - Worker and shared service: `features/portfolio/calculation/server.ts`.
+- Account admission and burst regressions: `features/portfolio/calculation/admission.ts` and `tests/unit/allocation-admission.test.ts`.
 - Unit tests with independent exhaustive enumeration: `tests/unit/allocation-methods.test.ts`.
 - Integration: `tests/integration/allocation-methods.test.ts`.
 - Browser: `cypress/e2e/allocation-methods.cy.ts`.

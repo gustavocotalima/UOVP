@@ -4,13 +4,15 @@ import { allocateCerrado } from "./cerrado";
 import { improvedCalculation } from "./improved";
 import { searchIntegers, type IntegerModel, type IntegerSolution } from "./integer-search";
 import type { AllocationInput, AllocationMethod } from "./types";
+import { AllocationAdmission } from "./admission";
 
-let running = 0;
-const waiting: Array<() => void> = [];
+type Pool = { running: number; waiting: Array<() => void>; admission: AllocationAdmission };
+const allocationGlobal = globalThis as unknown as { allocationPoolV1?: Pool };
+const pool = allocationGlobal.allocationPoolV1 ??= { running: 0, waiting: [], admission: new AllocationAdmission() };
 async function solve(model: IntegerModel): Promise<IntegerSolution> {
-  if (waiting.length >= 16) throw new Error("Há muitos cálculos em andamento. Tente novamente em instantes.");
-  if (running >= 2) await new Promise<void>((resolve) => waiting.push(resolve));
-  else running++;
+  if (pool.waiting.length >= 16) throw new Error("Há muitos cálculos em andamento. Tente novamente em instantes.");
+  if (pool.running >= 2) await new Promise<void>((resolve) => pool.waiting.push(resolve));
+  else pool.running++;
   try {
     return await new Promise<IntegerSolution>((resolve, reject) => {
       const worker = new Worker(`const {parentPort, workerData}=require('node:worker_threads');
@@ -27,13 +29,15 @@ async function solve(model: IntegerModel): Promise<IntegerSolution> {
       worker.once("error", (error) => { clearTimeout(timer); reject(error); });
       worker.once("exit", (code) => { clearTimeout(timer); if (code !== 0) reject(new Error("O processo de cálculo foi encerrado.")); });
     });
-  } finally { const next = waiting.shift(); if (next) next(); else running--; }
+  } finally { const next = pool.waiting.shift(); if (next) next(); else pool.running--; }
 }
 
-export async function calculateContribution(input: AllocationInput, algorithm: AllocationMethod) {
-  if (algorithm === "CERRADO") return allocateCerrado(input);
-  const calculation = improvedCalculation(input);
-  let step = calculation.next();
-  while (!step.done) step = calculation.next(await solve(step.value));
-  return step.value;
+export function calculateContribution(input: AllocationInput, algorithm: AllocationMethod, userId: string) {
+  return pool.admission.run(userId, async () => {
+    if (algorithm === "CERRADO") return allocateCerrado(input);
+    const calculation = improvedCalculation(input);
+    let step = calculation.next();
+    while (!step.done) step = calculation.next(await solve(step.value));
+    return step.value;
+  });
 }

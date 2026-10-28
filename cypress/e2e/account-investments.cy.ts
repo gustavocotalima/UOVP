@@ -24,6 +24,7 @@ describe("Saldo de conta como investimento", () => {
       cy.contains("Conta atualizada.").should("be.visible");
       cy.visit("/carteira");
       cy.waitForHydration();
+      cy.get('[data-assets-panel-hydrated="true"]').should("be.visible");
       cy.contains("1 investimento(s) precisam de revisão").should("be.visible");
       cy.contains("button", "Revisar integração").click();
       cy.get('[role="dialog"]').within(() => {
@@ -67,6 +68,7 @@ describe("Saldo de conta como investimento", () => {
       cy.contains("Conta atualizada.").should("be.visible");
       cy.visit("/carteira");
       cy.waitForHydration();
+      cy.get('[data-assets-panel-hydrated="true"]').should("be.visible");
       cy.get('button[aria-label^="Expandir "]:visible').first().click();
       cy.contains(":visible", "Saldo da conta · Conta remunerada Cypress").should("be.visible");
       cy.contains(":visible", /1\.300,00/).should("be.visible");
@@ -83,6 +85,7 @@ describe("Saldo de conta como investimento", () => {
       cy.contains("Conta atualizada.").should("be.visible");
       cy.visit("/carteira");
       cy.waitForHydration();
+      cy.get('[data-assets-panel-hydrated="true"]').should("be.visible");
       cy.contains("1 investimento(s) precisam de revisão").should("not.exist");
       cy.contains(":visible", "CONTA-PGTO-OUTRO").should("be.visible");
       cy.visit("/transacoes");

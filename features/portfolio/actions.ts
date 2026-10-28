@@ -2008,7 +2008,7 @@ export async function simulateContributionAction(
       sourceOrder: asset.sourceOrder,
       eligibleToReceive: assetCanReceiveContribution(asset, allocationScope),
     })),
-  }, portfolio.allocationMethod);
+  }, portfolio.allocationMethod, userId);
 
   const assetsById = new Map(portfolio.assets.map((asset) => [asset.id, asset]));
 

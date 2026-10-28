@@ -32,6 +32,8 @@ Results identify their method and version. UOVP's final percentages use all init
 
 Changing methods invalidates drafts and requires recalculation. Executed history and contributions awaiting synchronization are preserved. MCP returns previews only; calculation never places market orders.
 
+Both methods share the per-account limit of one outstanding calculation and six starts per sliding minute per server process, counting UI and MCP clients together. See [execution limits](../melhorado/README.md#execution-limits).
+
 ## Implementation and verification
 
 - Pure engine: `features/portfolio/calculation/cerrado.ts`.

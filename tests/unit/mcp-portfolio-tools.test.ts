@@ -59,8 +59,8 @@ async function run(name: string, input: Record<string, unknown> = {}) {
 }
 
 beforeEach(() => {
-  database.userPreference.findUnique.mockResolvedValue({ allocationMethod: "IMPROVED" });
   vi.resetAllMocks();
+  database.userPreference.findUnique.mockResolvedValue({ allocationMethod: "IMPROVED" });
   database.accountInvestmentLink.count.mockResolvedValue(0);
   database.portfolio.findUnique.mockResolvedValue({ id: "portfolio-1", version: 5, updatedAt: date });
   database.asset.findMany.mockResolvedValue([asset()]);
@@ -243,6 +243,21 @@ describe("MCP portfolio ownership and DTO safety", () => {
 });
 
 describe("non-saving MCP aporte preview", () => {
+  it("returns a retryable account limit across OAuth clients without blocking other users", async () => {
+    database.userPreference.findUnique.mockResolvedValue({ allocationMethod: "CERRADO" });
+    const tool = portfolioTools.find((entry) => entry.name === "preview_contribution")!;
+    const limited = { ...context, userId: "mcp-admission-limit" };
+    const input = { amount: "100", currency: "BRL" };
+    for (let i = 0; i < 6; i++) {
+      expect(await tool.execute(limited, input)).toMatchObject({ status: "PREVIEW", saved: false });
+    }
+    database.userPreference.findUnique.mockResolvedValue({ allocationMethod: "IMPROVED" });
+    await expect(tool.execute({ ...limited, clientId: "another-client" }, input))
+      .rejects.toMatchObject({ code: "ALLOCATION_RATE_LIMIT", status: 429 });
+    expect(await tool.execute({ ...context, userId: "mcp-admission-other" }, input))
+      .toMatchObject({ status: "PREVIEW", saved: false });
+  });
+
   it("preserves currency-scope caps against the full portfolio", async () => {
     database.asset.findMany.mockResolvedValue([asset(), asset({ id: "fixed", ticker: "CDB", instrumentType: "FIXED_INCOME", investmentClass: "FIXED_INCOME", score: 0 })]);
     database.assetHolding.findMany.mockResolvedValue([holding(), holding({ id: "fixed-holding", assetId: "fixed", pricingSource: "MANUAL", quantity: amount(0), unitPrice: amount(0), currentValue: amount(900) })]);

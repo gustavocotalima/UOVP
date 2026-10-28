@@ -4,6 +4,7 @@ import Decimal from "decimal.js";
 import { z } from "zod";
 import { resolvePluggyInvestmentIssuer } from "@/features/open-finance/institution-logo";
 import { calculateContribution } from "@/features/portfolio/calculation/server";
+import { isAllocationLimitError } from "@/features/portfolio/calculation/admission";
 import { holdingCurrentValue, holdingUnitPriceBrl } from "@/features/portfolio/asset-groups";
 import { INVESTMENT_CLASSES, type InvestmentClassKey } from "@/features/portfolio/constants";
 import { sortContributionSuggestions } from "@/features/portfolio/contribution-order";
@@ -614,7 +615,8 @@ export const portfolioTools: McpToolDefinition[] = [
       });
       if (snapshot.prepared !== true) return snapshot;
       const { input, amount, allocationScope, data, fx, fxUpdatedAt, assets, allocationMethod } = snapshot;
-      const result = await calculateContribution({ contribution: amount.mul(fx), targets: data.targets, assets }, allocationMethod);
+      const result = await calculateContribution({ contribution: amount.mul(fx), targets: data.targets, assets }, allocationMethod, context.userId)
+        .catch((error) => { if (isAllocationLimitError(error)) throw new McpError(error.code, error.message, 429); throw error; });
       const byId = new Map(assets.map((asset) => [asset.id, asset]));
       return {
         calculation: result.calculation, allocationMethod,
