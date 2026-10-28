@@ -10,7 +10,6 @@ import { getUserTimeZone } from "@/lib/user-timezone";
 import { McpSettingsCard } from "@/features/mcp/settings-card";
 import { getMcpSettings } from "@/features/mcp/settings";
 import { prisma } from "@/lib/prisma";
-import { AllocationMethodCard } from "@/features/settings/allocation-method-card";
 
 export const metadata = { title: "Configurações" };
 
@@ -50,6 +49,7 @@ export default async function SettingsPage() {
         initialPluggyCredential={pluggyCredential}
         pluggyWebhookUrl={pluggyWebhookUrl()}
         initialTimeZone={timeZone}
+        initialAllocationMethod={allocationPreference?.allocationMethod ?? "IMPROVED"}
         initialInvites={invites?.map((invite) => ({
           ...invite,
           expiresAt: invite.expiresAt.toISOString(),
@@ -59,7 +59,6 @@ export default async function SettingsPage() {
         })) ?? null}
       />
       <BinanceWalletCard initialStatus={binanceStatus} />
-      <AllocationMethodCard initialMethod={allocationPreference?.allocationMethod ?? "IMPROVED"} />
       <McpSettingsCard initialSettings={mcpSettings} />
     </div>
   );

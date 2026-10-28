@@ -23,6 +23,8 @@ import {
   revokeRegistrationInviteAction,
 } from "@/features/auth/invite-actions";
 import { saveTimeZoneAction } from "./actions";
+import { AllocationMethodCard } from "./allocation-method-card";
+import type { AllocationMethod } from "@/features/portfolio/calculation/types";
 
 type RegistrationInviteDto = {
   id: string;
@@ -47,12 +49,14 @@ export function SettingsClient({
   pluggyWebhookUrl,
   initialInvites,
   initialTimeZone,
+  initialAllocationMethod,
 }: {
   initialCredential: BrapiCredentialStatus;
   initialPluggyCredential: PluggyCredentialStatus;
   pluggyWebhookUrl: string | null;
   initialInvites: RegistrationInviteDto[] | null;
   initialTimeZone: string;
+  initialAllocationMethod: AllocationMethod;
 }) {
   const [credential, setCredential] = useState(initialCredential);
   const [apiKey, setApiKey] = useState("");
@@ -268,6 +272,7 @@ export function SettingsClient({
   return (
     <>
       <InstallAppCard />
+      <AllocationMethodCard initialMethod={initialAllocationMethod} />
       <Card className="mb-6">
         <CardHeader>
           <div className="flex items-start gap-3">
@@ -280,10 +285,11 @@ export function SettingsClient({
             </div>
           </div>
         </CardHeader>
-        <CardContent className="max-w-md space-y-2">
+        <CardContent className="grid max-w-md gap-2">
           <Label htmlFor="settings-time-zone">Fuso horário</Label>
           <Select
             id="settings-time-zone"
+            className="w-full"
             value={timeZone}
             disabled={timeZonePending}
             onChange={(event) => saveTimeZone(event.target.value)}
