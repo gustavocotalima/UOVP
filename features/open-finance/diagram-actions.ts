@@ -381,11 +381,14 @@ export async function savePluggyInvestmentMetadataOverridesAction(
         const link = await readOwnedMetadataLink(tx, userId, parsed);
 
         if (parsed.quantity) {
+          let quantityChanged = false;
           const batch = link.contributionBatches[0];
           if (batch && parsed.quantity.mode === "CUSTOM" && !batch.expectedQuantity.eq(parsed.quantity.value!)) {
             throw new Error("Esta quantidade inclui aportes pendentes. Resolva a revisão de sincronização antes de alterá-la.");
           }
-          if (batch && parsed.quantity.mode === "PROVIDER") await resolveContributionQuantity(tx, link.id, "PROVIDER");
+          if (batch && parsed.quantity.mode === "PROVIDER") {
+            quantityChanged = await resolveContributionQuantity(tx, link.id, "PROVIDER");
+          }
           const canEditQuantity = canEditPluggyInvestmentQuantity({
             link,
             investment: link.investment,
@@ -404,7 +407,7 @@ export async function savePluggyInvestmentMetadataOverridesAction(
                 includedInTotals: false,
               },
             });
-            await bumpPortfolioAndInvalidateDrafts(tx, link.holding.asset.portfolioId, userId);
+            quantityChanged = true;
           }
           if (parsed.quantity.mode === "CUSTOM") {
             const quantity = new Prisma.Decimal(parsed.quantity.value!);
@@ -435,6 +438,7 @@ export async function savePluggyInvestmentMetadataOverridesAction(
               });
             }
           }
+          if (quantityChanged) await bumpPortfolioAndInvalidateDrafts(tx, link.holding.asset.portfolioId, userId);
         }
 
         const fixedIncome = link.holding.asset.instrumentType === "FIXED_INCOME";

@@ -6,7 +6,7 @@ import { GET as holdingTransactions } from "@/app/api/portfolio/holdings/[holdin
 import { getPortfolioData } from "@/features/portfolio/data";
 import { getOpenFinanceData } from "@/features/open-finance/data";
 import { reconcilePluggyInvestmentsForUser } from "@/features/open-finance/diagram-sync";
-import { reviewPluggyDiagramLinkAction, resolvePluggyQuantityChangeAction } from "@/features/open-finance/diagram-actions";
+import { reviewPluggyDiagramLinkAction, resolvePluggyQuantityChangeAction, savePluggyInvestmentMetadataOverridesAction } from "@/features/open-finance/diagram-actions";
 import { markPluggyItemDisconnected, resolvePluggyItemDisconnection } from "@/features/open-finance/disconnection";
 import { resolveContributionQuantity } from "@/features/open-finance/contribution-quantity";
 import { portfolioTools } from "@/features/mcp/portfolio-tools";
@@ -212,6 +212,29 @@ suite("Open Finance contribution quantity reconciliation", () => {
     expect(holding.quantity.toString()).toBe(String(quantity));
     expect((await getPortfolioData(f.user.id)).assets[0].currentValue).toBe("1234.56");
     expect((await db!.pluggyInvestmentDiagramLink.findUniqueOrThrow({ where: { id: f.link.id } })).overrideQuantity).toBeNull();
+  });
+  it.each(["STOCK", "MUTUAL_FUND"] as const)("invalidates drafts when metadata restores a projected %s quantity", async (type) => {
+    const f = await fixture(type);
+    if (type === "MUTUAL_FUND") await db!.assetHolding.update({ where: { id: f.holding.id }, data: { pricingSource: "PLUGGY", fractional: true, currentValue: 1000 } });
+    await reconcilePluggyInvestmentsForUser(f.user.id);
+    const purchase = await buy(f);
+    const draft = await simulation(f);
+    const before = await db!.portfolio.findUniqueOrThrow({ where: { id: f.user.portfolio!.id } });
+    const link = await db!.pluggyInvestmentDiagramLink.findUniqueOrThrow({ where: { id: f.link.id } });
+    await savePluggyInvestmentMetadataOverridesAction({
+      linkId: link.id, expectedUpdatedAt: link.updatedAt,
+      productName: { mode: "PROVIDER", value: null }, issuer: { mode: "PROVIDER", value: null },
+      productType: { mode: "PROVIDER", catalogItemId: null, customTypeName: null },
+      rateTerms: { mode: "PROVIDER", rateConvention: null, benchmark: null, rateValue: null },
+      purchaseDate: { mode: "PROVIDER", value: null }, maturityDate: { mode: "PROVIDER", value: null },
+      quantity: { mode: "PROVIDER", value: null },
+    });
+    expect((await position(f)).quantity.toString()).toBe("100");
+    expect((await position(f)).investedValue?.toString()).toBe("1000");
+    expect((await db!.contributionSimulation.findUniqueOrThrow({ where: { id: draft.id } })).status).toBe("STALE");
+    expect((await db!.portfolio.findUniqueOrThrow({ where: { id: before.id } })).version).toBeGreaterThan(before.version);
+    expect(await db!.contributionSuggestion.findUniqueOrThrow({ where: { id: purchase.id } })).toMatchObject({ executionStatus: "EXECUTED", syncResolution: "USER_PROVIDER" });
+    await expect(executeContributionAction(draft.id, draft.suggestions[0].id, 10, 12, { holdingId: f.holding.id })).resolves.toEqual({ status: "INVALIDATED" });
   });
   it.each(["STOCK", "MUTUAL_FUND"] as const)("keeps drafts valid after an identical pending %s snapshot", async (type) => {
     const f = await fixture(type);
