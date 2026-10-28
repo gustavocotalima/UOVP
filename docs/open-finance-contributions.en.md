@@ -19,3 +19,5 @@ Unambiguous historical pending records are initialized during reconciliation. Mi
 Apply the contribution-quantity migration before serving this version. The database permits one active batch per holding and multiple contributions inside it; the previous one-pending-per-asset protection remains for the other flows. Registration and decisions share the provider operation lease and reject stale position revisions. Effective position changes invalidate unexecuted calculations.
 
 When a changed provider quantity has no update timestamp, UOVP requests an explicit quantity review instead of automatically confirming the purchase. Identical acknowledged snapshots do not repeat the prompt. Deleting an asset or class resolves its active batches and removes only the contribution quantity override before the holding is removed, so remapping starts from provider data.
+
+When a provider-priced projection ends, the institution’s reported balance becomes authoritative again, even when it differs from quantity × unit price.

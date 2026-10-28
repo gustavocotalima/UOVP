@@ -40,7 +40,9 @@ async function setQuantity(tx: Prisma.TransactionClient, link: Link, quantity: P
     investedValue: batch ? projectedCost?.toDecimalPlaces(2) ?? null : providerCost,
     investedValueCurrency: batch ? projectedCost !== null ? batch.currency : null
       : providerCost !== null ? link.investment.currencyCode : null,
-    currentValue: holding.pricingSource === "PLUGGY" ? quantity.mul(holding.unitPrice).toDecimalPlaces(2) : null,
+    currentValue: holding.pricingSource === "PLUGGY"
+      ? batch ? quantity.mul(holding.unitPrice).toDecimalPlaces(2) : link.investment.balance
+      : null,
     includedInTotals: quantity.gt(0) && holding.unitPrice.gt(0)
       && (holding.currency === "BRL" || Boolean(holding.fxRateToBrl?.gt(0))),
   } });

@@ -8,6 +8,7 @@ import { getOpenFinanceData } from "@/features/open-finance/data";
 import { reconcilePluggyInvestmentsForUser } from "@/features/open-finance/diagram-sync";
 import { reviewPluggyDiagramLinkAction, resolvePluggyQuantityChangeAction } from "@/features/open-finance/diagram-actions";
 import { markPluggyItemDisconnected, resolvePluggyItemDisconnection } from "@/features/open-finance/disconnection";
+import { resolveContributionQuantity } from "@/features/open-finance/contribution-quantity";
 import { portfolioTools } from "@/features/mcp/portfolio-tools";
 
 const current = vi.hoisted(() => ({ userId: "" }));
@@ -195,6 +196,22 @@ suite("Open Finance contribution quantity reconciliation", () => {
     await buy(remapped, 5);
     expect((await position(remapped)).quantity.toString()).toBe("105");
     expect(await db!.pluggyContributionBatch.count({ where: { linkId: f.link.id, state: "WAITING" } })).toBe(1);
+  });
+  it.each(["MATCH", "PROVIDER"] as const)("restores the reported balance after %s resolution of a provider-priced holding", async (mode) => {
+    const f = await fixture("MUTUAL_FUND");
+    await db!.assetHolding.update({ where: { id: f.holding.id }, data: { pricingSource: "PLUGGY", fractional: true, currentValue: 1000 } });
+    await buy(f);
+    expect((await position(f)).currentValue?.toString()).toBe("1100");
+    const quantity = mode === "MATCH" ? 110 : 108;
+    await db!.pluggyInvestment.update({ where: { id: f.investment.id }, data: { quantity, balance: 1234.56, value: 10, providerUpdatedAt: new Date() } });
+    await reconcilePluggyInvestmentsForUser(f.user.id);
+    if (mode === "PROVIDER") await db!.$transaction((tx) => resolveContributionQuantity(tx, f.link.id, "PROVIDER"));
+    const holding = await position(f);
+    expect(holding.pricingSource).toBe("PLUGGY");
+    expect(holding.currentValue?.toString()).toBe("1234.56");
+    expect(holding.quantity.toString()).toBe(String(quantity));
+    expect((await getPortfolioData(f.user.id)).assets[0].currentValue).toBe("1234.56");
+    expect((await db!.pluggyInvestmentDiagramLink.findUniqueOrThrow({ where: { id: f.link.id } })).overrideQuantity).toBeNull();
   });
   it("requires a destination when multiple institutions hold the same asset", async () => {
     const f = await fixture(); const suffix = randomUUID();

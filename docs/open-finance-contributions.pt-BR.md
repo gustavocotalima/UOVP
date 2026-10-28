@@ -19,3 +19,5 @@ Pendências antigas sem ambiguidades são inicializadas durante a reconciliaçã
 Aplique a migração de quantidades de aportes antes de servir esta versão. O banco permite um lote ativo por posição e vários aportes dentro dele; a proteção anterior de um aporte pendente por ativo permanece para os outros fluxos. Registros e decisões compartilham a trava operacional do provedor e rejeitam revisões desatualizadas da posição. Mudanças na posição efetiva invalidam cálculos ainda não executados.
 
 Quando uma mudança na quantidade da instituição não tem data de atualização, o UOVP solicita revisão explícita em vez de confirmar a compra automaticamente. Snapshots idênticos já reconhecidos não repetem o aviso. Excluir um ativo ou classe encerra os lotes ativos e remove somente a quantidade temporária do aporte antes de excluir a posição; uma nova integração começa pelos dados da instituição.
+
+Ao encerrar uma quantidade temporária com preço do provedor, o saldo informado pela instituição volta a ser a referência, mesmo quando difere de quantidade × preço unitário.
