@@ -6,7 +6,7 @@ export type AllocationMethod = (typeof ALLOCATION_METHODS)[number];
 export const ALLOCATION_LABELS: Record<AllocationMethod, string> = {
   IMPROVED: "Melhorado", CERRADO: "Diagrama do Cerrado",
 };
-export const ALLOCATION_VERSION = "1";
+export const ALLOCATION_VERSIONS = { IMPROVED: "2", CERRADO: "1" } as const;
 export const Money = Decimal.clone({ precision: 60, rounding: Decimal.ROUND_HALF_UP });
 export type AllocationAsset = {
   id: string; ticker: string; name: string; investmentClass: InvestmentClassKey;
@@ -32,6 +32,7 @@ export type CalculationDiagnostics = {
   stages: CalculationStage[]; warnings: string[];
   classTolerancesBrl: Partial<Record<InvestmentClassKey, string>>;
   reservedAmount: string;
+  heuristic?: { priorities: string[]; iterations: number; evaluations: number; stopReason: "stable" | "iteration_limit" | "time_limit" };
 };
 export type AllocationResult = {
   suggestions: AllocationSuggestion[]; unallocatedAmount: Decimal;

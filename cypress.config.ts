@@ -69,6 +69,23 @@ export default defineConfig({
       on("before:spec", cleanupCypressUsers);
       on("after:run", cleanupCypressUsers);
       on("task", {
+        async seedBalancedAllocationPortfolio({ email }: { email: string }) {
+          if (!/^cypress-[^@]+@example\.com$/.test(email)) throw new Error("Only Cypress users may be seeded");
+          const prisma = new PrismaClient();
+          try {
+            const user = await prisma.user.findUniqueOrThrow({ where: { email } });
+            const portfolio = await prisma.portfolio.upsert({ where: { userId: user.id }, create: { userId: user.id }, update: {} });
+            await prisma.investmentTarget.deleteMany({ where: { userId: user.id } });
+            await prisma.investmentTarget.create({ data: { userId: user.id, investmentClass: "BRAZILIAN_STOCKS", percentage: 100 } });
+            for (const score of [2, 3, 5]) {
+              await prisma.asset.create({ data: { portfolioId: portfolio.id, ticker: `BALANCE${score}`, name: `Nota ${score}`, score,
+                investmentClass: "BRAZILIAN_STOCKS", instrumentType: "STOCK", holdings: { create: {
+                  issuer: "Synthetic", productName: "Synthetic", quantity: 0, unitPrice: 1, currency: "BRL", pricingSource: "MANUAL", positionSource: "MANUAL",
+                } } } });
+            }
+            return null;
+          } finally { await prisma.$disconnect(); }
+        },
         async seedBrapiPlanCredential({ email }: { email: string }) {
           if (!/^cypress-[^@]+@example\.com$/.test(email)) throw new Error("Only Cypress users may be seeded");
           const prisma = new PrismaClient();

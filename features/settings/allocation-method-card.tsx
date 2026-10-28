@@ -48,7 +48,7 @@ export function AllocationMethodCard({ initialMethod }: { initialMethod: Allocat
           <div className="rounded-xl border bg-[var(--muted)]/30 p-4">
             <dt className="text-sm font-medium">Melhorado</dt>
             <dd className="mt-2 text-sm leading-relaxed text-[var(--muted-foreground)]">
-              Busca aproveitar o orçamento, respeitando as metas com uma margem de arredondamento baseada nas cotas. A distribuição entre os ativos considera as notas.
+              Prioriza o equilíbrio entre as metas e, dentro de cada classe, as proporções das notas. Aproveita o orçamento preservando esse equilíbrio, com margem de arredondamento conforme as cotas.
             </dd>
           </div>
           <div className="rounded-xl border bg-[var(--muted)]/30 p-4">
