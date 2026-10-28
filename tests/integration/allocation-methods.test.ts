@@ -36,7 +36,7 @@ suite("per-user allocation methods", () => {
     expect(result.allocationMethod).toBe("IMPROVED");
     expect(result.calculation.algorithm).toBe("IMPROVED");
     const saved = await db!.contributionSimulation.findUniqueOrThrow({ where: { id: result.id }, include: { suggestions: true } });
-    expect(saved.calculationVersion).toBe("1");
+    expect(saved.calculationVersion).toBe("2");
     expect(saved.suggestions.reduce((a, s) => a.add(s.value), saved.unallocatedAmount).eq(saved.requestedAmount)).toBe(true);
     expect(await db!.assetHolding.findMany({ where: { asset: { portfolioId: user.portfolio!.id } } })).toEqual(before);
   });
@@ -46,6 +46,14 @@ suite("per-user allocation methods", () => {
       await expect(simulateContributionAction(1.001, currency, "ALL_ASSETS")).rejects.toThrow("duas casas decimais");
     }
     expect(await db!.contributionSimulation.count({ where: { userId: user.id } })).toBe(0);
+  });
+  it("requires recalculation of an old Improved draft instead of executing v1 quantities", async () => {
+    const user = await fixture();
+    const result = await simulateContributionAction(100);
+    await db!.contributionSimulation.update({ where: { id: result.id }, data: { calculationVersion: "1" } });
+    const before = await db!.assetHolding.findMany({ where: { asset: { portfolioId: user.portfolio!.id } } });
+    expect(await executeContributionAction(result.id)).toEqual({ status: "INVALIDATED" });
+    expect(await db!.assetHolding.findMany({ where: { asset: { portfolioId: user.portfolio!.id } } })).toEqual(before);
   });
   it("isolates preferences, rejects invalid methods and invalidates only the caller's drafts", async () => {
     const a = await fixture(); const b = await fixture();
@@ -63,7 +71,7 @@ suite("per-user allocation methods", () => {
   });
   it("keeps historical executions and awaiting-sync entries when the setting changes", async () => {
     const user = await fixture(); const draft = await simulateContributionAction(100);
-    const completed = await db!.contributionSimulation.update({ where: { id: draft.id }, data: { status: "EXECUTED" } });
+    const completed = await db!.contributionSimulation.update({ where: { id: draft.id }, data: { status: "EXECUTED", calculationVersion: "1" } });
     const suggestion = await db!.contributionSuggestion.findFirstOrThrow({ where: { simulationId: draft.id } });
     await db!.contributionSuggestion.update({ where: { id: suggestion.id }, data: { executionStatus: "AWAITING_SYNC", awaitingSyncAt: new Date() } });
     await saveAllocationMethodAction("CERRADO");

@@ -22,6 +22,7 @@ import {
 } from "@/features/open-finance/diagram-exclusion";
 import { questionChangeAffectsAllocation } from "./allocation";
 import { calculateContribution } from "./calculation/server";
+import { ALLOCATION_VERSIONS } from "./calculation/types";
 import { fixedIncomeHoldingFingerprint, holdingCurrentValue } from "./asset-groups";
 import { addInvestmentCost, investmentCostUpdate } from "./investment-cost";
 import { bumpPortfolioAndInvalidateDrafts } from "./invalidation";
@@ -2126,7 +2127,7 @@ export async function executeContributionAction(
       });
       const portfolio = simulation?.user.portfolio;
       if (!simulation || !portfolio || simulation.status !== "DRAFT" || simulation.portfolioVersion !== portfolio.version
-        || !simulation.allocationMethod) {
+        || !simulation.allocationMethod || simulation.calculationVersion !== ALLOCATION_VERSIONS[simulation.allocationMethod]) {
         return "INVALIDATED" as const;
       }
       const selected = simulation.suggestions.filter(

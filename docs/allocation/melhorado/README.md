@@ -2,64 +2,64 @@
 
 [Português](README.pt-BR.md) · [Diagrama do Cerrado](../diagrama-do-cerrado/README.md)
 
-UOVP's default method, selected per user in Settings. The UI and MCP share the preference and calculation service. This is an original TypeScript implementation using the existing `decimal.js` dependency. It requires no WebAssembly, Python, external service or additional package.
+UOVP's default method, selected per user in Settings and shared by the portfolio and MCP. Version 2 uses deterministic approximate apportionment in TypeScript with the existing `decimal.js` dependency. It requires no new packages, WebAssembly, Python or external service.
 
-## Objectives, in order
+## Priorities
 
-1. Maximize reserved investment without exceeding the budget.
-2. Fix that amount and minimize total monetary deviations from class references.
-3. Fix the best class distribution found and minimize asset-reference deviations guided by scores.
+1. Balance investment classes against their targets.
+2. Within each class, balance positions against their scores.
+3. Use the remaining budget while preserving the first two criteria.
 
-For the investable amount found, each class reference divides that amount in proportion to positive gaps to its target on final wealth. Each asset reference divides its class reference in proportion to positive gaps to the score-weighted distribution. Existing positions remain in the base even if they receive no purchases. Canonical ID order makes results independent of UI sorting.
+The entered amount is a ceiling, not a spending requirement. A combination must not win merely by spending more if it worsens balance beyond rounding allowances.
 
-This priority can substantially change the distribution within a class: a closer class reference takes priority over individual score preferences.
+Scores describe desired shares of class wealth after the contribution. Scores 2, 3 and 5 represent 20%, 30% and 50%. Adding another score-5 asset changes those references to 13.33%, 20%, 33.33% and 33.33%. Existing positions are included; a high-score asset already above its share may receive no purchases.
 
-## Lot-aware tolerance
+The algorithm proposes purchases only. Overweight positions remain in the portfolio, and a small contribution may correct only part of an imbalance.
 
-Find each class's cheapest eligible purchase in BRL. Whole instruments use one unit; fractional instruments use their quantity step converted to money, with a one-cent floor for the reservation grid. Cap this step at the budget. Nonpositive scores, zero prices, zero targets and currency exclusions do not enlarge the allowance.
+## Apportionment and rounding
 
-For class `i`, with its target expressed as a fraction from 0 to 1:
+1. Calculate positive class gaps against existing wealth plus the requested contribution. Only classes with eligible purchases receive a contribution reference.
+2. Within each class, calculate positive-score shares and asset gaps against projected class wealth. Divide its reference across eligible receivers' positive gaps.
+3. Round toward nearby purchase increments. If internal rounding exceeds the budget, reduce proposed quantities before producing any result.
+4. Refine purchases and replacements in this priority order: financial validity, class balance, score balance, and budget use. Existing quantities are never reduced.
+5. Return the best valid combination found and the exact remainder.
 
-```text
-allowance_i = BRL 0.01 + target_i × sum(other classes' cheapest purchases)
-```
+The initial combination already considers scores. It does not start by concentrating each class in the cheapest asset. Canonical ID order prevents table sorting from changing calculations.
 
-Rounding another class's purchase down increases class `i`'s weight. The allowance covers that effect without requiring exact whole-unit combinations. It limits the excess of classes receiving purchases; it never increases the budget.
+## Lot-aware allowances
 
-Synthetic example: 50/50 classes, prices BRL 99 and BRL 100, budget BRL 5,000. A nearly exact one-cent rule buys nothing. This method buys 25 units of each: BRL 4,975, remainder BRL 25, weights 49.7487% and 50.2513%.
+Whole units prevent exact proportions for every contribution. Comparisons use monetary rounding bands rather than sacrificing scores to gain one cent of class-target precision.
 
-For an initially empty portfolio with every target class eligible, rounding the continuous reference down provides a combination leaving less than the sum of class purchase steps. This does not guarantee full investment when receivers are missing or existing wealth is unbalanced.
+For each class, consider its cheapest eligible purchase affordable within the budget, in BRL. Its allowance is BRL 0.01 plus the largest of:
 
-## Search and precision
+- Half that increment, when every positive-target class has affordable receivers.
+- The class target multiplied by the sum of other classes' increments.
+- The compensation required for rounding other classes' fractional quantities down.
 
-The original integer search uses linear relaxations and branch-and-bound. An initial feasible cheap-lot combination provides an incumbent; the search considers replacements rather than only adding purchases. Stage one maximizes cent reservations. Later stages fix prior results, allowing a numerical slack of 0.00001 cent in distribution objectives.
+A position receives an allowance of one purchase increment plus compensation for other positions' fractional rounding losses within its class. Nonpositive scores, zero targets, zero prices and currency exclusions prevent purchases. Excluded holdings retain their wealth in the denominator and need not satisfy a grid for purchases they cannot receive.
 
-Floating-point search output is not trusted for financial safety. Decimal arithmetic at precision 60 recalculates the result, checks targets, rounds quantities down and requires `spent ≤ reserved ≤ budget`. Persisted values are also rounded down to ten decimal places. The remainder conserves the exact budget, including FX, within database precision.
+Allowances never increase the budget. Purchases exceeding class or asset upper limits are rejected. For small contributions, a single unit can represent a material percentage difference.
 
-Fractional monetary steps of at least one cent use their exact increments. Coarse steps requiring subcent settlement are rejected until an explicit settlement grid is provided. Whole-unit prices also require a cent settlement grid.
+## Precision and execution
 
-Settlement-grid restrictions apply only to eligible purchases. Excluded holdings, nonpositive scores and zero-target classes retain their full existing valuation without needing to meet a purchase grid.
+Reservations use integer cents. Fractional steps worth at least one cent require an explicit cent settlement grid; whole instruments also require prices on that grid. Fractional quantities are rounded down to their permitted step and the database's ten-decimal precision.
 
-## Execution limits
+Numeric refinement does not determine final financial validity: Decimal at precision 60 recalculates values and checks the budget, class limits and score proportions. The remainder conserves the budget, including FX, within database precision.
 
-Native Node workers run calculations outside the main thread and database transactions. At most two workers run concurrently, with a queue limited to 16 and a memory limit per worker. Each stage has three seconds and up to 10,000 search nodes. Models accept at most 256 asset groups to bound memory.
+Refinement is local and bounded, with no promise of a global optimum. It stops when no improvement exists among the considered moves, after 64–256 iterations depending on portfolio size, or after three seconds. Diagnostics record priorities, iterations, evaluations and the stop reason. Normal completion does not produce the former mathematical-proof warning.
 
-Before building a model, the shared service admits at most one outstanding calculation and six starts per sliding minute per authenticated account, across the UI, MCP clients and both methods. A single account therefore cannot fill the FIFO worker queue. MCP reports tool errors with the codes `ALLOCATION_BUSY` or `ALLOCATION_RATE_LIMIT`. These operational limits are held in memory per server process; restarting the process resets the window.
+Models accept at most 256 asset groups. Native Node workers execute outside the main thread and database transactions: two concurrently, a queue of up to 16 and a memory limit per worker. Admission permits one outstanding calculation and six starts per sliding minute per account across the UI, MCP and both methods. Bookkeeping is held in memory per server process.
 
-If a limit or numerical difficulty prevents proof, the result says so. A valid combination can be displayed with a warning; it is not presented as proven optimal. If no valid combination is found, calculation fails explicitly. The method never silently switches to Cerrado.
+## History and verification
 
-Indivisible prices, currency filters, missing eligible classes and overweight positions may still leave a remainder. The allowance can represent many percentage points for contributions small relative to unit prices. Fees, broker-specific minimums and order execution are outside this calculation.
+Version 2 requires recalculating version-1 drafts. The migration invalidates old drafts without recorded contributions; executed history and contributions awaiting synchronization retain their original data. The server also rejects execution of an incompatible calculation version.
 
-## Settings, history and tests
-
-New and existing accounts default to Improved. Changing methods invalidates drafts. Executed and awaiting-sync records are preserved; historical simulations are not relabelled as results from this engine.
-
-- Rules and objectives: `features/portfolio/calculation/improved.ts`.
-- Original search: `features/portfolio/calculation/integer-search.ts`.
-- Worker and shared service: `features/portfolio/calculation/server.ts`.
-- Account admission and burst regressions: `features/portfolio/calculation/admission.ts` and `tests/unit/allocation-admission.test.ts`.
-- Unit tests with independent exhaustive enumeration: `tests/unit/allocation-methods.test.ts`.
-- Integration: `tests/integration/allocation-methods.test.ts`.
+- Financial preparation and validation: `features/portfolio/calculation/improved.ts`.
+- Apportionment and refinement: `features/portfolio/calculation/balanced-search.ts`.
+- Service and admission: `features/portfolio/calculation/server.ts` and `admission.ts`.
+- Proportions, existing positions, remainders and whole purchases: `tests/unit/allocation-balance.test.ts`.
+- Independent small-case comparisons: `tests/unit/allocation-methods.test.ts`.
+- Preferences, history and UI/MCP: `tests/integration/allocation-methods.test.ts`.
 - Browser: `cypress/e2e/allocation-methods.cy.ts`.
 
-Personal financial captures remain outside the repository. Local verification includes comparisons with the offline reference and whole-unit portfolios without fractional receivers.
+Personal financial captures and replays stay outside Git. Fees, broker-specific minimums and order execution are outside this apportionment.
