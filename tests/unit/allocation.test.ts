@@ -33,14 +33,13 @@ describe("alocação de aportes", () => {
       targets: { ...DEFAULT_TARGETS, INTERNATIONAL_STOCKS: 0, BRAZILIAN_STOCKS: 0, REAL_ESTATE_FUNDS: 0, REITS: 0, CRYPTO: 100, FIXED_INCOME: 0, INTERNATIONAL_FIXED_INCOME: 0, STORE_OF_VALUE: 0 },
       assets: [{ id: "btc", ticker: "BTC", name: "Bitcoin", investmentClass: "CRYPTO", currentValue: 0, quantity: 0, unitPrice: 300000, score: 10, fractional: true }],
     });
-    expect(result.suggestions[0].value.toNumber()).toBe(100);
-    expect(result.suggestions[0].quantity.toNumber()).toBeCloseTo(1 / 3000, 12);
+    expect(result.suggestions[0].value.toNumber()).toBeCloseTo(100, 4);
+    expect(result.suggestions[0].quantity.toNumber()).toBeCloseTo(1 / 3000, 9);
   });
 
   it("considera a carteira inteira nas metas, mas deixa saldo não alocado quando o escopo restringe os recebedores", () => {
     const result = allocateContribution({
       contribution: 1000,
-      preserveTargetGapsWithoutEligibleAssets: true,
       targets: {
         ...DEFAULT_TARGETS,
         INTERNATIONAL_STOCKS: 50,
@@ -60,15 +59,13 @@ describe("alocação de aportes", () => {
 
     expect(result.suggestions).toHaveLength(1);
     expect(result.suggestions[0].assetId).toBe("usd");
-    expect(result.suggestions[0].value.toNumber()).toBe(500);
-    expect(result.unallocatedAmount.toNumber()).toBe(500);
+    expect(result.suggestions[0].value.toNumber()).toBe(0.02);
+    expect(result.unallocatedAmount.toNumber()).toBe(999.98);
   });
 
   it("redistribui todo o aporte entre os ativos BRL elegíveis quando ativos USD são excluídos", () => {
     const result = allocateContribution({
       contribution: 1500,
-      preserveTargetGapsWithoutEligibleAssets: false,
-      capEligibleClassesAtTarget: true,
       targets: {
         ...DEFAULT_TARGETS,
         INTERNATIONAL_STOCKS: 50,
@@ -95,8 +92,6 @@ describe("alocação de aportes", () => {
   it("não ultrapassa a meta das classes elegíveis ao filtrar por moeda", () => {
     const result = allocateContribution({
       contribution: 1000,
-      preserveTargetGapsWithoutEligibleAssets: false,
-      capEligibleClassesAtTarget: true,
       targets: {
         ...DEFAULT_TARGETS,
         INTERNATIONAL_STOCKS: 15,
@@ -117,16 +112,14 @@ describe("alocação de aportes", () => {
     // O máximo resolve (1.000 + x) / (9.000 + x) = 15%.
     expect(result.suggestions).toHaveLength(1);
     expect(result.suggestions[0].assetId).toBe("usd");
-    expect(result.suggestions[0].value.toNumber()).toBeCloseTo(411.7647058823, 8);
-    expect(result.suggestions[0].totalAfterSuggestionPercentage.toNumber()).toBeCloseTo(15, 8);
-    expect(result.unallocatedAmount.toNumber()).toBeCloseTo(588.2352941177, 8);
+    expect(result.suggestions[0].value.toNumber()).toBeCloseTo(411.77, 8);
+    expect(result.suggestions[0].totalAfterSuggestionPercentage.toNumber()).toBeCloseTo(15, 3);
+    expect(result.unallocatedAmount.toNumber()).toBeCloseTo(588.23, 8);
   });
 
   it("investe todo o aporte USD quando a classe elegível continua abaixo da meta", () => {
     const result = allocateContribution({
       contribution: 1000,
-      preserveTargetGapsWithoutEligibleAssets: false,
-      capEligibleClassesAtTarget: true,
       targets: {
         ...DEFAULT_TARGETS,
         INTERNATIONAL_STOCKS: 15,

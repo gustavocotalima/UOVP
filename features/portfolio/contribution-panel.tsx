@@ -13,6 +13,7 @@ import { Select } from "@/components/ui/select";
 import { DonutChart } from "@/components/charts/donut-chart";
 import { formatCurrency, formatMoney, formatPercent } from "@/lib/money";
 import { executeContributionAction, simulateContributionAction } from "./actions";
+import { ALLOCATION_LABELS } from "./calculation/types";
 import { PORTFOLIO_SIMULATION_INVALIDATED_EVENT } from "./client-events";
 import {
   currencyOnlyContributionScope,
@@ -310,6 +311,9 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
         </CardContent>
       </Card>
       {message && <p role="status" className="rounded-xl border bg-[var(--card)] p-4 text-sm">{message}</p>}
+      {simulation && <p className="text-sm text-muted-foreground" role="status">Sistema de cálculo: {ALLOCATION_LABELS[simulation.allocationMethod ?? "IMPROVED"]}.
+        {simulation.calculation?.warnings.map((warning) => <span className="mt-1 block text-amber-700 dark:text-amber-400" key={warning}>{warning}</span>)}
+      </p>}
       {simulation && (
         <div className="space-y-6">
           <Card>

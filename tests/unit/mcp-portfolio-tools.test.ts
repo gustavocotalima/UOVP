@@ -5,6 +5,7 @@ import type { McpContext } from "@/features/mcp/types";
 
 const database = vi.hoisted(() => ({
   portfolio: { findUnique: vi.fn() },
+  userPreference: { findUnique: vi.fn() },
   asset: { findMany: vi.fn(), findFirst: vi.fn() },
   assetHolding: { findMany: vi.fn(), findFirst: vi.fn() },
   investmentTarget: { findMany: vi.fn() },
@@ -35,7 +36,7 @@ function asset(overrides: Record<string, unknown> = {}) {
   return {
     id: "asset-1", ticker: "VIVA3", name: "Vivara", instrumentType: "STOCK",
     investmentClass: "BRAZILIAN_STOCKS", marketRegion: "BRAZIL", fixedIncomeFamilyCode: null,
-    indexation: null, score: 8, updatedAt: date, ...overrides,
+    indexation: null, score: 8, createdAt: date, updatedAt: date, ...overrides,
   };
 }
 function holding(overrides: Record<string, unknown> = {}) {
@@ -58,6 +59,7 @@ async function run(name: string, input: Record<string, unknown> = {}) {
 }
 
 beforeEach(() => {
+  database.userPreference.findUnique.mockResolvedValue({ allocationMethod: "IMPROVED" });
   vi.resetAllMocks();
   database.accountInvestmentLink.count.mockResolvedValue(0);
   database.portfolio.findUnique.mockResolvedValue({ id: "portfolio-1", version: 5, updatedAt: date });

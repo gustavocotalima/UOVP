@@ -17,6 +17,6 @@ export default defineConfig([
     "cypress/screenshots/**",
     "cypress/videos/**",
     "next-env.d.ts",
-    "work/static-parse.cjs",
+    "work/**",
   ]),
 ]);

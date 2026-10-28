@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import Decimal from "decimal.js";
 import { z } from "zod";
 import { resolvePluggyInvestmentIssuer } from "@/features/open-finance/institution-logo";
-import { allocateContribution } from "@/features/portfolio/allocation";
+import { calculateContribution } from "@/features/portfolio/calculation/server";
 import { holdingCurrentValue, holdingUnitPriceBrl } from "@/features/portfolio/asset-groups";
 import { INVESTMENT_CLASSES, type InvestmentClassKey } from "@/features/portfolio/constants";
 import { sortContributionSuggestions } from "@/features/portfolio/contribution-order";
@@ -72,7 +72,7 @@ const holdingSelect = {
 const assetInfoSelect = {
   id: true, ticker: true, name: true, instrumentType: true, investmentClass: true,
   marketRegion: true, fixedIncomeFamilyCode: true, indexation: true, score: true,
-  updatedAt: true,
+  updatedAt: true, createdAt: true,
 } satisfies Prisma.AssetSelect;
 
 const fullHoldingSelect = {
@@ -563,9 +563,11 @@ export const portfolioTools: McpToolDefinition[] = [
       portfolioVersion: z.number().nullable().optional(), inputAmount: z.string().optional(),
       inputCurrency: z.enum(["BRL", "USD"]).optional(), allocationScope: z.enum(["ALL_ASSETS", "BRL_ONLY", "USD_ONLY"]).optional(),
       requestedAmountBrl: z.string().optional(), unallocatedAmountBrl: z.string().optional(), unallocatedInputAmount: z.string().optional(),
+      calculation: recordSchema.optional(), allocationMethod: z.enum(["IMPROVED", "CERRADO"]).optional(),
       fx: recordSchema.optional(), suggestions: z.array(recordSchema).optional(), warnings: z.array(z.string()).optional(),
     },
-    execute: (context, raw) => readAnalysis(context, async (db) => {
+    execute: async (context, raw) => {
+      const snapshot = await readAnalysis(context, async (db) => {
       const input = z.object({ amount: z.string().regex(/^\d+(\.\d{1,2})?$/).max(20), currency: z.enum(["BRL", "USD"]).default("BRL"), allocationScope: z.enum(["ALL_ASSETS", "BRL_ONLY", "USD_ONLY"]).optional() }).parse(raw);
       const amount = new Decimal(input.amount);
       if (amount.lte(0) || amount.gt(100_000_000)) throw new McpError("INVALID_ARGUMENT", "Contribution must be positive and at most 100,000,000.");
@@ -600,15 +602,22 @@ export const portfolioTools: McpToolDefinition[] = [
         const first = holdings[0];
         return [{
           ...asset, holdings, nativeCurrency, currentValue,
+          sourceOrder: `${asset.createdAt.toISOString()}:${asset.id}`,
           quantity: asset.instrumentType === "FIXED_INCOME" ? currentValue : holdings.reduce((total, holding) => total.plus(holding.quantity.toString()), new Decimal(0)),
           unitPrice: asset.instrumentType === "FIXED_INCOME" ? new Decimal(1) : first ? holdingUnitPriceBrl(first) : new Decimal(0),
           fractional: allowsFractionalUnits({ instrumentType: asset.instrumentType, investmentClass: asset.investmentClass, pricingSource: first?.pricingSource, fallback: first?.fractional }),
           eligibleToReceive: assetCanReceiveContribution({ nativeCurrency, instrumentType: asset.instrumentType, holdings }, allocationScope),
         }];
       });
-      const result = allocateContribution({ contribution: amount.mul(fx), targets: data.targets, assets, preserveTargetGapsWithoutEligibleAssets: false, capEligibleClassesAtTarget: allocationScope !== "ALL_ASSETS" });
+      const preference = await db.userPreference.findUnique({ where: { userId: context.userId }, select: { allocationMethod: true } });
+      return { prepared: true as const, input, amount, allocationScope, data, fx, fxUpdatedAt, assets, allocationMethod: preference?.allocationMethod ?? "IMPROVED" as const };
+      });
+      if (snapshot.prepared !== true) return snapshot;
+      const { input, amount, allocationScope, data, fx, fxUpdatedAt, assets, allocationMethod } = snapshot;
+      const result = await calculateContribution({ contribution: amount.mul(fx), targets: data.targets, assets }, allocationMethod);
       const byId = new Map(assets.map((asset) => [asset.id, asset]));
       return {
+        calculation: result.calculation, allocationMethod,
         status: "PREVIEW", saved: false, executed: false, portfolioVersion: data.portfolio?.version ?? null,
         inputAmount: amount.toString(), inputCurrency: input.currency, allocationScope,
         requestedAmountBrl: amount.mul(fx).toString(), unallocatedAmountBrl: result.unallocatedAmount.toString(),
@@ -631,9 +640,9 @@ export const portfolioTools: McpToolDefinition[] = [
             providerControlled: asset.holdings.some((holding) => holding.positionSource !== "MANUAL"),
           };
         }),
-        warnings: ["This simulation is hypothetical and was not saved or executed. Provider-controlled quantities would wait for provider reconciliation.", ...(input.currency === "USD" && stale(fxUpdatedAt) ? ["Stored USD/BRL is stale; refresh in UOVP for a current simulation."] : [])],
+        warnings: [...result.calculation.warnings, "This simulation is hypothetical and was not saved or executed. Provider-controlled quantities would wait for provider reconciliation.", ...(input.currency === "USD" && stale(fxUpdatedAt) ? ["Stored USD/BRL is stale; refresh in UOVP for a current simulation."] : [])],
       };
-    }),
+    },
   },
   {
     name: "get_portfolio_data_freshness", title: "Portfolio data freshness",

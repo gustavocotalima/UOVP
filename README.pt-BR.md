@@ -82,7 +82,7 @@ A conta continua sendo a única fonte do valor da posição. Alterações do sal
 - Grupos de renda fixa organizam aplicações por família e indexação. As posições exibem emissor, produto, taxas, datas, valores e operações quando disponíveis.
 - Notas, classificações e grupos definidos pelo usuário sobrevivem à sincronização. As perguntas de pontuação podem ser personalizadas.
 - Ativos internacionais exibem valores nativos junto dos equivalentes em BRL.
-- Aportes aceitam BRL ou USD e a escolha de todos os ativos elegíveis ou apenas os da moeda selecionada. Sugestões restritas redistribuem o aporte entre as classes elegíveis respeitando seus limites de meta; arredondamento ou falta de capacidade elegível pode deixar um valor não alocado.
+- Aportes aceitam BRL ou USD e todos os ativos elegíveis ou apenas os da moeda selecionada. O sistema de cálculo é uma preferência por usuário em Configurações, compartilhada com o MCP: [Melhorado](docs/allocation/melhorado/README.pt-BR.md), o padrão, busca aproveitar o orçamento com tolerância conforme as cotas; [Diagrama do Cerrado](docs/allocation/diagrama-do-cerrado/README.pt-BR.md) reproduz a lógica reconstruída da AUVP. Trocar o método invalida rascunhos e preserva aportes registrados. Sobras e estados de otimização ficam explícitos.
 - Ativos internacionais permitem sugestões fracionadas; instrumentos equivalentes negociados na B3 usam unidades inteiras.
 - Aportes em posições controladas por um provedor aguardam sincronização antes de atualizar a quantidade observada. Na Pluggy, uma posição mais recente com quantidade diferente pode encerrar a pendência.
 - Há importação e exportação XLSX. A importação da carteira aceita até 2 MB, 1.000 linhas de dados e 40 colunas, com leitura em Web Worker.

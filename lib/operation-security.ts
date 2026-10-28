@@ -206,7 +206,7 @@ export async function withUserOperationLease<T>({
     await prisma.$executeRaw(Prisma.sql`
       UPDATE "UserOperationLease"
       SET
-        "lockedUntil" = CURRENT_TIMESTAMP,
+        "lockedUntil" = date_trunc('milliseconds', CURRENT_TIMESTAMP),
         "lastRunAt" = CURRENT_TIMESTAMP,
         "updatedAt" = CURRENT_TIMESTAMP
       WHERE "userId" = ${userId}

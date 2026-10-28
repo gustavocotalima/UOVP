@@ -374,6 +374,11 @@ enum BrapiPlan {
   PRO
 }
 
+enum AllocationMethod {
+  IMPROVED
+  CERRADO
+}
+
 model UserPreference {
   id                           String    @id @default(cuid())
   userId                       String    @unique
@@ -393,6 +398,7 @@ model UserPreference {
   pluggyWebhookSecretUpdatedAt DateTime?
   pluggyCredentialUpdatedAt    DateTime?
   showSoldInvestments          Boolean   @default(false)
+  allocationMethod            AllocationMethod @default(IMPROVED)
   timeZone                     String    @default("America/Sao_Paulo")
   createdAt                    DateTime  @default(now())
   updatedAt                    DateTime  @updatedAt
@@ -1213,11 +1219,14 @@ model ContributionSimulation {
   id                String                   @id @default(cuid())
   userId            String
   portfolioVersion  Int
+  allocationMethod  AllocationMethod?
+  calculationVersion String?
+  calculationDetails Json?
   inputAmount       Decimal                  @db.Decimal(20, 2)
   inputCurrency     ContributionCurrency     @default(BRL)
   allocationScope   ContributionScope        @default(ALL_ASSETS)
-  requestedAmount   Decimal                  @db.Decimal(20, 2)
-  unallocatedAmount Decimal                  @db.Decimal(20, 2)
+  requestedAmount   Decimal                  @db.Decimal(32, 12)
+  unallocatedAmount Decimal                  @db.Decimal(32, 12)
   fxRateToBrl       Decimal?                 @db.Decimal(20, 10)
   fxUpdatedAt       DateTime?
   fxSource          FinancialFxSource?
