@@ -95,8 +95,12 @@ describe("política de orçamento dos aportes", () => {
           }
           const value = form.querySelector("#contribution-value")!.getBoundingClientRect();
           const scope = form.querySelector("#contribution-scope")!.getBoundingClientRect();
+          const actions = form.querySelector('[data-testid="contribution-actions"]')!;
+          const calculate = actions.querySelector("button")!.getBoundingClientRect();
+          const checkbox = actions.querySelector('input[type="checkbox"]')!.getBoundingClientRect();
+          expect(checkbox.left).to.be.greaterThan(calculate.right);
+          expect(Math.abs((checkbox.top + checkbox.bottom) / 2 - (calculate.top + calculate.bottom) / 2)).to.be.at.most(1);
           if (getComputedStyle(form).gridTemplateColumns.split(" ").length === 3) {
-            const calculate = Array.from(form.querySelectorAll("button")).find((button) => button.textContent?.includes("Calcular"))!.getBoundingClientRect();
             expect(Math.abs(value.bottom - scope.bottom)).to.be.at.most(1);
             expect(Math.abs(scope.bottom - calculate.bottom)).to.be.at.most(1);
             expect(scope.left - value.right).to.be.lessThan(130);

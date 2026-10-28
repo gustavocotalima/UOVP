@@ -64,19 +64,19 @@ function FullAmountOption({ checked, onChange }: { checked: boolean; onChange: (
   const [helpOpen, setHelpOpen] = useState(false);
 
   return (
-    <div className="relative flex w-fit max-w-full items-center gap-1" onMouseLeave={() => setHelpOpen(false)} onBlur={(event) => {
+    <div className="relative flex w-fit min-w-0 max-w-full items-center gap-1" onMouseLeave={() => setHelpOpen(false)} onBlur={(event) => {
       if (!event.currentTarget.contains(event.relatedTarget)) setHelpOpen(false);
     }} onKeyDown={(event) => {
       if (event.key === "Escape") setHelpOpen(false);
     }}>
-      <label className="flex cursor-pointer items-center gap-2 text-sm" htmlFor="contribution-use-full-amount">
-        <input id="contribution-use-full-amount" type="checkbox" className="size-4 accent-[var(--primary)]" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+      <label className="flex min-w-0 cursor-pointer items-center gap-2 text-sm" htmlFor="contribution-use-full-amount">
+        <input id="contribution-use-full-amount" type="checkbox" className="size-4 shrink-0 accent-[var(--primary)]" checked={checked} onChange={(event) => onChange(event.target.checked)} />
         Usar todo o aporte
       </label>
       <button type="button" aria-label="Sobre usar todo o aporte" aria-expanded={helpOpen} aria-controls="contribution-use-full-amount-help" aria-describedby={helpOpen ? "contribution-use-full-amount-help" : undefined} className="inline-flex size-7 shrink-0 items-center justify-center rounded-full text-[var(--muted-foreground)] hover:text-[var(--foreground)] focus-visible:outline-2" onMouseEnter={() => setHelpOpen(true)} onFocus={() => setHelpOpen(true)} onClick={() => setHelpOpen(true)}>
         <Info className="size-4" aria-hidden="true" />
       </button>
-      {helpOpen && <div id="contribution-use-full-amount-help" role="tooltip" className="absolute left-0 top-full z-20 w-72 max-w-[calc(100vw-4rem)] rounded-xl border bg-[var(--card)] p-3 text-xs leading-relaxed text-[var(--foreground)] shadow-lg">
+      {helpOpen && <div id="contribution-use-full-amount-help" role="tooltip" className="absolute right-0 top-full z-20 w-72 max-w-[calc(100vw-4rem)] rounded-xl border bg-[var(--card)] p-3 text-xs leading-relaxed text-[var(--foreground)] shadow-lg">
         Permite ultrapassar as metas globais, mantendo a proporção entre as classes elegíveis e a distribuição por notas. Arredondamentos podem deixar sobra.
       </div>}
     </div>
@@ -293,7 +293,7 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
   return (
     <div className="space-y-6">
       <Card>
-        <CardContent data-private-editor data-testid="contribution-form" className="grid gap-4 pt-4 sm:pt-5 @2xl:grid-cols-[minmax(0,24rem)_minmax(0,20rem)] @2xl:items-end @3xl:grid-cols-[minmax(0,24rem)_minmax(0,20rem)_max-content] @3xl:justify-start">
+        <CardContent data-private-editor data-testid="contribution-form" className="grid gap-4 pt-4 sm:pt-5 @2xl:grid-cols-[minmax(0,24rem)_minmax(0,20rem)] @2xl:items-end @4xl:grid-cols-[minmax(0,24rem)_minmax(0,20rem)_max-content] @4xl:justify-start">
           <div className="min-w-0 space-y-2">
             <Label className="block" htmlFor="contribution-value">Valor do aporte</Label>
             <div className="grid grid-cols-[minmax(0,1fr)_96px] gap-2">
@@ -343,13 +343,13 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
               <option value="ALL_ASSETS">Todos os ativos elegíveis</option>
             </Select>
           </div>
-          <Button className="@2xl:col-span-2 @3xl:col-span-1" size="lg" onClick={calculate} disabled={pending || value <= 0 || !assets.length}><Calculator className="size-4" /> {pending ? "Calculando…" : "Calcular"}</Button>
-          {isCurrencyScoped && <div className="col-span-full">
-            <FullAmountOption checked={useFullAmount} onChange={(checked) => {
+          <div data-testid="contribution-actions" className="flex min-w-0 items-center gap-3 @2xl:col-span-2 @4xl:col-span-1">
+            <Button className={isCurrencyScoped ? "shrink-0 px-3 @4xl:px-6" : "w-full @4xl:w-auto"} size="lg" onClick={calculate} disabled={pending || value <= 0 || !assets.length}><Calculator className="size-4" /> {pending ? "Calculando…" : "Calcular"}</Button>
+            {isCurrencyScoped && <FullAmountOption checked={useFullAmount} onChange={(checked) => {
                 calculationRequestId.current += 1;
                 setUseFullAmount(checked); setSimulation(undefined); setContributionModal(undefined); setMessage(undefined);
-              }} />
-          </div>}
+              }} />}
+          </div>
           {!assets.length && <p className="col-span-full text-sm text-[var(--muted-foreground)]">Adicione ativos antes de simular.</p>}
         </CardContent>
       </Card>
