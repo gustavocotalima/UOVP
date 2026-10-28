@@ -4,6 +4,7 @@ import Decimal from "decimal.js";
 import { resolvePluggyInvestmentIssuer } from "@/features/open-finance/institution-logo";
 import { connectedInvestmentMetadataDto } from "@/features/open-finance/investment-metadata-dto";
 import { pluggyQuantityChangeDto } from "@/features/open-finance/investment-quantity-change-dto";
+import { activeContributionBatchInclude } from "@/features/open-finance/contribution-quantity";
 import { INVESTMENT_CLASSES, type InvestmentClassKey } from "./constants";
 import { aggregateHoldingValue, holdingCurrentValue, holdingCurrentValueNative, holdingUnitPriceBrl } from "./asset-groups";
 import { aggregateAveragePrices, aggregateInvestedValues, calculateHoldingAveragePrice } from "./average-price";
@@ -60,6 +61,7 @@ export async function getPortfolioData(userId: string) {
             accountInvestmentLink: { include: { account: true } },
             pluggyDiagramLink: {
               include: {
+                contributionBatches: activeContributionBatchInclude,
                 investment: {
                   include: {
                     item: {
@@ -85,8 +87,12 @@ export async function getPortfolioData(userId: string) {
             simulation: { userId },
           },
           orderBy: [{ awaitingSyncAt: "desc" }, { id: "desc" }],
-          take: 1,
           select: {
+            id: true,
+            syncResolution: true,
+            usesQuantityProjection: true,
+            externalBaselines: { select: { holdingId: true } },
+            contributionBatch: { select: { holdingId: true } },
             quantity: true,
             value: true,
             paidUnitPrice: true,
@@ -186,7 +192,8 @@ export async function getPortfolioData(userId: string) {
               investedValue: holding.investedValue?.toString(),
               investedValueCurrency: holding.investedValueCurrency,
               providerCurrency: holding.pluggyDiagramLink?.investment.currencyCode,
-              amountOriginal: holding.pluggyDiagramLink?.investment.amountOriginal?.toString(),
+              amountOriginal: holding.pluggyDiagramLink?.contributionBatches.length
+                ? holding.investedValue?.toString() : holding.pluggyDiagramLink?.investment.amountOriginal?.toString(),
               purchaseSummary: holding.pluggyDiagramLink ? {
                 version: holding.pluggyDiagramLink.investment.purchaseSummaryVersion,
                 quantity: holding.pluggyDiagramLink.investment.purchaseQuantityTotal.toString(),
@@ -277,6 +284,7 @@ export async function getPortfolioData(userId: string) {
         needsScore: asset.score === 0,
         awaitingSyncContribution: awaitingSyncContribution
           ? {
+              id: awaitingSyncContribution.id,
               quantity: awaitingSyncContribution.quantity.toString(),
               value: awaitingSyncContribution.value.toString(),
               paidUnitPrice: awaitingSyncContribution.paidUnitPrice?.toString() ?? null,
@@ -286,6 +294,15 @@ export async function getPortfolioData(userId: string) {
               awaitingSyncAt: awaitingSyncContribution.awaitingSyncAt?.toISOString() ?? null,
             }
           : null,
+        awaitingSyncContributions: asset.suggestions.map((suggestion) => ({
+          id: suggestion.id, quantity: suggestion.quantity.toString(), value: suggestion.value.toString(),
+          paidUnitPrice: suggestion.paidUnitPrice?.toString() ?? null,
+          nativeCurrency: suggestion.nativeCurrency, paidUnitPriceNative: suggestion.paidUnitPriceNative?.toString() ?? null,
+          executionFxRateToBrl: suggestion.executionFxRateToBrl?.toString() ?? null,
+          awaitingSyncAt: suggestion.awaitingSyncAt?.toISOString() ?? null,
+          quantityProjected: suggestion.usesQuantityProjection, needsReview: suggestion.syncResolution === "NEEDS_REVIEW",
+          holdingId: suggestion.contributionBatch?.holdingId ?? (suggestion.externalBaselines.length === 1 ? suggestion.externalBaselines[0].holdingId : null),
+        })),
         holdings: holdings.map((holding, index) => ({
           id: holding.id,
           catalogItemId: holding.catalogItemId,

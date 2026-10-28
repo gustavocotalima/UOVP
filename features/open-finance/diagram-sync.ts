@@ -23,6 +23,7 @@ import {
 } from "./diagram-classification";
 import { shouldReconcileExcludedPluggyPosition } from "./diagram-exclusion";
 import { canReconcileChangedProviderSnapshot } from "./contribution-reconciliation";
+import { reconcileContributionQuantities } from "./contribution-quantity";
 import { resolvePluggyInvestmentIssuer } from "./institution-logo";
 import { selectLatestPluggyMarketQuote } from "./market-quote";
 import {
@@ -271,6 +272,8 @@ async function confirmAwaitingSuggestions(
   const suggestions = await tx.contributionSuggestion.findMany({
     where: {
       executionStatus: "AWAITING_SYNC",
+      usesQuantityProjection: false,
+      OR: [{ syncResolution: null }, { syncResolution: { not: "NEEDS_REVIEW" } }],
       simulation: { userId },
       ...(assetIds ? { assetId: { in: [...assetIds] } } : {}),
     },
@@ -930,6 +933,9 @@ export async function reconcilePluggyInvestmentsForUser(
       if (holding) {
         changed ||= holding.assetId !== asset.id
           || !sameDecimal(holding.quantity, data.quantity)
+          || !sameDecimal(holding.unitPrice, data.unitPrice)
+          || !sameDecimal(holding.fxRateToBrl, data.fxRateToBrl)
+          || holding.currency !== data.currency
           || !sameDecimal(holding.providerCurrentValue, data.providerCurrentValue)
           || !sameDecimal(holding.investedValue, data.investedValue)
           || holding.investedValueCurrency !== data.investedValueCurrency
@@ -997,6 +1003,8 @@ export async function reconcilePluggyInvestmentsForUser(
 
     // Restrict the suggestions, never their holdings: a contribution baseline
     // can span several Pluggy connections holding the same asset.
+    const quantityChanged = await reconcileContributionQuantities(tx, userId, scope ? [...affectedAssetIds] : undefined);
+    changed = changed || quantityChanged;
     await confirmAwaitingSuggestions(tx, userId, scope ? [...affectedAssetIds] : undefined);
     if (changed) {
       await tx.portfolio.update({

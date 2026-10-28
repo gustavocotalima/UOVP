@@ -2,7 +2,7 @@
 
 [Português](README.pt-BR.md) · [Diagrama do Cerrado](../diagrama-do-cerrado/README.md)
 
-UOVP's default method, selected per user in Settings and shared by the portfolio and MCP. Version 2 uses deterministic approximate apportionment in TypeScript with the existing `decimal.js` dependency. It requires no new packages, WebAssembly, Python or external service.
+UOVP's default method, selected per user in Settings and shared by the portfolio and MCP. Version 3 uses deterministic approximate apportionment in TypeScript with the existing `decimal.js` dependency. It requires no new packages, WebAssembly, Python or external service.
 
 ## Priorities
 
@@ -16,15 +16,25 @@ Scores describe desired shares of class wealth after the contribution. Scores 2,
 
 The algorithm proposes purchases only. Overweight positions remain in the portfolio, and a small contribution may correct only part of an imbalance.
 
+## Budget policy
+
+Both methods offer “Usar todo o aporte” for each calculation, unchecked by default. Changing the checkbox discards the displayed preview and requires recalculation; it does not change account preferences or holdings.
+
+- `TARGET_CAPPED`: preserve global class targets, with the lot-aware allowances below. Currency-excluded holdings remain in total wealth. The planner finds the continuous feasible investment ceiling using actual investment, rather than counting the uninvested amount as wealth.
+- `FULL_BUDGET`: allow global targets to be exceeded. Water-fill final eligible class balances in proportion to their original positive targets, counting existing positions as immutable lower bounds. Within each class, do the same using positive scores. Existing overweight or excluded holdings remain untouched; only underweight eligible holdings receive purchases until the others catch up.
+
+For example, with USD-only targets of 15% international stocks and 2% store of value, full mode aims for a 15:2 ratio between the final eligible class balances (88.24% / 11.76%), rather than splitting the new money alone in that ratio. Original targets remain unchanged and are recorded alongside the planning targets.
+
+“Use all” is a best effort: zero targets, nonpositive scores, missing prices, currency exclusions, whole units and balancing allowances still apply. Budget conservation is mandatory in both policies.
+
 ## Apportionment and rounding
 
-1. Calculate positive class gaps against existing wealth plus the requested contribution. Only classes with eligible purchases receive a contribution reference.
-2. Within each class, calculate positive-score shares and asset gaps against projected class wealth. Divide its reference across eligible receivers' positive gaps.
-3. Round toward nearby purchase increments. If internal rounding exceeds the budget, reduce proposed quantities before producing any result.
-4. Refine purchases, balanced purchase pairs and replacements in this priority order: financial validity, class balance, score balance, and budget use. Restart from the best valid candidate if rounded refinement stalls; probe simple fallback purchases even before the refinement loop. Existing quantities are never reduced.
-5. Return the best valid combination found and the exact remainder.
+1. Prepare a bounded weighted allocation of entire class balances, then all asset balances within each class, including existing wealth. In capped mode, constrain the amount by global targets and score capacity; in full mode, derive feasible planning shares from the weighted final balances.
+2. Convert the complete purchase basket to permitted quantities. Consider nearby whole-basket rounding, rather than trying to grow a balanced class one asset at a time.
+3. Refine single purchases, pairs, replacements, complete class baskets and a portfolio-wide basket, in priority order: financial validity, class balance, score balance and budget use.
+4. Recalculate with Decimal and return the best valid combination and exact remainder.
 
-The initial combination already considers scores. It does not start by concentrating each class in the cheapest asset. Canonical ID order prevents table sorting from changing calculations.
+Coordinated moves let three or more balanced fractional assets grow together. They prevent the former USD-only/BRL-only stall caused by score limits rejecting intermediate single-asset or pair purchases. Canonical ID order prevents table sorting from changing calculations. Existing quantities are never reduced.
 
 ## Lot-aware allowances
 
@@ -52,14 +62,17 @@ Models accept at most 256 asset groups. Native Node workers execute outside the 
 
 ## History and verification
 
-Version 2 requires recalculating version-1 drafts. The migration invalidates old drafts without recorded contributions; executed history and contributions awaiting synchronization retain their original data. The server also rejects execution of an incompatible calculation version.
+Version 3 requires recalculating drafts from older versions. The migration invalidates old drafts without recorded contributions; executed history and contributions awaiting synchronization retain their original data. The server also rejects execution of an incompatible calculation version.
 
 - Financial preparation and validation: `features/portfolio/calculation/improved.ts`.
+- Budget planner: `features/portfolio/calculation/budget-policy.ts`.
 - Apportionment and refinement: `features/portfolio/calculation/balanced-search.ts`.
 - Service and admission: `features/portfolio/calculation/server.ts` and `admission.ts`.
 - Proportions, existing positions, remainders and whole purchases: `tests/unit/allocation-balance.test.ts`.
 - Independent small-case comparisons: `tests/unit/allocation-methods.test.ts`.
 - Preferences, history and UI/MCP: `tests/integration/allocation-methods.test.ts`.
-- Browser: `cypress/e2e/allocation-methods.cy.ts`.
+- Browser: `cypress/e2e/allocation-methods.cy.ts` and `allocation-budget-policy.cy.ts`.
 
 Personal financial captures and replays stay outside Git. Fees, broker-specific minimums and order execution are outside this apportionment.
+
+Policy and coordinated-basket regressions: `tests/unit/allocation-budget-policy.test.ts`; both currency filters, methods and UI/MCP policies: `tests/integration/allocation-methods.test.ts`.

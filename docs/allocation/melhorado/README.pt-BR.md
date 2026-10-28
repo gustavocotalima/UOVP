@@ -2,7 +2,7 @@
 
 [English](README.md) · [Diagrama do Cerrado](../diagrama-do-cerrado/README.pt-BR.md)
 
-Método padrão do UOVP, selecionável por usuário em Configurações e compartilhado entre a Carteira e o MCP. A versão 2 usa uma distribuição aproximada e determinística em TypeScript, com o `decimal.js` já existente. Não exige novos pacotes, WebAssembly, Python ou serviço externo.
+Método padrão do UOVP, selecionável por usuário em Configurações e compartilhado entre a Carteira e o MCP. A versão 3 usa uma distribuição aproximada e determinística em TypeScript, com o `decimal.js` já existente. Não exige novos pacotes, WebAssembly, Python ou serviço externo.
 
 ## Prioridades
 
@@ -16,15 +16,25 @@ As notas representam participações desejadas no patrimônio da classe após o 
 
 O algoritmo só propõe compras. Posições acima das metas permanecem na carteira, e um aporte pequeno pode corrigir apenas parte do desequilíbrio.
 
+## Política de orçamento
+
+Os dois métodos oferecem “Usar todo o aporte” em cada cálculo, desmarcado por padrão. Alterar a opção descarta a prévia exibida e exige novo cálculo; não muda preferências da conta nem posições.
+
+- `TARGET_CAPPED`: preservar metas globais, com as margens conforme as cotas descritas abaixo. Posições fora do filtro de moeda continuam no patrimônio total. O planejamento encontra o teto contínuo de investimento usando o aporte efetivo, sem contar o saldo não investido como patrimônio.
+- `FULL_BUDGET`: permitir ultrapassar as metas globais. Distribuir os saldos finais das classes elegíveis proporcionalmente às metas positivas originais, usando posições existentes como limites mínimos imutáveis. Dentro de cada classe, fazer o mesmo com as notas positivas. Posições acima da proporção ou excluídas são mantidas; apenas posições elegíveis abaixo da proporção recebem compras até as demais alcançarem o equilíbrio.
+
+Por exemplo, com somente USD e metas de 15% em ações internacionais e 2% em reserva de valor, o modo integral busca a relação 15:2 entre os saldos finais das classes elegíveis (88,24% / 11,76%), em vez de dividir apenas o dinheiro novo nessa proporção. As metas originais permanecem iguais e são registradas junto às metas de planejamento.
+
+“Usar todo” é uma tentativa: metas zero, notas não positivas, preços ausentes, exclusões por moeda, cotas inteiras e margens de equilíbrio continuam valendo. Conservar o orçamento é obrigatório nos dois modos.
+
 ## Distribuição e arredondamento
 
-1. Calcular as lacunas positivas das classes sobre o patrimônio existente mais o aporte solicitado. Apenas classes com compras elegíveis recebem uma referência de aporte.
-2. Em cada classe, calcular as participações pelas notas positivas e as lacunas dos ativos sobre o patrimônio projetado da classe. Dividir sua referência pelas lacunas positivas dos recebedores elegíveis.
-3. Arredondar para incrementos de compra próximos das referências. Se o arredondamento interno ultrapassar o orçamento, reduzir quantidades propostas antes de produzir qualquer resultado.
-4. Refinar compras, pares de compras equilibradas e substituições, nessa ordem de prioridade: validade financeira, equilíbrio das metas, equilíbrio das notas e uso do orçamento. Retomar a melhor combinação válida se o refinamento arredondado travar; verificar compras simples de reserva antes mesmo do laço de refinamento. Quantidades já existentes nunca são reduzidas.
-5. Retornar a melhor combinação válida encontrada e a sobra exata.
+1. Planejar uma distribuição proporcional limitada dos saldos completos das classes e, depois, dos ativos em cada classe, incluindo o patrimônio existente. No modo limitado, restringir o valor pelas metas globais e pela capacidade das notas; no modo integral, derivar participações de planejamento viáveis dos saldos finais proporcionais.
+2. Converter o conjunto completo de compras para as quantidades permitidas. Considerar arredondamentos próximos do conjunto inteiro, em vez de tentar aumentar uma classe equilibrada ativo por ativo.
+3. Refinar compras isoladas, pares, substituições, conjuntos completos de classe e da carteira, nessa ordem: validade financeira, equilíbrio das metas, equilíbrio das notas e uso do orçamento.
+4. Recalcular com Decimal e retornar a melhor combinação válida e a sobra exata.
 
-A combinação inicial já considera as notas. O método não começa concentrando cada classe no ativo mais barato. A ordem canônica de ID impede que ordenar a tabela altere o cálculo.
+Movimentos coordenados permitem que três ou mais ativos fracionários equilibrados cresçam juntos. Eles evitam o bloqueio anterior nos filtros somente USD/BRL, causado pelas margens de notas rejeitarem compras intermediárias de um ativo ou de um par. A ordem canônica de ID impede que ordenar a tabela altere o cálculo. Quantidades existentes nunca são reduzidas.
 
 ## Margens conforme as cotas
 
@@ -52,14 +62,17 @@ O modelo aceita até 256 grupos de ativos. Workers nativos do Node executam fora
 
 ## Histórico e verificação
 
-A versão 2 exige recalcular rascunhos da versão 1. A migração invalida rascunhos antigos ainda não registrados; histórico executado e aportes aguardando sincronização mantêm seus dados originais. O servidor também recusa executar um cálculo de versão incompatível.
+A versão 3 exige recalcular rascunhos de versões anteriores. A migração invalida rascunhos antigos ainda não registrados; histórico executado e aportes aguardando sincronização mantêm seus dados originais. O servidor também recusa executar um cálculo de versão incompatível.
 
 - Preparação e validação financeira: `features/portfolio/calculation/improved.ts`.
+- Planejamento do orçamento: `features/portfolio/calculation/budget-policy.ts`.
 - Distribuição e refinamento: `features/portfolio/calculation/balanced-search.ts`.
 - Serviço e admissão: `features/portfolio/calculation/server.ts` e `admission.ts`.
 - Proporções, posições existentes, sobras e compras inteiras: `tests/unit/allocation-balance.test.ts`.
 - Comparações pequenas independentes: `tests/unit/allocation-methods.test.ts`.
 - Preferências, histórico e interface/MCP: `tests/integration/allocation-methods.test.ts`.
-- Navegador: `cypress/e2e/allocation-methods.cy.ts`.
+- Navegador: `cypress/e2e/allocation-methods.cy.ts` e `allocation-budget-policy.cy.ts`.
 
 Capturas financeiras pessoais e seus replays ficam fora do Git. Taxas, mínimos de corretoras e execução de ordens não fazem parte desta distribuição.
+
+Regressões de políticas e compras coordenadas: `tests/unit/allocation-budget-policy.test.ts`; os dois filtros de moeda, métodos e políticas na interface/MCP: `tests/integration/allocation-methods.test.ts`.

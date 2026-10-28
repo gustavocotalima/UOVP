@@ -4,6 +4,7 @@ import { Prisma, type PluggyInvestmentMetadataOverrideField } from "@prisma/clie
 import { projectAccountInvestment } from "@/features/finance/account-investments";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { activeContributionBatchInclude, resolveContributionQuantity } from "./contribution-quantity";
 import { prisma } from "@/lib/prisma";
 import { requireUserId } from "@/lib/current-user";
 import {
@@ -140,6 +141,7 @@ export type PluggyDiagramReviewInput = z.input<typeof reviewSchema>;
 export type PluggyInvestmentMetadataOverrideInput = z.input<typeof metadataOverrideSchema>;
 
 const metadataLinkInclude = {
+  contributionBatches: activeContributionBatchInclude,
   investment: {
     include: { item: { select: { userId: true, status: true, disconnectedAt: true } } },
   },
@@ -379,6 +381,11 @@ export async function savePluggyInvestmentMetadataOverridesAction(
         const link = await readOwnedMetadataLink(tx, userId, parsed);
 
         if (parsed.quantity) {
+          const batch = link.contributionBatches[0];
+          if (batch && parsed.quantity.mode === "CUSTOM" && !batch.expectedQuantity.eq(parsed.quantity.value!)) {
+            throw new Error("Esta quantidade inclui aportes pendentes. Resolva a revisão de sincronização antes de alterá-la.");
+          }
+          if (batch && parsed.quantity.mode === "PROVIDER") await resolveContributionQuantity(tx, link.id, "PROVIDER");
           const canEditQuantity = canEditPluggyInvestmentQuantity({
             link,
             investment: link.investment,
@@ -525,6 +532,8 @@ export async function savePluggyInvestmentMetadataOverridesAction(
 
 const quantityChangeDecisionSchema = z.object({
   linkId: z.string().cuid(),
+  contributionBatchId: z.string().cuid().optional(),
+  expectedRevision: z.number().int().positive().optional(),
   expectedUpdatedAt: z.coerce.date(),
   expectedProviderQuantity: z.string().max(64).nullable().refine((value) => {
     if (value === null) return true;
@@ -563,6 +572,16 @@ export async function resolvePluggyQuantityChangeAction(input: PluggyQuantityCha
           ? null : new Prisma.Decimal(value.expectedProviderQuantity);
         if (link.updatedAt.getTime() !== value.expectedUpdatedAt.getTime()
           || !samePluggyQuantity(link.investment.quantity, expected)) return { status: "CONFLICT" as const };
+        const batch = link.contributionBatches[0];
+        if (batch) {
+          if (batch.state !== "CONFLICT" || value.contributionBatchId !== batch.id || value.expectedRevision !== batch.revision) return { status: "CONFLICT" as const };
+          if (link.status !== "MAPPED" || !link.investment.providerAvailable || link.investment.item.disconnectedAt
+            || link.investment.item.status === "DELETED") return { status: "UNAVAILABLE" as const };
+          await resolveContributionQuantity(tx, link.id, value.decision);
+          if (value.decision === "PROVIDER") await bumpPortfolioAndInvalidateDrafts(tx, link.holding.asset.portfolioId, userId);
+          return { status: "SAVED" as const };
+        }
+        if (value.contributionBatchId) return { status: "CONFLICT" as const };
         if (!canEditPluggyInvestmentQuantity({ link, investment: link.investment, holding: link.holding })
           || !pendingPluggyQuantityChange(link.investment.quantity, link)) return { status: "UNAVAILABLE" as const };
 
@@ -611,6 +630,7 @@ export async function excludePluggyDiagramLinkAction(linkId: string) {
         include: { holding: { select: { id: true, includedInTotals: true, asset: { select: { portfolioId: true } } } } },
       });
       if (!link) throw new Error("Investimento pendente não encontrado.");
+      await resolveContributionQuantity(tx, link.id, "USER_REMOVED");
       await tx.pluggyInvestmentDiagramLink.update({
         where: { id: link.id },
         data: {

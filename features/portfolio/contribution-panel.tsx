@@ -13,7 +13,7 @@ import { Select } from "@/components/ui/select";
 import { DonutChart } from "@/components/charts/donut-chart";
 import { formatCurrency, formatMoney, formatPercent } from "@/lib/money";
 import { executeContributionAction, simulateContributionAction } from "./actions";
-import { ALLOCATION_LABELS } from "./calculation/types";
+import { ALLOCATION_LABELS, BUDGET_POLICY_LABELS } from "./calculation/types";
 import { PORTFOLIO_SIMULATION_INVALIDATED_EVENT } from "./client-events";
 import {
   currencyOnlyContributionScope,
@@ -88,6 +88,8 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
   const [value, setValue] = useState(1000);
   const [currency, setCurrency] = useState<"BRL" | "USD">("BRL");
   const [scope, setScope] = useState<ContributionScopeKey>("ALL_ASSETS");
+  const [useFullAmount, setUseFullAmount] = useState(false);
+  const budgetPolicy = useFullAmount ? "FULL_BUDGET" : "TARGET_CAPPED";
   const [simulation, setSimulation] = useState<SimulationDto>();
   const [contributionModal, setContributionModal] = useState<ContributionModalState>();
   const [message, setMessage] = useState<string>();
@@ -103,6 +105,9 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
   const selectedQuantity = Number(contributionModal?.quantity ?? 0);
   const selectedUnitPricePaid = Number(contributionModal?.unitPricePaid ?? 0);
   const isFixedIncome = selectedAsset?.instrumentType === "FIXED_INCOME";
+  const selectedHolding = selectedAsset?.holdings.find((holding) => holding.id === contributionModal?.holdingId);
+  const quantityProjection = !isFixedIncome && selectedAsset?.holdings.some((holding) => holding.positionSource === "PLUGGY");
+  const paidCurrency = quantityProjection ? selectedHolding?.currency ?? selectedSuggestion?.nativeCurrency ?? "BRL" : selectedSuggestion?.nativeCurrency ?? "BRL";
   const paidUnitPriceValid = isFixedIncome || (Number.isFinite(selectedUnitPricePaid) && selectedUnitPricePaid > 0);
   const selectedEquivalentNative = isFixedIncome
     ? selectedSuggestion?.nativeCurrency && Number(selectedSuggestion.fxRateToBrl) > 0
@@ -111,10 +116,10 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
     : selectedQuantity * selectedUnitPricePaid;
   const selectedEquivalentBrl = isFixedIncome
     ? selectedQuantity
+    : quantityProjection ? selectedEquivalentNative * (paidCurrency === "BRL" ? 1 : Number(selectedHolding?.fxRateToBrl ?? 0))
     : selectedSuggestion?.nativeCurrency
       ? selectedEquivalentNative * Number(selectedSuggestion.fxRateToBrl ?? 0)
       : selectedEquivalentNative;
-  const selectedHolding = selectedAsset?.holdings.find((holding) => holding.id === contributionModal?.holdingId);
   const providerControlled = Boolean(
     selectedAsset?.providerControlled
     && (!isFixedIncome || (contributionModal?.destination === "EXISTING" && selectedHolding?.positionSource !== "MANUAL")),
@@ -141,7 +146,9 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
   function openContribution(suggestionId: string, quantity: string) {
     const suggestion = simulation?.suggestions.find((item) => item.id === suggestionId);
     const asset = assets.find((item) => item.id === suggestion?.assetId);
-    const firstHolding = asset?.holdings[0];
+    const candidates = asset?.instrumentType !== "FIXED_INCOME" && asset?.holdings.some((holding) => holding.positionSource === "PLUGGY")
+      ? asset.holdings.filter((holding) => holding.positionSource === "PLUGGY") : asset?.holdings ?? [];
+    const firstHolding = candidates.length === 1 || asset?.instrumentType === "FIXED_INCOME" ? candidates[0] : undefined;
     setContributionModal({
       suggestionId,
       quantity,
@@ -159,7 +166,7 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
     setContributionModal(undefined);
     startTransition(async () => {
       try {
-        const result = await simulateContributionAction(value, currency, scope);
+        const result = await simulateContributionAction(value, currency, scope, budgetPolicy);
         if (calculationRequestId.current !== requestId) return;
         setSimulation(result);
         if (!result.suggestions.length) setMessage("Nenhum ativo elegível. Confira metas, notas e preços.");
@@ -177,7 +184,7 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
     setMessage("A carteira mudou. Recalculando o aporte…");
     router.refresh();
     try {
-      const result = await simulateContributionAction(value, currency, scope);
+      const result = await simulateContributionAction(value, currency, scope, budgetPolicy);
       if (calculationRequestId.current !== requestId) return;
       setSimulation(result);
       setMessage(result.suggestions.length
@@ -220,7 +227,7 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
                   maturityDate: contributionModal.newHolding.maturityDate || null,
                 },
               }
-          : undefined;
+          : quantityProjection && selectedHolding ? { holdingId: selectedHolding.id, expectedUpdatedAt: selectedHolding.updatedAt } : undefined;
         const result = await executeContributionAction(
           simulation.id,
           selectedSuggestion.id,
@@ -247,8 +254,9 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
               }
             : item),
         });
+        if (result.quantityProjected) setSimulation(undefined);
         setMessage(result.awaitingSync
-          ? "Aporte planejado. Faça o investimento na instituição e sincronize o provedor para confirmar."
+          ? result.quantityProjected ? "Aporte registrado. A quantidade já inclui a compra e aguarda confirmação da instituição." : "Aporte planejado. Faça o investimento na instituição e sincronize o provedor para confirmar."
           : "Aporte registrado.");
         setContributionModal(undefined);
         router.refresh();
@@ -261,7 +269,7 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
   return (
     <div className="space-y-6">
       <Card>
-        <CardContent data-private-editor className="flex flex-col gap-4 pt-4 sm:pt-5 @3xl:flex-row @3xl:items-end">
+        <CardContent data-private-editor className="grid gap-4 pt-4 sm:pt-5 @3xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_auto] @3xl:items-end">
           <div className="w-full max-w-sm space-y-2">
             <Label htmlFor="contribution-value">Valor do aporte</Label>
             <div className="grid grid-cols-[minmax(0,1fr)_96px] gap-2">
@@ -306,13 +314,30 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
               <option value="ALL_ASSETS">Todos os ativos elegíveis</option>
             </Select>
           </div>
-          <Button size="lg" onClick={calculate} disabled={pending || value <= 0 || !assets.length}><Calculator className="size-4" /> {pending ? "Calculando…" : "Calcular"}</Button>
-          {!assets.length && <p className="text-sm text-[var(--muted-foreground)]">Adicione ativos antes de simular.</p>}
+          <div className="space-y-1.5 @3xl:col-span-3 @3xl:row-start-2">
+            <label className="flex cursor-pointer items-center gap-2 text-sm" htmlFor="contribution-use-full-amount">
+              <input id="contribution-use-full-amount" type="checkbox" aria-describedby="contribution-use-full-amount-help" className="size-4 accent-[var(--primary)]" checked={useFullAmount} onChange={(event) => {
+                calculationRequestId.current += 1;
+                setUseFullAmount(event.target.checked); setSimulation(undefined); setContributionModal(undefined); setMessage(undefined);
+              }} />
+              Usar todo o aporte
+            </label>
+            <p id="contribution-use-full-amount-help" className="max-w-3xl text-xs leading-relaxed text-[var(--muted-foreground)]">Permite ultrapassar as metas globais, mantendo a proporção entre as classes elegíveis e a distribuição por notas. Arredondamentos podem deixar sobra.</p>
+          </div>
+          <Button className="@3xl:col-start-3 @3xl:row-start-1" size="lg" onClick={calculate} disabled={pending || value <= 0 || !assets.length}><Calculator className="size-4" /> {pending ? "Calculando…" : "Calcular"}</Button>
+          {!assets.length && <p className="text-sm text-[var(--muted-foreground)] @3xl:col-span-3">Adicione ativos antes de simular.</p>}
         </CardContent>
       </Card>
       {message && <p role="status" className="rounded-xl border bg-[var(--card)] p-4 text-sm">{message}</p>}
       {simulation && <p className="text-sm text-muted-foreground" role="status">Sistema de cálculo: {ALLOCATION_LABELS[simulation.allocationMethod ?? "IMPROVED"]}.
+        {" "}Orçamento: {BUDGET_POLICY_LABELS[simulation.calculation?.budgetPolicy ?? "TARGET_CAPPED"]}.
         {simulation.calculation?.warnings.map((warning) => <span className="mt-1 block text-amber-700 dark:text-amber-400" key={warning}>{warning}</span>)}
+        {simulation.calculation?.unallocatedReasons?.map((reason) => <span className="mt-1 block" key={reason}>{
+          reason === "TARGET_LIMIT" ? "Parte do aporte ficou disponível para preservar as metas. Marque “Usar todo o aporte” para permitir ultrapassá-las."
+            : reason === "NO_ELIGIBLE_ASSETS" ? "Não há ativos elegíveis para receber este aporte com os filtros, notas, preços e metas atuais."
+              : reason === "METHOD_RULES" ? "As regras de distribuição e arredondamento do Diagrama do Cerrado deixaram um saldo não alocado."
+                : "Arredondamentos e limites de equilíbrio deixaram um saldo não alocado."
+        }</span>)}
       </p>}
       {simulation && (
         <div className="space-y-6">
@@ -386,7 +411,7 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
                   );
                 })}
               </div>
-              <div className="hidden max-h-[540px] overflow-auto scrollbar-thin lg:block">
+              <div className="hidden overflow-x-auto lg:block">
                 <table aria-label="Sugestões de investimento" className="w-full min-w-[1080px] text-left text-sm">
                   <thead className="sticky top-0 z-10 bg-[var(--primary)] text-[var(--primary-foreground)]">
                     <tr>
@@ -467,7 +492,7 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
               {!isFixedIncome && (
                 <div className="space-y-2">
                   <Label htmlFor="contribution-unit-price" className="text-xs font-semibold text-[var(--primary)]">
-                    Preço unitário pago ({selectedSuggestion.nativeCurrency ?? "BRL"}):
+                    Preço unitário pago ({paidCurrency}):
                   </Label>
                   <Input
                     id="contribution-unit-price"
@@ -497,6 +522,15 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
                 </div>
               )}
             </div>
+            {quantityProjection && (
+              <div className="space-y-2">
+                <Label htmlFor="contribution-institution">Posição / instituição do aporte</Label>
+                <Select id="contribution-institution" className="w-full bg-[#555] text-white" value={contributionModal.holdingId} onChange={(event) => setContributionModal({ ...contributionModal, holdingId: event.target.value })}>
+                  <option value="">Selecione a posição</option>
+                  {selectedAsset.holdings.filter((holding) => holding.positionSource === "PLUGGY").map((holding) => <option key={holding.id} value={holding.id}>{holding.institution || holding.issuer} · {holding.productName} ({holding.currency})</option>)}
+                </Select>
+              </div>
+            )}
             {isFixedIncome && (
               <div className="space-y-4 rounded-xl border border-white/25 p-4">
                 <div className="space-y-2">
@@ -538,12 +572,12 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
               <div className="rounded-xl border border-[var(--primary)]/50 bg-[var(--primary)]/10 p-4 text-sm">
                 {selectedHolding?.positionSource === "ACCOUNT_BALANCE"
                   ? "Este aporte registra apenas o planejamento. Faça o depósito fora deste fluxo. O saldo e a Carteira só mudarão pelos mecanismos normais da conta; uma mudança no câmbio não confirma o depósito."
-                  : "Esta posição é controlada por um provedor. O aporte ficará aguardando e só alterará a carteira depois que a sincronização confirmar a compra."}
+                  : quantityProjection ? "Registre uma compra já realizada. A quantidade será atualizada temporariamente; quando a instituição informar a mesma posição, a sincronização automática será retomada. Nenhuma ordem será enviada à instituição." : "Esta posição é controlada por um provedor. O aporte ficará aguardando e só alterará a carteira depois que a sincronização confirmar a compra."}
               </div>
             )}
             <div className="flex justify-center pt-5">
-              <Button className="min-w-40" onClick={executeContribution} disabled={pending || !Number.isFinite(selectedQuantity) || selectedQuantity <= 0 || !paidUnitPriceValid || Boolean(isFixedIncome && contributionModal.destination === "EXISTING" && !contributionModal.holdingId) || Boolean(isFixedIncome && contributionModal.destination === "NEW" && ((!contributionModal.newHolding.catalogItemId && contributionModal.newHolding.customTypeName.trim().length < 2) || contributionModal.newHolding.issuer.trim().length < 2 || contributionModal.newHolding.productName.trim().length < 2))}>
-                {pending ? "Salvando…" : providerControlled ? "Planejar aporte" : "Aportar"}
+              <Button className="min-w-40" onClick={executeContribution} disabled={pending || !Number.isFinite(selectedQuantity) || selectedQuantity <= 0 || !paidUnitPriceValid || Boolean(quantityProjection && !selectedHolding) || Boolean(isFixedIncome && contributionModal.destination === "EXISTING" && !contributionModal.holdingId) || Boolean(isFixedIncome && contributionModal.destination === "NEW" && ((!contributionModal.newHolding.catalogItemId && contributionModal.newHolding.customTypeName.trim().length < 2) || contributionModal.newHolding.issuer.trim().length < 2 || contributionModal.newHolding.productName.trim().length < 2))}>
+                {pending ? "Salvando…" : quantityProjection ? "Registrar aporte" : providerControlled ? "Planejar aporte" : "Aportar"}
               </Button>
             </div>
           </div>

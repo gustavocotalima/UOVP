@@ -141,7 +141,7 @@ suite("reconciliação Pluggy por conexão", () => {
     expect(await db!.assetHolding.findUniqueOrThrow({ where: { id: f.first.holding.id } })).toEqual(overridden);
   });
 
-  it("confirma aportes usando holdings de todas as conexões do ativo e ignora sugestões de outros ativos", async () => {
+  it("exige revisão para aportes antigos sem destino e ignora sugestões de outros ativos", async () => {
     const f = await fixture();
     const target = await suggestion(f.user.id, f.asset.id, 30, 5);
     const otherAsset = await db!.asset.create({
@@ -160,9 +160,11 @@ suite("reconciliação Pluggy por conexão", () => {
       db!.contributionSuggestion.findUniqueOrThrow({ where: { id: target.id } }),
       db!.contributionSuggestion.findUniqueOrThrow({ where: { id: unrelated.id } }),
     ]);
-    expect(confirmed.executionStatus).toBe("EXECUTED");
-    expect(confirmed.confirmationReference).toContain(":35:");
+    expect(confirmed.executionStatus).toBe("AWAITING_SYNC");
+    expect(confirmed.syncResolution).toBe("NEEDS_REVIEW");
+    expect(confirmed.confirmationReference).toBeNull();
     expect(untouched.executionStatus).toBe("AWAITING_SYNC");
+    expect(untouched.syncResolution).toBeNull();
   });
 
   it("reavalia sugestões tanto do ativo antigo quanto do novo quando o vínculo muda", async () => {
@@ -186,7 +188,7 @@ suite("reconciliação Pluggy por conexão", () => {
       where: { id: { in: [oldSuggestion.id, nextSuggestion.id] } },
     });
     expect(suggestions).toHaveLength(2);
-    expect(suggestions.every((item) => item.executionStatus === "EXECUTED")).toBe(true);
+    expect(suggestions.every((item) => item.executionStatus === "AWAITING_SYNC" && item.syncResolution === "NEEDS_REVIEW")).toBe(true);
   });
 
   it("aplica o filtro de usuário mesmo quando o ID do item pertence a outra pessoa", async () => {

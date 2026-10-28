@@ -45,6 +45,7 @@ describe("movimentações de posições com resumo de compras", () => {
       where: { id: holdingId, asset: { portfolio: { userId: "user-a" } } },
       select: expect.objectContaining({ pluggyDiagramLink: { select: {
         pluggyInvestmentDbId: true,
+        contributionBatches: { where: { state: { in: ["WAITING", "CONFLICT"] } }, select: { id: true }, take: 1 },
         investment: { select: {
           amountOriginal: true, currencyCode: true, purchaseQuantityTotal: true, purchaseCostTotal: true, purchaseSummaryVersion: true,
         } },

@@ -7,6 +7,7 @@ import { AssetsMobile } from "@/features/portfolio/assets-panel/assets-mobile";
 import { HoldingHistoryDesktop, HoldingHistoryMobile } from "@/features/portfolio/assets-panel/holding-history";
 
 vi.mock("@/features/portfolio/assets-panel/asset-logo", () => ({ AssetLogo: () => null }));
+vi.mock("@/features/portfolio/actions", () => ({ reviewAwaitingContributionAction: vi.fn() }));
 
 const holding: AssetHoldingDto = {
   id: "holding", catalogItemId: null, typeName: "CDB", customTypeName: "CDB", issuer: "Banco", institution: null,

@@ -69,6 +69,29 @@ export default defineConfig({
       on("before:spec", cleanupCypressUsers);
       on("after:run", cleanupCypressUsers);
       on("task", {
+        async seedScopedBudgetPortfolio({ email }: { email: string }) {
+          if (!/^cypress-[^@]+@example\.com$/.test(email)) throw new Error("Only Cypress users may be seeded");
+          const prisma = new PrismaClient();
+          try {
+            const user = await prisma.user.findUniqueOrThrow({ where: { email } });
+            const portfolio = await prisma.portfolio.upsert({ where: { userId: user.id }, create: { userId: user.id }, update: {} });
+            await prisma.investmentTarget.deleteMany({ where: { userId: user.id } });
+            await prisma.investmentTarget.createMany({ data: [
+              { userId: user.id, investmentClass: "BRAZILIAN_STOCKS", percentage: 15 },
+              { userId: user.id, investmentClass: "INTERNATIONAL_STOCKS", percentage: 85 },
+            ] });
+            for (const usd of [false, true]) await prisma.asset.create({ data: {
+              portfolioId: portfolio.id, ticker: usd ? "EXCLUDED" : "BUDGETBRL", name: "Synthetic budget fixture", score: 10,
+              investmentClass: usd ? "INTERNATIONAL_STOCKS" : "BRAZILIAN_STOCKS", instrumentType: "STOCK",
+              marketRegion: usd ? "INTERNATIONAL" : "BRAZIL", holdings: { create: {
+                issuer: "Synthetic", productName: "Synthetic", quantity: usd ? 8000 : 1000, unitPrice: 1,
+                currency: usd ? "USD" : "BRL", pricingSource: usd ? "YAHOO" : "MANUAL", positionSource: "MANUAL",
+                fxRateToBrl: 1, fxUpdatedAt: new Date(),
+              } },
+            } });
+            return null;
+          } finally { await prisma.$disconnect(); }
+        },
         async seedBalancedAllocationPortfolio({ email }: { email: string }) {
           if (!/^cypress-[^@]+@example\.com$/.test(email)) throw new Error("Only Cypress users may be seeded");
           const prisma = new PrismaClient();
@@ -668,7 +691,7 @@ export default defineConfig({
             await prisma.$disconnect();
           }
         },
-        async seedPluggyQuantityOverride({ email }: { email: string }) {
+        async seedPluggyQuantityOverride({ email, activeQuantity = 0 }: { email: string; activeQuantity?: number }) {
           if (!/^cypress-[^@]+@example\.com$/.test(email)) throw new Error("Only Cypress users may be seeded");
           const prisma = new PrismaClient();
           try {
@@ -700,11 +723,12 @@ export default defineConfig({
                 issuer: "ITAU UNIBANCO HOLDING S.A.",
                 type: "EQUITY",
                 subtype: "STOCK",
-                quantity: 0,
-                balance: 0,
-                value: 0,
+                quantity: activeQuantity,
+                balance: activeQuantity * 50,
+                value: activeQuantity > 0 ? 50 : 0,
+                amountOriginal: activeQuantity > 0 ? activeQuantity * 40 : null,
                 currencyCode: "BRL",
-                status: "TOTAL_WITHDRAWAL",
+                status: activeQuantity > 0 ? "ACTIVE" : "TOTAL_WITHDRAWAL",
                 providerAvailable: true,
                 providerUpdatedAt: now,
               },
@@ -728,10 +752,10 @@ export default defineConfig({
                 positionSource: "PLUGGY",
                 pricingSource: "BRAPI",
                 currency: "BRL",
-                quantity: 0,
+                quantity: activeQuantity,
                 unitPrice: 50,
-                providerCurrentValue: 0,
-                includedInTotals: false,
+                providerCurrentValue: activeQuantity * 50,
+                includedInTotals: activeQuantity > 0,
                 fractional: false,
                 priceUpdatedAt: now,
               },
@@ -759,6 +783,10 @@ export default defineConfig({
                 date: new Date("2026-07-01T12:00:00.000Z"),
               },
             });
+            if (activeQuantity > 0) {
+              await prisma.investmentTarget.updateMany({ where: { userId: user.id }, data: { percentage: 0 } });
+              await prisma.investmentTarget.upsert({ where: { userId_investmentClass: { userId: user.id, investmentClass: "BRAZILIAN_STOCKS" } }, create: { userId: user.id, investmentClass: "BRAZILIAN_STOCKS", percentage: 100 }, update: { percentage: 100 } });
+            }
             return null;
           } finally {
             await prisma.$disconnect();
@@ -786,6 +814,18 @@ export default defineConfig({
           } finally {
             await prisma.$disconnect();
           }
+        },
+        async seedContributionQuantityConflict({ email, quantity }: { email: string; quantity: number }) {
+          if (!/^cypress-[^@]+@example\.com$/.test(email)) throw new Error("Only Cypress users may be seeded");
+          const prisma = new PrismaClient();
+          try {
+            const link = await prisma.pluggyInvestmentDiagramLink.findFirstOrThrow({ where: { user: { email }, contributionBatches: { some: { state: "WAITING" } } }, include: { contributionBatches: { where: { state: "WAITING" } } } });
+            await prisma.$transaction([
+              prisma.pluggyInvestment.update({ where: { id: link.pluggyInvestmentDbId }, data: { quantity, balance: quantity * 50, providerUpdatedAt: new Date() } }),
+              prisma.pluggyContributionBatch.update({ where: { id: link.contributionBatches[0].id }, data: { state: "CONFLICT", observedQuantity: quantity, revision: { increment: 1 } } }),
+            ]);
+            return null;
+          } finally { await prisma.$disconnect(); }
         },
         async getMarketLogoMetadata({
           provider,

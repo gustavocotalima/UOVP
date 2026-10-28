@@ -55,6 +55,9 @@ export type PluggyQuantityChangeDto = {
   previousProviderQuantity: string | null;
   providerQuantity: string | null;
   manualQuantity: string;
+  contributionBatchId?: string;
+  expectedRevision?: number;
+  pendingContributions?: number;
 };
 
 export type InvestmentMetadataCatalogItemDto = {
@@ -167,6 +170,7 @@ export type AssetDto = {
   providerControlled: boolean;
   needsScore: boolean;
   awaitingSyncContribution: {
+    id?: string;
     quantity: string;
     value: string;
     paidUnitPrice: string | null;
@@ -175,6 +179,12 @@ export type AssetDto = {
     executionFxRateToBrl: string | null;
     awaitingSyncAt: string | null;
   } | null;
+  awaitingSyncContributions?: Array<{
+    id: string; quantity: string; value: string; paidUnitPrice: string | null;
+    nativeCurrency: string | null; paidUnitPriceNative: string | null;
+    executionFxRateToBrl: string | null; awaitingSyncAt: string | null;
+    quantityProjected: boolean; needsReview: boolean; holdingId: string | null;
+  }>;
 };
 
 export type PortfolioDto = {
@@ -269,6 +279,7 @@ export type DiagramQuestionDto = {
 };
 
 export type SimulationDto = {
+  budgetPolicy?: import("./calculation/types").BudgetPolicy;
   allocationMethod?: import("./calculation/types").AllocationMethod;
   calculation?: import("./calculation/types").CalculationDiagnostics;
   id: string;

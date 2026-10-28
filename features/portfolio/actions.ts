@@ -22,7 +22,8 @@ import {
 } from "@/features/open-finance/diagram-exclusion";
 import { questionChangeAffectsAllocation } from "./allocation";
 import { calculateContribution } from "./calculation/server";
-import { ALLOCATION_VERSIONS } from "./calculation/types";
+import { ALLOCATION_VERSIONS, BUDGET_POLICIES, type BudgetPolicy } from "./calculation/types";
+import { CONTRIBUTION_UNIT_TYPES, registerContributionQuantity, reviewLegacyContribution, refreshContributionQuantityCost } from "@/features/open-finance/contribution-quantity";
 import { fixedIncomeHoldingFingerprint, holdingCurrentValue } from "./asset-groups";
 import { addInvestmentCost, investmentCostUpdate } from "./investment-cost";
 import { bumpPortfolioAndInvalidateDrafts } from "./invalidation";
@@ -1961,6 +1962,7 @@ export async function simulateContributionAction(
   value: number,
   currency: "BRL" | "USD" = "BRL",
   scope: ContributionScopeKey = "ALL_ASSETS",
+  budgetPolicy: BudgetPolicy = "TARGET_CAPPED",
 ) {
   const userId = await requireUserId();
   const inputAmount = z.number().positive().max(100_000_000).refine(
@@ -1969,6 +1971,7 @@ export async function simulateContributionAction(
   ).parse(value);
   const inputCurrency = contributionCurrencySchema.parse(currency);
   const allocationScope = contributionScopeSchema.parse(scope);
+  const policy = z.enum(BUDGET_POLICIES).parse(budgetPolicy);
   if (!isContributionScopeValid(inputCurrency, allocationScope)) {
     throw new Error(`O filtro de ativos selecionado não é válido para aportes em ${inputCurrency}.`);
   }
@@ -1994,6 +1997,7 @@ export async function simulateContributionAction(
   const portfolio = await getPortfolioData(userId);
   const result = await calculateContribution({
     contribution,
+    budgetPolicy: policy,
     capEligibleClassesAtTarget: allocationScope !== "ALL_ASSETS",
     targets: portfolio.targets,
     assets: portfolio.assets.map((asset) => ({
@@ -2089,6 +2093,7 @@ export async function simulateContributionAction(
     id: simulation.id,
     allocationMethod: portfolio.allocationMethod,
     calculation: result.calculation,
+    budgetPolicy: policy,
     inputAmount: simulation.inputAmount.toString(),
     inputCurrency: simulation.inputCurrency,
     allocationScope: simulation.allocationScope,
@@ -2107,7 +2112,7 @@ export async function executeContributionAction(
   suggestionId?: string,
   customQuantity?: number,
   paidUnitPrice?: number,
-  destination?: { holdingId?: string; newHolding?: FixedIncomeHoldingInput },
+  destination?: { holdingId?: string; expectedUpdatedAt?: string; newHolding?: FixedIncomeHoldingInput },
 ) {
   const userId = await requireUserId();
   const parsedSimulationId = z.string().cuid().parse(simulationId);
@@ -2120,7 +2125,7 @@ export async function executeContributionAction(
     : z.number().positive().max(1_000_000_000).parse(paidUnitPrice);
   if (parsedQuantity !== undefined && !parsedSuggestionId) throw new Error("Selecione um ativo para informar a quantidade.");
   try {
-    const execution = await prisma.$transaction(async (tx) => {
+    const execution = await withUserOperationLease({ userId, operation: "pluggy-sync", leaseMs: 60_000, action: (lease) => lease.runFencedTransaction(async (tx) => {
       const simulation = await tx.contributionSimulation.findFirst({
         where: { id: parsedSimulationId, userId },
         include: { user: { include: { portfolio: true } }, suggestions: { include: { asset: { include: { holdings: true } } } } },
@@ -2153,6 +2158,23 @@ export async function executeContributionAction(
       });
       if (externalSuggestion) {
         if (selected.length !== 1) throw new Error("Planeje aportes de posições controladas por provedor individualmente.");
+        const unitHoldings = externalSuggestion.asset.holdings.filter((holding) => holding.includedInTotals && holding.positionSource === "PLUGGY");
+        if (CONTRIBUTION_UNIT_TYPES.includes(externalSuggestion.asset.instrumentType) && unitHoldings.length) {
+          const holding = destination?.holdingId
+            ? unitHoldings.find((item) => item.id === destination.holdingId)
+            : unitHoldings.length === 1 ? unitHoldings[0] : undefined;
+          if (!holding) throw new Error("Selecione a posição e a instituição que receberam o aporte.");
+          if (destination?.expectedUpdatedAt && holding.updatedAt.toISOString() !== destination.expectedUpdatedAt) {
+            throw new Error("A posição mudou. Reabra o aporte e confira a quantidade.");
+          }
+          await registerContributionQuantity(tx, {
+            userId, assetId: externalSuggestion.assetId, suggestionId: externalSuggestion.id, holdingId: holding.id,
+            quantity: parsedQuantity === undefined ? externalSuggestion.quantity : new Prisma.Decimal(parsedQuantity.toString()),
+            paidUnitPrice: new Prisma.Decimal(parsedPaidUnitPrice!.toString()),
+          });
+          await bumpPortfolioAndInvalidateDrafts(tx, portfolio.id, userId);
+          return "EXECUTED" as const;
+        }
         const externalHoldings = externalSuggestion.asset.holdings.filter((holding) =>
           holding.positionSource !== "MANUAL" && holding.includedInTotals
           && (externalSuggestion.asset.instrumentType !== "FIXED_INCOME" || holding.id === destination?.holdingId));
@@ -2377,7 +2399,7 @@ export async function executeContributionAction(
         },
       });
       return "EXECUTED" as const;
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }) });
     if (execution === "INVALIDATED") return { status: "INVALIDATED" as const };
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034") {
@@ -2390,23 +2412,25 @@ export async function executeContributionAction(
   }
   revalidatePath("/carteira");
   revalidatePath("/home");
-  return { status: "EXECUTED" as const, awaitingSync: Boolean(parsedSuggestionId && await prisma.contributionSuggestion.count({
+  revalidatePath("/open-finance");
+  const registered = parsedSuggestionId ? await prisma.contributionSuggestion.findFirst({
     where: {
       id: parsedSuggestionId,
       simulation: { userId },
-      executionStatus: "AWAITING_SYNC",
     },
-  })) };
+    select: { executionStatus: true, usesQuantityProjection: true },
+  }) : null;
+  return { status: "EXECUTED" as const, awaitingSync: registered?.executionStatus === "AWAITING_SYNC", quantityProjected: registered?.usesQuantityProjection ?? false };
 }
-export async function saveAwaitingContributionPriceAction(assetId: string, paidUnitPrice: number) {
+export async function saveAwaitingContributionPriceAction(suggestionId: string, paidUnitPrice: number) {
   const userId = await requireUserId();
-  const parsedAssetId = z.string().cuid().parse(assetId);
+  const parsedSuggestionId = z.string().cuid().parse(suggestionId);
   const parsedPaidUnitPrice = z.number().positive().max(1_000_000_000).parse(paidUnitPrice);
 
-  await prisma.$transaction(async (tx) => {
+  await withUserOperationLease({ userId, operation: "pluggy-sync", leaseMs: 60_000, action: (lease) => lease.runFencedTransaction(async (tx) => {
     const suggestion = await tx.contributionSuggestion.findFirst({
       where: {
-        assetId: parsedAssetId,
+        id: parsedSuggestionId,
         executionStatus: "AWAITING_SYNC",
         simulation: { userId },
       },
@@ -2439,14 +2463,27 @@ export async function saveAwaitingContributionPriceAction(assetId: string, paidU
           : null,
         executionFxRateToBrl: suggestion.nativeCurrency ? suggestion.fxRateToBrl : null,
         value: suggestion.quantity.mul(paidUnitPriceBrl),
+        nativeValue: suggestion.nativeCurrency ? suggestion.quantity.mul(parsedPaidUnitPrice.toString()) : null,
       },
     });
     if (updated.count !== 1) {
       throw new Error("O aporte mudou durante a edição. Recarregue e tente novamente.");
     }
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    await refreshContributionQuantityCost(tx, suggestion.id);
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }) });
 
   revalidatePath("/carteira");
+}
+
+export async function reviewAwaitingContributionAction(input: { suggestionId: string; decision: "PROVIDER" | "PROJECT"; holdingId?: string; expectedQuantity?: number }) {
+  const userId = await requireUserId();
+  const parsed = z.object({ suggestionId: z.string().cuid(), decision: z.enum(["PROVIDER", "PROJECT"]), holdingId: z.string().cuid().optional(), expectedQuantity: z.number().finite().min(0).max(1e15).optional() }).parse(input);
+  await withUserOperationLease({ userId, operation: "pluggy-sync", leaseMs: 60_000, action: (lease) => lease.runFencedTransaction(async (tx) => {
+    await reviewLegacyContribution(tx, { ...parsed, userId, expectedQuantity: parsed.expectedQuantity === undefined ? undefined : new Prisma.Decimal(parsed.expectedQuantity.toString()) });
+    const portfolio = await tx.portfolio.findUniqueOrThrow({ where: { userId } });
+    await bumpPortfolioAndInvalidateDrafts(tx, portfolio.id, userId);
+  }) });
+  revalidatePath("/carteira"); revalidatePath("/open-finance"); revalidatePath("/home");
 }
 
 

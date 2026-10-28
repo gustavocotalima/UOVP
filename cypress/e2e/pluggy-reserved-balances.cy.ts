@@ -25,6 +25,7 @@ describe("Caixinhas importadas pela Pluggy", () => {
 
     cy.visit("/carteira");
     cy.waitForHydration();
+    cy.get('[data-assets-panel-hydrated="true"]').should("be.visible");
     cy.contains("1 investimento(s) precisam de revisão").should("be.visible");
     cy.contains("Seus ativos").parent().should("contain.text", "0 ativos");
     cy.contains("button", "Revisar integração").click();

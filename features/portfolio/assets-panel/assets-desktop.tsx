@@ -3,9 +3,9 @@ import { PrivateValue } from "@/components/ui/private-value";
 import { Fragment } from "react";
 import { ChevronDown, ChevronRight, Clock3, FileSpreadsheet, Pencil, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { PendingContributions } from "./pending-contributions";
 import { formatDateOnly } from "@/lib/calendar";
-import { formatCurrency, formatMoney, formatPercent } from "@/lib/money";
+import { formatMoney, formatPercent } from "@/lib/money";
 import { FIXED_INCOME_INDEXATION_META, INSTRUMENT_TYPE_META, INVESTMENT_CLASS_META } from "../constants";
 import { currentValue } from "./model";
 import { TemporaryQuantityBadge, ProviderQuantity, MoneyWithNative, CostValue, holdingProfitability, reviewMoney, reviewDecimal, reviewDate } from "./presentation";
@@ -94,7 +94,7 @@ export function AssetsDesktop({ controller }: {
               <td className="whitespace-nowrap px-3">{showsApplicationCount ? `${asset.holdings.length} aplic.` : <PrivateValue>{Number(asset.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 10 })}</PrivateValue>}</td>
               <td className="whitespace-nowrap px-3 text-xs text-[var(--muted-foreground)]">
                 <span className="block">{reviewDate(asset.priceUpdatedAt ?? asset.updatedAt, timeZone)}</span>
-                {asset.awaitingSyncContribution && (<span className="mt-1 inline-flex items-center gap-1 text-[10px] text-[var(--primary)]" title={valuesHidden ? undefined : asset.instrumentType === "FIXED_INCOME" || asset.awaitingSyncContribution.paidUnitPrice
+                {asset.awaitingSyncContribution && (<span className="mt-1 inline-flex items-center gap-1 text-[10px] text-[var(--primary)]" title={valuesHidden ? undefined : (asset.awaitingSyncContributions?.length ?? 0) > 1 ? `${asset.awaitingSyncContributions!.length} aportes aguardando confirmação do provedor.` : asset.instrumentType === "FIXED_INCOME" || asset.awaitingSyncContribution.paidUnitPrice
                   ? `Aporte de ${formatMoney(asset.awaitingSyncContribution.value)} aguardando confirmação do provedor.`
                   : `Aporte de ${reviewDecimal(asset.awaitingSyncContribution.quantity)} unidades aguardando confirmação do provedor. Preço não informado.`}>
                   <Clock3 className="size-3" aria-hidden="true" />
@@ -109,21 +109,7 @@ export function AssetsDesktop({ controller }: {
                   <div><strong className="text-sm">Posições do ativo</strong><p className="text-xs text-[var(--muted-foreground)]">O valor é a soma das posições ativas abaixo.</p></div>
                   {asset.instrumentType === "FIXED_INCOME" && <Button size="sm" onClick={() => startHolding(asset)}><Plus className="size-4" /> Adicionar aplicação</Button>}
                 </div>
-                {asset.awaitingSyncContribution && (<div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--primary)]/35 bg-[var(--primary)]/10 px-4 py-3 text-xs">
-                  <span className="inline-flex items-center gap-1.5 font-semibold text-[var(--primary)]">
-                    <Clock3 className="size-4" aria-hidden="true" />
-                    Aguardando sync
-                  </span>
-                  {asset.instrumentType === "FIXED_INCOME" ? (<span className="text-[var(--foreground)]"><PrivateValue>{formatMoney(asset.awaitingSyncContribution.value)}</PrivateValue></span>) : asset.awaitingSyncContribution.paidUnitPrice ? (<span className="text-[var(--foreground)]">
-                    <PrivateValue>{reviewDecimal(asset.awaitingSyncContribution.quantity)}</PrivateValue> un. · {asset.awaitingSyncContribution.paidUnitPriceNative && asset.awaitingSyncContribution.nativeCurrency ? <PrivateValue>{formatCurrency(asset.awaitingSyncContribution.paidUnitPriceNative, asset.awaitingSyncContribution.nativeCurrency)}</PrivateValue> : <PrivateValue>{formatMoney(asset.awaitingSyncContribution.paidUnitPrice)}</PrivateValue>} cada · <PrivateValue>{formatMoney(asset.awaitingSyncContribution.value)}</PrivateValue>
-                  </span>) : (<div className="flex flex-wrap items-center justify-end gap-2">
-                    <span className="text-[var(--foreground)]"><PrivateValue>{reviewDecimal(asset.awaitingSyncContribution.quantity)}</PrivateValue> un.</span>
-                    <Input type="number" min="0.00000001" step="any" value={pendingPriceByAsset[asset.id] ?? ""} onChange={(event) => setPendingPriceByAsset((current) => ({ ...current, [asset.id]: event.target.value }))} aria-label={`Preço unitário pago por ${asset.ticker} em ${asset.awaitingSyncContribution.nativeCurrency ?? "BRL"}`} placeholder={`Preço pago (${asset.awaitingSyncContribution.nativeCurrency ?? "R$"})`} className="h-8 w-32 bg-[var(--card)]" />
-                    <Button type="button" size="sm" onClick={() => savePendingContributionPrice(asset.id)} disabled={pending || !(Number(pendingPriceByAsset[asset.id]) > 0)}>
-                      Salvar preço
-                    </Button>
-                  </div>)}
-                </div>)}
+                <PendingContributions asset={asset} prices={pendingPriceByAsset} pending={pending} onPriceChange={(id, value) => setPendingPriceByAsset((current) => ({ ...current, [id]: value }))} onSave={savePendingContributionPrice} />
                 {asset.holdings.length ? (<div className="overflow-x-auto rounded-xl border bg-[var(--card)]">
                   <table className="w-full min-w-[920px] text-left text-xs">
                     <thead className="border-b text-[var(--muted-foreground)]"><tr><th className="px-3 py-2">Tipo / produto</th><th className="px-3 py-2">Emissor</th>{holdingColumns.invested && <th className="px-3 py-2">Investido</th>}<th className="px-3 py-2">Atual</th>{holdingColumns.quantity && <th className="px-3 py-2">Quantidade atual</th>}{holdingColumns.averagePrice && <th className="px-3 py-2">Preço médio</th>}{holdingColumns.profitability && <th className="px-3 py-2">Rentabilidade</th>}{holdingColumns.purchaseDate && <th className="px-3 py-2">Compra</th>}{holdingColumns.maturityDate && <th className="px-3 py-2">Vencimento</th>}<th className="px-3 py-2 text-right">Fonte / ações</th></tr></thead>
