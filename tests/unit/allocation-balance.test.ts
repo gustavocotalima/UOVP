@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import { allocateContribution } from "@/features/portfolio/allocation";
 import { DEFAULT_TARGETS } from "@/features/portfolio/constants";
 import { Money, type AllocationInput } from "@/features/portfolio/calculation/types";
+import { improvedCalculation } from "@/features/portfolio/calculation/improved";
+import { balancePurchases } from "@/features/portfolio/calculation/balanced-search";
+import { calculateContribution } from "@/features/portfolio/calculation/server";
 
 const zeros = Object.fromEntries(Object.keys(DEFAULT_TARGETS).map((key) => [key, 0])) as typeof DEFAULT_TARGETS;
 function fixture(scores: number[], contribution: number, current = scores.map(() => 0), prices = scores.map(() => 1)): AllocationInput {
@@ -52,6 +55,26 @@ describe("class balance, then score balance, then budget", () => {
       expect(s.value.minus(total.mul(a.score).div(10)).abs().lte(a.unitPrice)).toBe(true);
     }
     expect(total.plus(r.unallocatedAmount).eq(500)).toBe(true);
+  });
+  it("refines the fallback incumbent and purchases balanced pairs instead of returning nothing", async () => {
+    const input = fixture([9, 6], 673, [244, 211], [26, 145]);
+    const r = allocateContribution(input), invested = spent(r), final = invested.plus(455);
+    expect(invested.toString()).toBe("483");
+    expect(invested.plus(r.unallocatedAmount).eq(673)).toBe(true);
+    for (const a of input.assets) {
+      const value = r.suggestions.find((s) => s.assetId === a.id)?.value ?? new Money(0);
+      expect(new Money(a.currentValue).plus(value).minus(final.mul(a.score).div(15)).abs().lte(a.unitPrice)).toBe(true);
+    }
+    expect(r.calculation.warnings).toEqual([]);
+    const server = await calculateContribution(input, "IMPROVED", "synthetic-fallback-regression");
+    expect(server.suggestions.map((s) => [s.assetId, s.value.toString()])).toEqual(r.suggestions.map((s) => [s.assetId, s.value.toString()]));
+  });
+  it("checks simple fallback purchases before an expired refinement deadline", () => {
+    const step = improvedCalculation(fixture([9, 6], 673, [244, 211], [26, 145])).next();
+    if (step.done) throw new Error("Expected a balance model");
+    const result = balancePurchases({ ...step.value, timeLimitMs: 0 });
+    expect(result.values.some((quantity) => quantity > 0)).toBe(true);
+    expect(result.stopReason).toBe("time_limit");
   });
   it("prioritizes the underweight class before improving scores in an overweight class", () => {
     const input = fixture([2, 3, 5], 1000, [0, 0, 10000]);

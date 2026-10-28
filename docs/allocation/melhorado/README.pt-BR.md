@@ -21,7 +21,7 @@ O algoritmo só propõe compras. Posições acima das metas permanecem na cartei
 1. Calcular as lacunas positivas das classes sobre o patrimônio existente mais o aporte solicitado. Apenas classes com compras elegíveis recebem uma referência de aporte.
 2. Em cada classe, calcular as participações pelas notas positivas e as lacunas dos ativos sobre o patrimônio projetado da classe. Dividir sua referência pelas lacunas positivas dos recebedores elegíveis.
 3. Arredondar para incrementos de compra próximos das referências. Se o arredondamento interno ultrapassar o orçamento, reduzir quantidades propostas antes de produzir qualquer resultado.
-4. Refinar compras e substituições, nessa ordem de prioridade: validade financeira, equilíbrio das metas, equilíbrio das notas e uso do orçamento. Quantidades já existentes nunca são reduzidas.
+4. Refinar compras, pares de compras equilibradas e substituições, nessa ordem de prioridade: validade financeira, equilíbrio das metas, equilíbrio das notas e uso do orçamento. Retomar a melhor combinação válida se o refinamento arredondado travar; verificar compras simples de reserva antes mesmo do laço de refinamento. Quantidades já existentes nunca são reduzidas.
 5. Retornar a melhor combinação válida encontrada e a sobra exata.
 
 A combinação inicial já considera as notas. O método não começa concentrando cada classe no ativo mais barato. A ordem canônica de ID impede que ordenar a tabela altere o cálculo.

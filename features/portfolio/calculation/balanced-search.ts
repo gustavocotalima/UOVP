@@ -63,6 +63,13 @@ export function balancePurchases(model: BalanceModel): BalanceSolution {
   let best = evaluate(Array(n).fill(0));
   const considerBest = (s: State) => { if (valid(s) && better(s, best)) best = s; };
   considerBest(current);
+  // Give the fallback real purchase candidates even if the refinement deadline
+  // expires before the rounded seed can be repaired or restarted.
+  for (let i = 0; i < n; i++) {
+    if (!model.assets[i].upper) continue;
+    const values = Array(n).fill(0); values[i] = 1;
+    considerBest(evaluate(values));
+  }
 
   // Nearest-lot rounding may exceed the budget internally. Repair proposed
   // quantities before exposing a result; existing holdings are never sold.
@@ -80,8 +87,12 @@ export function balancePurchases(model: BalanceModel): BalanceSolution {
   }
 
   let iterations = 0;
+  let restarted = false;
   const limit = Math.min(256, Math.max(64, n * 4));
   for (; iterations < limit && Date.now() < deadline; iterations++) {
+    if (!restarted && current !== best && iterations >= limit / 2) {
+      current = best; restarted = true;
+    }
     let next = current;
     const remaining = model.budget - current.spent;
     const tryMove = (i: number, delta: number, j = -1, otherDelta = 0) => {
@@ -127,6 +138,21 @@ export function balancePurchases(model: BalanceModel): BalanceSolution {
     // replacements so the algorithm does not get stuck only adding purchases.
     const additions = addRank.sort((a, b) => b.deficit - a.deficit || a.i - b.i).slice(0, 12);
     const removals = removeRank.sort((a, b) => b.excess - a.excess || model.assets[a.i].cost - model.assets[b.i].cost || a.i - b.i).slice(0, 12);
+    // Two underweight positions may need to grow together: either purchase
+    // alone can worsen their proportions even though the pair is balanced.
+    for (const { i } of additions) for (const { i: j } of additions) {
+      if (i === j || model.assets[i].cost + model.assets[j].cost > remaining) continue;
+      tryMove(i, 1, j, 1);
+      const a = model.assets[j], c = model.classes[a.group];
+      const value = c.current + current.groups[a.group];
+      const wanted = a.group === model.assets[i].group
+        ? a.share < 1 ? (a.share * (value + model.assets[i].cost) - a.current - current.values[j] * a.cost) / (1 - a.share) : 0
+        : c.target < 1 ? (c.target * (total + current.spent + model.assets[i].cost) - value) / (1 - c.target) : 0;
+      const cap = Math.min(a.upper - current.values[j], Math.floor((remaining - model.assets[i].cost) / a.cost));
+      for (const quantity of [Math.floor(wanted / a.cost), Math.ceil(wanted / a.cost)]) {
+        if (quantity > 0) tryMove(i, 1, j, Math.min(cap, quantity));
+      }
+    }
     for (const { i } of additions) for (const { i: j } of removals) {
       if (i === j) continue;
       const release = Math.max(1, Math.ceil((model.assets[i].cost - remaining) / model.assets[j].cost));
@@ -134,7 +160,10 @@ export function balancePurchases(model: BalanceModel): BalanceSolution {
       const add = Math.min(model.assets[i].upper - current.values[i], Math.floor((remaining + model.assets[j].cost) / model.assets[i].cost));
       if (add > 0) tryMove(i, add, j, -1);
     }
-    if (next === current) return { values: best.values, iterations, evaluations, stopReason: "stable" };
+    if (next === current) {
+      if (!restarted && current !== best) { current = best; restarted = true; continue; }
+      return { values: best.values, iterations, evaluations, stopReason: "stable" };
+    }
     current = next; considerBest(current);
   }
   return { values: best.values, iterations, evaluations, stopReason: iterations >= limit ? "iteration_limit" : "time_limit" };

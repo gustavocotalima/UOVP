@@ -21,7 +21,7 @@ The algorithm proposes purchases only. Overweight positions remain in the portfo
 1. Calculate positive class gaps against existing wealth plus the requested contribution. Only classes with eligible purchases receive a contribution reference.
 2. Within each class, calculate positive-score shares and asset gaps against projected class wealth. Divide its reference across eligible receivers' positive gaps.
 3. Round toward nearby purchase increments. If internal rounding exceeds the budget, reduce proposed quantities before producing any result.
-4. Refine purchases and replacements in this priority order: financial validity, class balance, score balance, and budget use. Existing quantities are never reduced.
+4. Refine purchases, balanced purchase pairs and replacements in this priority order: financial validity, class balance, score balance, and budget use. Restart from the best valid candidate if rounded refinement stalls; probe simple fallback purchases even before the refinement loop. Existing quantities are never reduced.
 5. Return the best valid combination found and the exact remainder.
 
 The initial combination already considers scores. It does not start by concentrating each class in the cheapest asset. Canonical ID order prevents table sorting from changing calculations.
