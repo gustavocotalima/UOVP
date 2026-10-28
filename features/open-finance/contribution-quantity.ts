@@ -21,6 +21,18 @@ export function sameContributionQuantity(left: Prisma.Decimal, right: Prisma.Dec
   return left.toDecimalPlaces(10).eq(right.toDecimalPlaces(10));
 }
 
+function knownStartingCost(link: Link, quantity: Prisma.Decimal) {
+  if (quantity.eq(0)) return new Prisma.Decimal(0);
+  const summary = calculateHoldingAveragePrice({
+    positionSource: "PLUGGY", quantity,
+    investedValue: link.holding!.investedValue, providerCurrency: link.investment.currencyCode,
+    amountOriginal: link.investment.amountOriginal,
+    purchaseSummary: { version: link.investment.purchaseSummaryVersion, quantity: link.investment.purchaseQuantityTotal, cost: link.investment.purchaseCostTotal },
+  });
+  return summary.price && summary.coverage >= 1 && summary.currency === link.holding!.currency
+    ? new Prisma.Decimal(summary.price.mul(quantity.toString()).toString()) : null;
+}
+
 function available(link: Link) {
   return link.status === "MAPPED" && link.holding?.positionSource === "PLUGGY"
     && link.holding.asset.portfolio.userId === link.userId && link.investment.item.userId === link.userId
@@ -108,15 +120,7 @@ export async function registerContributionQuantity(tx: Prisma.TransactionClient,
   const fx = link.holding.currency === "BRL" ? new Prisma.Decimal(1) : link.holding.fxRateToBrl;
   if (!fx?.gt(0)) throw new Error("A posição não possui câmbio válido. Sincronize e tente novamente.");
   if (!batch) {
-    const summary = calculateHoldingAveragePrice({
-      positionSource: "PLUGGY", quantity: link.holding.quantity,
-      investedValue: link.holding.investedValue, providerCurrency: link.investment.currencyCode,
-      amountOriginal: link.investment.amountOriginal,
-      purchaseSummary: { version: link.investment.purchaseSummaryVersion, quantity: link.investment.purchaseQuantityTotal, cost: link.investment.purchaseCostTotal },
-    });
-    const baselineCost = link.holding.quantity.eq(0) ? new Prisma.Decimal(0)
-      : summary.price && summary.coverage >= 1 && summary.currency === link.holding.currency
-        ? new Prisma.Decimal(summary.price.mul(link.holding.quantity.toString()).toString()) : null;
+    const baselineCost = knownStartingCost(link, link.holding.quantity);
     batch = await tx.pluggyContributionBatch.create({ data: {
       linkId: link.id, holdingId: link.holding.id, startingQuantity: link.holding.quantity,
       providerBaselineQuantity: raw, expectedQuantity: link.holding.quantity,
@@ -170,12 +174,20 @@ async function initializeLegacy(tx: Prisma.TransactionClient, userId: string, as
       continue;
     }
     const expected = baseline.quantity.add(suggestion.quantity);
+    // Only a still-unchanged snapshot known before registration can supply
+    // historical starting cost; newer or missing versions are ambiguous.
+    const knownBaseline = baseline.currency === link.holding.currency
+      && sameContributionQuantity(link.investment.quantity, baseline.quantity)
+      && sameContributionQuantity(link.holding.quantity, baseline.quantity)
+      && (baseline.quantity.eq(0) || Boolean(link.investment.providerUpdatedAt && suggestion.awaitingSyncAt
+        && link.investment.providerUpdatedAt <= suggestion.awaitingSyncAt));
     const batch = await tx.pluggyContributionBatch.create({ data: {
       linkId: link.id, holdingId: link.holding.id, startingQuantity: baseline.quantity,
       providerBaselineQuantity: baseline.quantity, expectedQuantity: expected,
       acknowledgedQuantity: baseline.quantity, observedQuantity: baseline.quantity,
       providerUpdatedAt: link.investment.providerUpdatedAt,
       createdAt: suggestion.awaitingSyncAt ?? new Date(), currency: link.holding.currency,
+      baselineCostNative: knownBaseline ? knownStartingCost(link, baseline.quantity) : null,
     } });
     await tx.contributionSuggestion.update({ where: { id: suggestion.id }, data: {
       usesQuantityProjection: true, contributionBatchId: batch.id, expectedQuantityAfter: expected, syncResolution: null,

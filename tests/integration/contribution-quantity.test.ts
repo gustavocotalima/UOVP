@@ -213,6 +213,48 @@ suite("Open Finance contribution quantity reconciliation", () => {
     expect((await getPortfolioData(f.user.id)).assets[0].currentValue).toBe("1234.56");
     expect((await db!.pluggyInvestmentDiagramLink.findUniqueOrThrow({ where: { id: f.link.id } })).overrideQuantity).toBeNull();
   });
+  it.each(["STOCK", "MUTUAL_FUND"] as const)("keeps drafts valid after an identical pending %s snapshot", async (type) => {
+    const f = await fixture(type);
+    if (type === "MUTUAL_FUND") await db!.assetHolding.update({ where: { id: f.holding.id }, data: { pricingSource: "PLUGGY", fractional: true, currentValue: 1000 } });
+    await reconcilePluggyInvestmentsForUser(f.user.id);
+    await buy(f);
+    const draft = await simulation(f);
+    const before = await db!.portfolio.findUniqueOrThrow({ where: { id: f.user.portfolio!.id } });
+    for (let i = 0; i < 2; i++) await reconcilePluggyInvestmentsForUser(f.user.id);
+    expect((await db!.portfolio.findUniqueOrThrow({ where: { id: before.id } })).version).toBe(before.version);
+    expect((await db!.contributionSimulation.findUniqueOrThrow({ where: { id: draft.id } })).status).toBe("DRAFT");
+    expect((await position(f)).quantity.toString()).toBe("110");
+    expect((await position(f)).investedValue?.toString()).toBe("1120");
+    await db!.pluggyInvestment.update({ where: { id: f.investment.id }, data: { amountOriginal: 1120, providerUpdatedAt: new Date() } });
+    await reconcilePluggyInvestmentsForUser(f.user.id);
+    expect((await position(f)).investedValue?.toString()).toBe("1120");
+    expect((await db!.portfolio.findUniqueOrThrow({ where: { id: before.id } })).version).toBe(before.version);
+    expect((await db!.contributionSimulation.findUniqueOrThrow({ where: { id: draft.id } })).status).toBe("DRAFT");
+    if (type === "MUTUAL_FUND") {
+      expect((await position(f)).currentValue?.toString()).toBe("1100");
+      await db!.pluggyInvestment.update({ where: { id: f.investment.id }, data: { value: 11 } });
+      await reconcilePluggyInvestmentsForUser(f.user.id);
+      expect((await position(f)).currentValue?.toString()).toBe("1210");
+      expect((await db!.contributionSimulation.findUniqueOrThrow({ where: { id: draft.id } })).status).toBe("STALE");
+    }
+  });
+  it.each([true, false])("initializes legacy cost only from an unchanged pre-registration snapshot (safe=%s)", async (safe) => {
+    const f = await fixture(); const s = await simulation(f);
+    await db!.contributionSuggestion.update({ where: { id: s.suggestions[0].id }, data: {
+      executionStatus: "AWAITING_SYNC", awaitingSyncAt: new Date(Date.now() - (safe ? 1000 : 120_000)), paidUnitPrice: 12,
+      externalBaselines: { create: { holdingId: f.holding.id, quantity: 100, providerValue: 1000, currency: "BRL", fxRateToBrl: 1 } },
+    } });
+    await reconcilePluggyInvestmentsForUser(f.user.id);
+    const batch = await db!.pluggyContributionBatch.findFirstOrThrow({ where: { linkId: f.link.id } });
+    expect(batch.baselineCostNative?.toString() ?? null).toBe(safe ? "1000" : null);
+    expect((await position(f)).quantity.toString()).toBe("110");
+    expect((await position(f)).investedValue?.toString() ?? null).toBe(safe ? "1120" : null);
+    if (safe) {
+      expect(Number((await getPortfolioData(f.user.id)).assets[0].averagePricePaid)).toBeCloseTo(1120 / 110);
+      const response = await holdingTransactions(new Request(`http://localhost/api/portfolio/holdings/${f.holding.id}/transactions`), { params: Promise.resolve({ holdingId: f.holding.id }) });
+      expect(Number((await response.json()).averagePricePaid)).toBeCloseTo(1120 / 110);
+    }
+  });
   it("requires a destination when multiple institutions hold the same asset", async () => {
     const f = await fixture(); const suffix = randomUUID();
     const other = await db!.assetHolding.create({ data: { ...Object.fromEntries(Object.entries(f.holding).filter(([k]) => !["id", "createdAt", "updatedAt"].includes(k))), assetId: f.asset.id, issuer: "Outro banco", productName: "Outra posição" } as Prisma.AssetHoldingUncheckedCreateInput });

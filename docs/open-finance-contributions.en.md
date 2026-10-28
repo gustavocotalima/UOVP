@@ -21,3 +21,5 @@ Apply the contribution-quantity migration before serving this version. The datab
 When a changed provider quantity has no update timestamp, UOVP requests an explicit quantity review instead of automatically confirming the purchase. Identical acknowledged snapshots do not repeat the prompt. Deleting an asset or class resolves its active batches and removes only the contribution quantity override before the holding is removed, so remapping starts from provider data.
 
 When a provider-priced projection ends, the institution’s reported balance becomes authoritative again, even when it differs from quantity × unit price.
+
+Legacy batches preserve a known starting cost only when an unchanged snapshot in the same currency is known to predate registration; ambiguous costs stay unknown. Synchronization compares the effective projected quantities, costs and values before invalidating calculations, so identical snapshots keep drafts valid.

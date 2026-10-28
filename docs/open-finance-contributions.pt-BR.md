@@ -21,3 +21,5 @@ Aplique a migração de quantidades de aportes antes de servir esta versão. O b
 Quando uma mudança na quantidade da instituição não tem data de atualização, o UOVP solicita revisão explícita em vez de confirmar a compra automaticamente. Snapshots idênticos já reconhecidos não repetem o aviso. Excluir um ativo ou classe encerra os lotes ativos e remove somente a quantidade temporária do aporte antes de excluir a posição; uma nova integração começa pelos dados da instituição.
 
 Ao encerrar uma quantidade temporária com preço do provedor, o saldo informado pela instituição volta a ser a referência, mesmo quando difere de quantidade × preço unitário.
+
+Lotes legados preservam um custo inicial conhecido somente quando um snapshot sem mudança e na mesma moeda é comprovadamente anterior ao registro; custos ambíguos continuam desconhecidos. A sincronização compara quantidades, custos e valores efetivos antes de invalidar cálculos; snapshots idênticos mantêm os rascunhos válidos.
