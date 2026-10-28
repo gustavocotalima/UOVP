@@ -38,6 +38,8 @@ Floating-point search output is not trusted for financial safety. Decimal arithm
 
 Fractional monetary steps of at least one cent use their exact increments. Coarse steps requiring subcent settlement are rejected until an explicit settlement grid is provided. Whole-unit prices also require a cent settlement grid.
 
+Settlement-grid restrictions apply only to eligible purchases. Excluded holdings, nonpositive scores and zero-target classes retain their full existing valuation without needing to meet a purchase grid.
+
 ## Execution limits
 
 Native Node workers run calculations outside the main thread and database transactions. At most two workers run concurrently, with a queue limited to 16 and a memory limit per worker. Each stage has three seconds and up to 10,000 search nodes. Models accept at most 256 asset groups to bound memory.

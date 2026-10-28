@@ -19,6 +19,7 @@ export type AllocationInput = {
   contribution: Decimal.Value;
   targets: Record<InvestmentClassKey, Decimal.Value>;
   assets: AllocationAsset[];
+  capEligibleClassesAtTarget?: boolean;
 };
 export type AllocationSuggestion = {
   assetId: string; ticker: string; name: string; investmentClass: InvestmentClassKey;

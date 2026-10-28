@@ -10,6 +10,8 @@ Este motor reproduz a lógica reconstruída por observação das respostas da AU
 
 Filtros BRL/USD e classes adicionais do UOVP são extensões: a captura oficial usada na investigação recebia apenas o valor do aporte. A classificação da posição continua sendo a definida pelo usuário, inclusive ETFs em renda fixa e reserva de valor.
 
+Nos filtros somente BRL/USD, uma proteção adicional do UOVP reduz compras que ultrapassariam as metas de classe, considerando todo o patrimônio existente e o investimento efetivo no denominador. As quantidades são arredondadas para baixo, e as outras classes são verificadas novamente quando o denominador diminui. O ajuste apenas remove compras e pode aumentar a sobra. São feitas no máximo 32 passadas; se necessário, compras de classes ainda acima do limite são removidas de forma conservadora para garantir o término. A lógica reconstruída de duas passadas sem filtro permanece igual.
+
 ## Etapas
 
 1. Some o patrimônio e o aporte solicitado para obter a referência final.

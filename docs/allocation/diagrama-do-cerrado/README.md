@@ -10,6 +10,8 @@ This engine reproduces rules reconstructed from observed AUVP responses. It cont
 
 BRL/USD filters and additional UOVP classes are extensions: the official request captured during the investigation accepted only the contribution amount. Positions retain the user's classifications, including fixed-income ETFs and store-of-value assets.
 
+For BRL-only/USD-only scopes, an additional UOVP safeguard trims purchases above class targets, using all existing wealth plus actual investment as the denominator. Quantities are rounded down and other classes are rechecked when the denominator falls. This adjustment only removes purchases; it can increase the remainder. Rechecks are bounded at 32 passes; if necessary, still-violating class purchases are conservatively removed to guarantee termination. The unrestricted reconstructed two-pass policy is unchanged.
+
 ## Steps
 
 1. Add the requested contribution to existing wealth to obtain the final reference.

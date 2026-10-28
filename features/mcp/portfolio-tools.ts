@@ -615,7 +615,7 @@ export const portfolioTools: McpToolDefinition[] = [
       });
       if (snapshot.prepared !== true) return snapshot;
       const { input, amount, allocationScope, data, fx, fxUpdatedAt, assets, allocationMethod } = snapshot;
-      const result = await calculateContribution({ contribution: amount.mul(fx), targets: data.targets, assets }, allocationMethod, context.userId)
+      const result = await calculateContribution({ contribution: amount.mul(fx), targets: data.targets, assets, capEligibleClassesAtTarget: allocationScope !== "ALL_ASSETS" }, allocationMethod, context.userId)
         .catch((error) => { if (isAllocationLimitError(error)) throw new McpError(error.code, error.message, 429); throw error; });
       const byId = new Map(assets.map((asset) => [asset.id, asset]));
       return {

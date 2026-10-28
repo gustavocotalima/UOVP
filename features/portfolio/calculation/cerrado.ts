@@ -1,5 +1,6 @@
 import Decimal from "decimal.js";
 import { ALLOCATION_VERSION, finish, validateInput, type AllocationInput } from "./types";
+import { capScopedTargets } from "./scoped-targets";
 
 const Cash = Decimal.clone({ precision: 40, rounding: Decimal.ROUND_HALF_UP });
 const sum = (values: Decimal[]) => values.reduce((a, b) => a.plus(b), new Cash(0));
@@ -60,9 +61,10 @@ export function allocateCerrado(input: AllocationInput) {
       }
     }
   }
-  return finish(input, new Map(assets.filter((a) => a.suggested.gt(0))
+  const result = finish(input, new Map(assets.filter((a) => a.suggested.gt(0))
     .map((a) => [a.id, { quantity: a.suggested.div(a.price), value: a.suggested }])), {
     algorithm: "CERRADO", version: ALLOCATION_VERSION, stages: [], warnings: [],
     classTolerancesBrl: {}, reservedAmount: budget.minus(remaining).toString(),
   });
+  return input.capEligibleClassesAtTarget ? capScopedTargets(input, result) : result;
 }

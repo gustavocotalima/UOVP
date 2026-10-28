@@ -38,6 +38,8 @@ Os números de ponto flutuante da busca não são aceitos como prova de seguran�
 
 Passos fracionários monetários de pelo menos um centavo usam seus incrementos exatos. Passos grossos que exigem liquidação em fração de centavo são rejeitados até existir uma grade explícita. Cotações de instrumentos inteiros também precisam dessa grade em centavos.
 
+As restrições da grade valem somente para compras elegíveis. Posições excluídas, notas não positivas e classes com meta zero mantêm toda a sua avaliação existente sem precisar atender a uma grade de compra.
+
 ## Limites de execução
 
 O cálculo roda em workers nativos do Node, fora da thread principal e das transações do banco. Há no máximo dois workers simultâneos, fila limitada a 16 e limite de memória por worker. Cada etapa tem três segundos e até 10.000 nós de busca. O modelo aceita até 256 grupos de ativos para limitar sua memória.

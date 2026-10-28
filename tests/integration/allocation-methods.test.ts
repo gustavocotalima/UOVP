@@ -85,4 +85,24 @@ suite("per-user allocation methods", () => {
       .toEqual(ui.suggestions.map((s) => [s.assetId, s.value]));
     expect(await db!.contributionSimulation.count({ where: { userId: user.id } })).toBe(before + 1);
   });
+  it("passes the same currency-scope target cap through UI and MCP Cerrado calculations", async () => {
+    const user = await fixture();
+    await db!.investmentTarget.updateMany({ where: { userId: user.id }, data: { percentage: 15 } });
+    await db!.investmentTarget.create({ data: { userId: user.id, investmentClass: "INTERNATIONAL_STOCKS", percentage: 85 } });
+    await db!.assetHolding.updateMany({ where: { asset: { portfolioId: user.portfolio!.id } }, data: { quantity: 1000, unitPrice: 1 } });
+    await db!.asset.create({ data: { portfolioId: user.portfolio!.id, ticker: "EXCLUDED", name: "Excluded USD position", score: 10,
+      investmentClass: "INTERNATIONAL_STOCKS", instrumentType: "STOCK", marketRegion: "INTERNATIONAL", holdings: { create: {
+        issuer: "Synthetic", productName: "Synthetic", quantity: 8000, unitPrice: 1, currency: "USD", pricingSource: "YAHOO", positionSource: "MANUAL",
+        fxRateToBrl: 1, fxUpdatedAt: new Date(),
+      } } } });
+    await saveAllocationMethodAction("CERRADO");
+    const preview = await portfolioTools.find((t) => t.name === "preview_contribution")!.execute({
+      userId: user.id, scopes: ["portfolio:read"], clientId: "test", grantId: "test", timeZone: "America/Sao_Paulo",
+    }, { amount: "1000", currency: "BRL", allocationScope: "BRL_ONLY" });
+    const ui = await simulateContributionAction(1000, "BRL", "BRL_ONLY");
+    expect(ui.suggestions).toHaveLength(1);
+    expect(ui.suggestions[0].value).toBe("411");
+    expect((preview.suggestions as Array<{ assetId: string; valueBrl: string }>).map((s) => [s.assetId, s.valueBrl]))
+      .toEqual(ui.suggestions.map((s) => [s.assetId, s.value]));
+  });
 });

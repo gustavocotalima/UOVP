@@ -1993,6 +1993,7 @@ export async function simulateContributionAction(
   const portfolio = await getPortfolioData(userId);
   const result = await calculateContribution({
     contribution,
+    capEligibleClassesAtTarget: allocationScope !== "ALL_ASSETS",
     targets: portfolio.targets,
     assets: portfolio.assets.map((asset) => ({
       id: asset.id,

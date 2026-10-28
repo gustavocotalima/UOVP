@@ -131,4 +131,58 @@ describe("replacement allocation engines", () => {
     const r = allocateContribution(input);
     expect(r.suggestions[0].value.toNumber()).toBe(411.77);
   });
+  it.each(["scope", "score", "target"])("does not validate the purchase grid of a holding excluded by %s", (reason) => {
+    const input = fixture([1, 10.001], 15, [1000, 8000]); input.contribution = 1000;
+    input.assets[0].fractional = true;
+    if (reason === "scope") input.assets[1].eligibleToReceive = false;
+    if (reason === "score") input.assets[1].score = 0;
+    if (reason === "target") input.targets = { ...base, BRAZILIAN_STOCKS: 100 };
+    const r = allocateContribution(input);
+    expect(r.suggestions.map((s) => s.assetId)).toEqual(["0"]);
+    const spent = r.suggestions[0].value;
+    expect(spent.plus(r.unallocatedAmount).eq(1000)).toBe(true);
+    expect(r.suggestions[0].totalAfterSuggestionPercentage.eq(new Money(1000).plus(spent).div(new Money(9000).plus(spent)).mul(100))).toBe(true);
+  });
+  it("ignores an excluded fractional settlement grid while still validating eligible purchases", () => {
+    const input = fixture([1, 10.001], 100); input.contribution = 100;
+    input.assets[1].fractional = true; input.assets[1].quantityStep = "0.1";
+    expect(allocateContribution(input).unallocatedAmount.toString()).toBe("0");
+    input.targets = { ...base, REAL_ESTATE_FUNDS: 100 };
+    expect(() => allocateContribution(input)).toThrow("grade de liquidação explícita");
+    input.assets[1].fractional = false; input.assets[1].quantityStep = 1;
+    expect(() => allocateContribution(input)).toThrow("grade de liquidação em centavos");
+  });
+  it.each([true, false])("caps scoped Cerrado purchases against actual investment (fractional=%s)", (fractional) => {
+    const input = fixture([fractional ? 1 : 100, 1], 15, [1000, 8000]); input.contribution = 1000;
+    input.assets[0].fractional = fractional; input.assets[1].eligibleToReceive = false;
+    expect(allocateContribution(input, "CERRADO").suggestions[0].value.toString()).toBe("1000");
+    input.capEligibleClassesAtTarget = true;
+    const r = allocateContribution(input, "CERRADO");
+    expect(r.suggestions.map((s) => s.assetId)).toEqual(["0"]);
+    expect(r.suggestions[0].value.toString()).toBe(fractional ? "411.7647058823" : "400");
+    expect(r.suggestions[0].totalAfterSuggestionPercentage.lte(15)).toBe(true);
+    expect(r.suggestions[0].value.plus(r.unallocatedAmount).eq(1000)).toBe(true);
+  });
+  it.each(Array.from({ length: 12 }, (_, i) => i))("rechecks scoped class caps after other purchases round down (%i)", (seed) => {
+    const input = fixture([97 + seed, 101 + seed], 33); input.contribution = 20000;
+    input.targets = { ...base, BRAZILIAN_STOCKS: 33, REAL_ESTATE_FUNDS: 33, INTERNATIONAL_STOCKS: 34 };
+    input.capEligibleClassesAtTarget = true;
+    input.assets.push({ ...input.assets[0], id: "excluded", investmentClass: "INTERNATIONAL_STOCKS", currentValue: 10000, eligibleToReceive: false });
+    const r = allocateContribution(input, "CERRADO");
+    const spent = r.suggestions.reduce((s, a) => s.plus(a.value), new Money(0));
+    expect(spent.gt(18000)).toBe(true);
+    expect(spent.plus(r.unallocatedAmount).eq(20000)).toBe(true);
+    for (const cls of ["BRAZILIAN_STOCKS", "REAL_ESTATE_FUNDS"] as const) {
+      const added = r.suggestions.filter((s) => s.investmentClass === cls).reduce((s, a) => s.plus(a.value), new Money(0));
+      expect(added.lte(new Money(10000).plus(spent).mul(input.targets[cls]).div(100))).toBe(true);
+    }
+  });
+  it("terminates conservatively when a scoped empty portfolio cannot reach missing target classes", () => {
+    const input = fixture([1, 1], 49.999); input.contribution = 1000;
+    input.targets = { ...base, BRAZILIAN_STOCKS: 49.999, REAL_ESTATE_FUNDS: 49.999, INTERNATIONAL_STOCKS: 0.002 };
+    input.capEligibleClassesAtTarget = true; input.assets.forEach((a) => { a.fractional = true; });
+    const r = allocateContribution(input, "CERRADO");
+    expect(r.suggestions).toEqual([]);
+    expect(r.unallocatedAmount.toString()).toBe("1000");
+  });
 });

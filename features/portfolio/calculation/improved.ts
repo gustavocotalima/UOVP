@@ -25,6 +25,9 @@ export function* improvedCalculation(input: AllocationInput): Generator<IntegerM
     .mul(sum([...granularities].filter(([other]) => other !== cls).map(([, g]) => g))))] as const));
   const costs: number[] = [], upper: number[] = [], losses: Decimal[] = [];
   for (let i = 0; i < assets.length; i++) {
+    // Excluded positions still contribute their full valuation to the model,
+    // but their fixed-zero purchase variables need no settlement-grid checks.
+    if (!eligible[i]) { costs.push(1); upper.push(0); losses.push(new Money(0)); continue; }
     const a = assets[i], price = new Money(a.unitPrice), quantum = price.mul(steps[i]).mul(100);
     if (!a.fractional && !price.mul(100).isInteger()) throw new Error("A cotação de ativos inteiros precisa de uma grade de liquidação em centavos.");
     const exactFraction = a.fractional && quantum.gte(1);
