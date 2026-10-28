@@ -382,7 +382,7 @@ suite("quantidade temporária de posições Pluggy", () => {
     const simulation = await db!.contributionSimulation.create({
       data: {
         userId: f.user.id,
-        portfolioVersion: f.user.portfolio!.version,
+        portfolioVersion: f.user.portfolio!.version, allocationMethod: "IMPROVED",
         inputAmount: 500,
         requestedAmount: 500,
         unallocatedAmount: 0,

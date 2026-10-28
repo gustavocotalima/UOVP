@@ -147,7 +147,7 @@ suite("preservação do custo histórico nas gravações e planilhas", () => {
     });
     const simulation = await db!.contributionSimulation.create({
       data: {
-        userId: f.user.id, portfolioVersion: f.user.portfolio!.version, inputAmount: 100, requestedAmount: 100, unallocatedAmount: 0,
+        userId: f.user.id, portfolioVersion: f.user.portfolio!.version, allocationMethod: "IMPROVED", inputAmount: 100, requestedAmount: 100, unallocatedAmount: 0,
         suggestions: { create: { assetId: f.asset.id, quantity: 2, value: 100, suggestionPercentage: 100, totalAfterSuggestionPercentage: 100, nativeCurrency: "USD", nativeUnitPrice: 10, nativeValue: 20, fxRateToBrl: 5 } },
       },
       include: { suggestions: true },

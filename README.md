@@ -82,7 +82,7 @@ The account remains the only source of the position's value. Balance changes and
 - Fixed-income groups organize individual positions by family and indexation. Positions expose issuer, product, rates, dates, values, and operations when available.
 - User scores, classifications, and groups survive provider synchronization. Scoring questions can be customized.
 - International assets display native values alongside BRL equivalents.
-- Contributions accept BRL or USD and a choice of all eligible assets or only assets matching the selected currency. Restricted suggestions redistribute within eligible classes while respecting their target caps; rounding or insufficient eligible capacity can leave an unallocated amount.
+- Contributions accept BRL or USD and all eligible assets or only those in the selected currency. The calculation method is a per-user setting shared with MCP: [Improved (Melhorado)](docs/allocation/melhorado/README.md), the default, maximizes budget use with lot-aware target allowances; [Diagrama do Cerrado](docs/allocation/diagrama-do-cerrado/README.md) reproduces the reconstructed AUVP logic. Switching methods invalidates drafts and preserves recorded contributions. Remainders and optimization status are explicit.
 - International securities support fractional suggestions; equivalent B3 securities use whole units.
 - Contributions to provider-controlled positions await later synchronization before updating the observed quantity. For Pluggy, a newer snapshot with a changed quantity can clear the pending state.
 - XLSX import and export are available. Portfolio imports are limited to 2 MB, 1,000 data rows, and 40 columns, with parsing in a Web Worker.

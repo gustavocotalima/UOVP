@@ -122,7 +122,7 @@ export async function getPortfolioData(userId: string) {
     }),
     prisma.userPreference.findUnique({
       where: { userId },
-      select: { timeZone: true },
+      select: { timeZone: true, allocationMethod: true },
     }),
   ]);
   const investmentClassOrder = new Map(
@@ -158,6 +158,7 @@ export async function getPortfolioData(userId: string) {
     id: portfolio.id,
     version: portfolio.version,
     timeZone: preference?.timeZone ?? "America/Sao_Paulo",
+    allocationMethod: preference?.allocationMethod ?? "IMPROVED",
     targets,
     quantityChanges: assets.flatMap((asset) => asset.holdings.flatMap((holding) => {
       const link = holding.pluggyDiagramLink;
@@ -235,6 +236,7 @@ export async function getPortfolioData(userId: string) {
       }, null);
       return {
         id: asset.id,
+        sourceOrder: `${asset.createdAt.toISOString()}:${asset.id}`,
         investmentClass: asset.investmentClass as InvestmentClassKey,
         instrumentType: asset.instrumentType,
         ticker: asset.ticker,

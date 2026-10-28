@@ -32,7 +32,7 @@ describe("reserva de valor", () => {
     const withoutTarget = allocateContribution({
       contribution: 100,
       targets: DEFAULT_TARGETS,
-      assets: [asset],
+      assets: [asset, { ...asset, id: "existing", ticker: "EXISTING", investmentClass: "BRAZILIAN_STOCKS", currentValue: 400, score: 0 }],
     });
     const withTarget = allocateContribution({
       contribution: 100,
@@ -41,7 +41,7 @@ describe("reserva de valor", () => {
         BRAZILIAN_STOCKS: 0,
         STORE_OF_VALUE: 20,
       },
-      assets: [asset],
+      assets: [asset, { ...asset, id: "existing", ticker: "EXISTING", investmentClass: "BRAZILIAN_STOCKS", currentValue: 400, score: 0 }],
     });
 
     expect(withoutTarget.suggestions).toHaveLength(0);

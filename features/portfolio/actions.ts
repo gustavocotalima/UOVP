@@ -20,7 +20,8 @@ import {
   PLUGGY_DIAGRAM_REVIEW_REASON,
   reopenDeletedPluggyPositionForReview,
 } from "@/features/open-finance/diagram-exclusion";
-import { allocateContribution, questionChangeAffectsAllocation } from "./allocation";
+import { questionChangeAffectsAllocation } from "./allocation";
+import { calculateContribution } from "./calculation/server";
 import { fixedIncomeHoldingFingerprint, holdingCurrentValue } from "./asset-groups";
 import { addInvestmentCost, investmentCostUpdate } from "./investment-cost";
 import { bumpPortfolioAndInvalidateDrafts } from "./invalidation";
@@ -1961,7 +1962,10 @@ export async function simulateContributionAction(
   scope: ContributionScopeKey = "ALL_ASSETS",
 ) {
   const userId = await requireUserId();
-  const inputAmount = z.number().positive().max(100_000_000).parse(value);
+  const inputAmount = z.number().positive().max(100_000_000).refine(
+    (amount) => new Prisma.Decimal(amount.toString()).decimalPlaces() <= 2,
+    "O valor do aporte precisa usar no máximo duas casas decimais.",
+  ).parse(value);
   const inputCurrency = contributionCurrencySchema.parse(currency);
   const allocationScope = contributionScopeSchema.parse(scope);
   if (!isContributionScopeValid(inputCurrency, allocationScope)) {
@@ -1987,11 +1991,10 @@ export async function simulateContributionAction(
   }
   const contribution = new Prisma.Decimal(inputAmount.toString()).mul(fxRateToBrl);
   const portfolio = await getPortfolioData(userId);
-  const result = allocateContribution({
+  const result = await calculateContribution({
     contribution,
-    targets: portfolio.targets,
-    preserveTargetGapsWithoutEligibleAssets: false,
     capEligibleClassesAtTarget: allocationScope !== "ALL_ASSETS",
+    targets: portfolio.targets,
     assets: portfolio.assets.map((asset) => ({
       id: asset.id,
       ticker: asset.ticker,
@@ -2002,21 +2005,32 @@ export async function simulateContributionAction(
       unitPrice: asset.unitPrice,
       score: asset.score,
       fractional: asset.fractional,
+      instrumentType: asset.instrumentType,
+      sourceOrder: asset.sourceOrder,
       eligibleToReceive: assetCanReceiveContribution(asset, allocationScope),
     })),
-  });
+  }, portfolio.allocationMethod, userId);
 
   const assetsById = new Map(portfolio.assets.map((asset) => [asset.id, asset]));
 
-  const simulation = await prisma.contributionSimulation.create({
+  const simulation = await prisma.$transaction(async (tx) => {
+    const locked = await tx.portfolio.updateMany({ where: { id: portfolio.id, userId, version: portfolio.version }, data: { version: { increment: 0 } } });
+    const preference = await tx.userPreference.findUnique({ where: { userId }, select: { allocationMethod: true } });
+    if (locked.count !== 1 || (preference?.allocationMethod ?? "IMPROVED") !== portfolio.allocationMethod) {
+      throw new Error("A carteira ou o sistema de cálculo mudou. Calcule o aporte novamente.");
+    }
+    return tx.contributionSimulation.create({
     data: {
       userId,
       portfolioVersion: portfolio.version,
+      allocationMethod: portfolio.allocationMethod,
+      calculationVersion: result.calculation.version,
+      calculationDetails: { ...result.calculation },
       inputAmount: new Prisma.Decimal(inputAmount.toString()),
       inputCurrency,
       allocationScope,
       requestedAmount: contribution,
-      unallocatedAmount: result.unallocatedAmount.toFixed(2),
+      unallocatedAmount: result.unallocatedAmount.toString(),
       fxRateToBrl,
       fxUpdatedAt,
       fxSource,
@@ -2047,6 +2061,7 @@ export async function simulateContributionAction(
       },
     },
     include: { suggestions: { include: { asset: true } } },
+    });
   });
 
   const suggestions = simulation.suggestions.map((suggestion) => ({
@@ -2071,6 +2086,8 @@ export async function simulateContributionAction(
 
   return {
     id: simulation.id,
+    allocationMethod: portfolio.allocationMethod,
+    calculation: result.calculation,
     inputAmount: simulation.inputAmount.toString(),
     inputCurrency: simulation.inputCurrency,
     allocationScope: simulation.allocationScope,
@@ -2108,7 +2125,8 @@ export async function executeContributionAction(
         include: { user: { include: { portfolio: true } }, suggestions: { include: { asset: { include: { holdings: true } } } } },
       });
       const portfolio = simulation?.user.portfolio;
-      if (!simulation || !portfolio || simulation.status !== "DRAFT" || simulation.portfolioVersion !== portfolio.version) {
+      if (!simulation || !portfolio || simulation.status !== "DRAFT" || simulation.portfolioVersion !== portfolio.version
+        || !simulation.allocationMethod) {
         return "INVALIDATED" as const;
       }
       const selected = simulation.suggestions.filter(
@@ -2116,6 +2134,8 @@ export async function executeContributionAction(
           && (!parsedSuggestionId || suggestion.id === parsedSuggestionId),
       );
       if (!selected.length) return "INVALIDATED" as const;
+      const calculationPreference = await tx.userPreference.findUnique({ where: { userId }, select: { allocationMethod: true } });
+      if (simulation.allocationMethod !== (calculationPreference?.allocationMethod ?? "IMPROVED")) return "INVALIDATED" as const;
       if (selected.some((suggestion) => suggestion.asset.instrumentType !== "FIXED_INCOME") && parsedPaidUnitPrice === undefined) {
         throw new Error("Informe o preço unitário pago para registrar o aporte.");
       }

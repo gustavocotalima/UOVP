@@ -132,6 +132,7 @@ export type AssetHoldingDto = {
 };
 
 export type AssetDto = {
+  sourceOrder?: string;
   id: string;
   investmentClass: InvestmentClassKey;
   instrumentType: InstrumentTypeKey;
@@ -177,6 +178,7 @@ export type AssetDto = {
 };
 
 export type PortfolioDto = {
+  allocationMethod?: import("./calculation/types").AllocationMethod;
   quantityChanges: PluggyQuantityChangeDto[];
   id: string;
   version: number;
@@ -267,6 +269,8 @@ export type DiagramQuestionDto = {
 };
 
 export type SimulationDto = {
+  allocationMethod?: import("./calculation/types").AllocationMethod;
+  calculation?: import("./calculation/types").CalculationDiagnostics;
   id: string;
   inputAmount: string;
   inputCurrency: "BRL" | "USD";

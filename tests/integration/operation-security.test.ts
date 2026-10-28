@@ -78,6 +78,13 @@ suite("lease distribuído de operações", () => {
     expect(constraints).toEqual([{ deleteAction: "CASCADE" }]);
   });
 
+  it("permite readquirir imediatamente um lease liberado em TIMESTAMP(3)", async () => {
+    const operation = `rapid-release-${randomUUID()}`;
+    for (let i = 0; i < 50; i++) {
+      await expect(withUserOperationLease({ userId, operation, leaseMs: 1000, action: async () => i })).resolves.toBe(i);
+    }
+  });
+
   it("impede gravações cercadas depois que o worker perde o lease", async () => {
     const operation = `fencing-${randomUUID()}`;
     await expect(withUserOperationLease({

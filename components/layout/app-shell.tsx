@@ -93,19 +93,19 @@ function Sidebar({ user, onNavigate }: { user: { name?: string | null; email?: s
   const themeMounted = useSyncExternalStore(subscribeToHydration, () => true, () => false);
 
   return (
-    <aside className="flex h-full w-56 flex-col border-r bg-[#11120f] p-4 text-[#f4f3ed] min-[2048px]:w-64">
+    <aside className="flex h-full w-56 flex-col border-r bg-[var(--card)] p-4 text-[var(--foreground)] dark:bg-[#11120f] min-[2048px]:w-64">
       <Link href="/home" onClick={onNavigate} className="mb-8 flex items-center gap-3 rounded-xl px-2 py-2">
         <BrandMark />
         <span>
           <strong className="block text-lg tracking-[0.16em]">UOVP</strong>
-          <small className="block max-w-40 text-[9px] leading-tight tracking-[0.08em] text-white/45">Uma Outra Verdade Possível</small>
+          <small className="block max-w-40 text-[9px] leading-tight tracking-[0.08em] text-[var(--muted-foreground)]">Uma Outra Verdade Possível</small>
         </span>
       </Link>
 
       <nav aria-label="Navegação principal" className="min-h-0 flex-1 space-y-5 overflow-y-auto pr-1 scrollbar-thin">
         {navigation.map((group) => (
           <div key={group.label}>
-            <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/35">{group.label}</p>
+            <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)] dark:text-white/35">{group.label}</p>
             <div className="space-y-1">
               {group.items.map((item) => {
                 const active = pathname === item.href || (item.href !== "/home" && pathname.startsWith(`${item.href}/`));
@@ -118,7 +118,7 @@ function Sidebar({ user, onNavigate }: { user: { name?: string | null; email?: s
                     aria-current={active ? "page" : undefined}
                     className={cn(
                       "flex min-h-10 items-center gap-3 rounded-xl px-3 text-sm font-medium transition",
-                      active ? "bg-[#d2ad50] text-[#11120f]" : "text-white/65 hover:bg-white/7 hover:text-white",
+                      active ? "bg-[var(--primary)] text-[var(--primary-foreground)]" : "text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]",
                     )}
                   >
                     <Icon className="size-4" aria-hidden="true" />
@@ -131,10 +131,10 @@ function Sidebar({ user, onNavigate }: { user: { name?: string | null; email?: s
         ))}
       </nav>
 
-      <div className="mt-auto space-y-3 border-t border-white/10 pt-4">
+      <div className="mt-auto space-y-3 border-t pt-4">
         <div className="flex items-center gap-1">
           <form action={logoutAction} className="mr-auto shrink-0">
-            <Button type="submit" variant="ghost" className="justify-start px-2 text-white hover:bg-white/10">
+            <Button type="submit" variant="ghost" className="justify-start px-2 text-[var(--foreground)]">
               <LogOut className="size-4" /> Sair
             </Button>
           </form>
@@ -142,8 +142,8 @@ function Sidebar({ user, onNavigate }: { user: { name?: string | null; email?: s
             variant="ghost"
             size="icon"
             className={cn(
-              "w-9 shrink-0 text-white hover:bg-white/10",
-              pathname === "/configuracoes" && "bg-white/10",
+              "w-9 shrink-0 text-[var(--foreground)]",
+              pathname === "/configuracoes" && "bg-[var(--muted)]",
             )}
             asChild
           >
@@ -161,7 +161,7 @@ function Sidebar({ user, onNavigate }: { user: { name?: string | null; email?: s
             type="button"
             variant="ghost"
             size="icon"
-            className="w-9 shrink-0 text-white hover:bg-white/10"
+            className="w-9 shrink-0 text-[var(--foreground)]"
             onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
             aria-label="Alternar tema"
           >
@@ -175,14 +175,14 @@ function Sidebar({ user, onNavigate }: { user: { name?: string | null; email?: s
           className={cn(
             "flex items-center gap-3 rounded-xl px-3 py-2 transition",
             pathname === "/perfil"
-              ? "bg-white/10 text-white"
-              : "hover:bg-white/7",
+              ? "bg-[var(--muted)] text-[var(--foreground)]"
+              : "hover:bg-[var(--muted)]",
           )}
         >
-          <UserRound className="size-5 shrink-0 text-white/65" aria-hidden="true" />
+          <UserRound className="size-5 shrink-0 text-[var(--muted-foreground)]" aria-hidden="true" />
           <span className="min-w-0">
             <strong className="block truncate text-sm">{user.name || "Investidor"}</strong>
-            <small className="block truncate text-xs text-white/45">{user.email}</small>
+            <small className="block truncate text-xs text-[var(--muted-foreground)]">{user.email}</small>
           </span>
         </Link>
       </div>
@@ -206,14 +206,14 @@ function MobileMoreMenu({
   onNavigate: () => void;
 }) {
   return (
-    <div className="flex max-h-[min(84dvh,46rem)] flex-col overflow-hidden rounded-t-3xl border border-b-0 bg-[#11120f] text-[#f4f3ed] shadow-2xl">
-      <div className="mx-auto mt-3 h-1.5 w-12 rounded-full bg-white/20" aria-hidden="true" />
+    <div className="flex max-h-[min(84dvh,46rem)] flex-col overflow-hidden rounded-t-3xl border border-b-0 bg-[var(--card)] text-[var(--foreground)] shadow-2xl dark:bg-[#11120f]">
+      <div className="mx-auto mt-3 h-1.5 w-12 rounded-full bg-[var(--muted-foreground)]/30" aria-hidden="true" />
       <div className="flex items-center justify-between px-5 pb-4 pt-3">
         <div>
           <p className="text-lg font-semibold">Mais opções</p>
-          <p className="text-xs text-white/45">Orçamento, patrimônio e preferências</p>
+          <p className="text-xs text-[var(--muted-foreground)]">Orçamento, patrimônio e preferências</p>
         </div>
-        <Button data-mobile-menu-close variant="ghost" size="icon" className="text-white hover:bg-white/10" onClick={onNavigate} aria-label="Fechar menu">
+        <Button data-mobile-menu-close variant="ghost" size="icon" className="text-[var(--foreground)]" onClick={onNavigate} aria-label="Fechar menu">
           <X className="size-5" />
         </Button>
       </div>
@@ -229,8 +229,8 @@ function MobileMoreMenu({
               onClick={onNavigate}
               aria-current={active ? "page" : undefined}
               className={cn(
-                "flex min-h-14 items-center gap-3 rounded-2xl border border-white/8 px-4 text-sm font-medium",
-                active ? "bg-[#d2ad50] text-[#11120f]" : "bg-white/4 text-white/75 hover:bg-white/8 hover:text-white",
+                "flex min-h-14 items-center gap-3 rounded-2xl border px-4 text-sm font-medium",
+                active ? "bg-[var(--primary)] text-[var(--primary-foreground)]" : "bg-[var(--muted)]/30 text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]",
               )}
             >
               <Icon className="size-5 shrink-0" aria-hidden="true" />
@@ -240,24 +240,24 @@ function MobileMoreMenu({
         })}
       </nav>
 
-      <div className="border-t border-white/10 px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-4">
+      <div className="border-t px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-4">
         <Link
           href="/perfil"
           onClick={onNavigate}
           aria-current={pathname === "/perfil" ? "page" : undefined}
-          className="mb-3 flex min-h-14 items-center gap-3 rounded-2xl bg-white/5 px-4"
+          className="mb-3 flex min-h-14 items-center gap-3 rounded-2xl bg-[var(--muted)]/50 px-4"
         >
-          <UserRound className="size-5 shrink-0 text-white/65" aria-hidden="true" />
+          <UserRound className="size-5 shrink-0 text-[var(--muted-foreground)]" aria-hidden="true" />
           <span className="min-w-0 flex-1">
             <strong className="block truncate text-sm">{user.name || "Investidor"}</strong>
-            <small className="block truncate text-xs text-white/45">{user.email}</small>
+            <small className="block truncate text-xs text-[var(--muted-foreground)]">{user.email}</small>
           </span>
         </Link>
         <div className="grid grid-cols-2 gap-2">
           <Button
             type="button"
             variant="ghost"
-            className="min-h-12 text-white hover:bg-white/10"
+            className="min-h-12 text-[var(--foreground)]"
             onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
             aria-label="Alternar tema"
           >
@@ -265,11 +265,11 @@ function MobileMoreMenu({
             Tema
           </Button>
           <PrivacyToggle expanded />
-          <Button variant="ghost" className="min-h-12 text-white hover:bg-white/10" asChild>
+          <Button variant="ghost" className="min-h-12 text-[var(--foreground)]" asChild>
             <Link href="/configuracoes" onClick={onNavigate}><Settings className="size-4" /> Ajustes</Link>
           </Button>
           <form action={logoutAction}>
-            <Button type="submit" variant="ghost" className="min-h-12 w-full text-white hover:bg-white/10">
+            <Button type="submit" variant="ghost" className="min-h-12 w-full text-[var(--foreground)]">
               <LogOut className="size-4" /> Sair
             </Button>
           </form>

@@ -9,6 +9,7 @@ import { listRegistrationInvites } from "@/features/auth/invite-actions";
 import { getUserTimeZone } from "@/lib/user-timezone";
 import { McpSettingsCard } from "@/features/mcp/settings-card";
 import { getMcpSettings } from "@/features/mcp/settings";
+import { prisma } from "@/lib/prisma";
 
 export const metadata = { title: "Configurações" };
 
@@ -27,6 +28,7 @@ function pluggyWebhookUrl(): string | null {
 export default async function SettingsPage() {
   const user = await requireUser();
   const userId = user.id;
+  const allocationPreference = await prisma.userPreference.findUnique({ where: { userId }, select: { allocationMethod: true } });
   const [credential, pluggyCredential, binanceStatus, invites, timeZone, mcpSettings] = await Promise.all([
     getBrapiCredentialStatus(userId),
     getPluggyCredentialStatus(userId),
@@ -47,6 +49,7 @@ export default async function SettingsPage() {
         initialPluggyCredential={pluggyCredential}
         pluggyWebhookUrl={pluggyWebhookUrl()}
         initialTimeZone={timeZone}
+        initialAllocationMethod={allocationPreference?.allocationMethod ?? "IMPROVED"}
         initialInvites={invites?.map((invite) => ({
           ...invite,
           expiresAt: invite.expiresAt.toISOString(),
