@@ -44,7 +44,7 @@ vi.mock("@/lib/current-user", () => ({
 
 vi.mock("@/lib/operation-security", () => ({
   assertUserOperationRateLimit: mocks.assertUserOperationRateLimit,
-  withUserOperationLease: vi.fn(),
+  withUserOperationLease: vi.fn(async ({ action }) => action({ runFencedTransaction: async (operation: (tx: typeof mocks.tx) => unknown) => operation(mocks.tx) })),
 }));
 
 vi.mock("@/lib/prisma", () => ({

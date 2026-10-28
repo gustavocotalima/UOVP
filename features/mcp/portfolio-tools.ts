@@ -4,6 +4,7 @@ import Decimal from "decimal.js";
 import { z } from "zod";
 import { resolvePluggyInvestmentIssuer } from "@/features/open-finance/institution-logo";
 import { calculateContribution } from "@/features/portfolio/calculation/server";
+import { BUDGET_POLICIES } from "@/features/portfolio/calculation/types";
 import { isAllocationLimitError } from "@/features/portfolio/calculation/admission";
 import { holdingCurrentValue, holdingUnitPriceBrl } from "@/features/portfolio/asset-groups";
 import { INVESTMENT_CLASSES, type InvestmentClassKey } from "@/features/portfolio/constants";
@@ -28,6 +29,7 @@ const summaryOutput = {
   valuationIssues: z.array(z.object({ holdingId: z.string(), assetId: z.string(), issue: z.string() })),
   truncated: z.boolean(), pendingPluggyReview: z.number(), pendingAccountBalanceReview: z.number(), unselectedBinanceAssets: z.number(),
   pendingPositionsIncludedInTotals: z.literal(false),
+  projectedContributionCount: z.number(),
   allocation: z.array(z.object({
     investmentClass: z.enum(INVESTMENT_CLASSES), targetPercentage: z.string(),
     currentValueBrl: nullableText, knownSubtotalBrl: z.string(), holdingCount: z.number(),
@@ -60,6 +62,7 @@ const holdingSelect = {
   pluggyDiagramLink: { select: {
     id: true, status: true, metadataOverrideFields: true, metadataOverrideUpdatedAt: true,
     overrideQuantity: true,
+    contributionBatches: { where: { state: { in: ["WAITING", "CONFLICT"] } }, select: { id: true, state: true, expectedQuantity: true, suggestions: { where: { executionStatus: "AWAITING_SYNC" }, select: { id: true } } } },
     investment: { select: providerSelect },
   } },
   binanceWalletAsset: { select: {
@@ -215,8 +218,10 @@ function holdingDto(holding: Holding) {
     quantityOverride: link?.metadataOverrideFields.includes("QUANTITY") ? {
       quantity: link.overrideQuantity?.toString() ?? null,
       providerQuantity: provider?.quantity?.toString() ?? null,
-      source: "USER_OVERRIDE",
-      restoresAutomatically: false,
+      source: link.contributionBatches?.length ? "CONTRIBUTION" : "USER_OVERRIDE",
+      restoresAutomatically: Boolean(link.contributionBatches?.length),
+      reconciliationState: link.contributionBatches?.[0]?.state ?? null,
+      pendingContributions: link.contributionBatches?.[0]?.suggestions.length ?? 0,
     } : null,
     metadataOverrideUpdatedAt: iso(link?.metadataOverrideUpdatedAt),
     importedOperationCount: provider?._count.transactions ?? 0,
@@ -310,6 +315,7 @@ function summarizePortfolio(data: Awaited<ReturnType<typeof loadPortfolio>>) {
     pendingAccountBalanceReview: data.accountReviewCounts,
     unselectedBinanceAssets: data.binanceCounts,
     pendingPositionsIncludedInTotals: false,
+    projectedContributionCount: data.assets.reduce((total, asset) => total + asset.holdings.reduce((count, holding) => count + (holding.pluggyDiagramLink?.contributionBatches?.[0]?.suggestions.length ?? 0), 0), 0),
     allocation: INVESTMENT_CLASSES.map((key) => {
       const group = classes.get(key)!;
       const actual = complete && knownTotal.gt(0) ? group.known.div(knownTotal).mul(100) : null;
@@ -501,7 +507,7 @@ export const portfolioTools: McpToolDefinition[] = [
       const rows = await db.contributionSuggestion.findMany({
         where, orderBy: { id: "desc" }, take: input.limit + 1,
         ...(input.cursor ? { cursor: { id: input.cursor }, skip: 1 } : {}),
-        select: { id: true, quantity: true, value: true, nativeCurrency: true, nativeValue: true, paidUnitPrice: true, paidUnitPriceNative: true, executionFxRateToBrl: true, executionStatus: true, awaitingSyncAt: true,
+        select: { id: true, quantity: true, value: true, nativeCurrency: true, nativeValue: true, paidUnitPrice: true, paidUnitPriceNative: true, executionFxRateToBrl: true, executionStatus: true, awaitingSyncAt: true, usesQuantityProjection: true, syncResolution: true,
           simulation: { select: { createdAt: true, executedAt: true } } },
       });
       const result = page(rows, input.limit);
@@ -509,6 +515,7 @@ export const portfolioTools: McpToolDefinition[] = [
         source: "LOCAL", asset: assetDto(asset), period: { startDate: range.startDate, endDate: range.endDate },
         operations: result.rows.map((row) => ({
           id: row.id, kind: "RECORDED_APORTE", status: row.executionStatus,
+          quantityProjected: row.usesQuantityProjection, syncResolution: row.syncResolution,
           recordedAt: iso(row.simulation.createdAt), executedAt: iso(row.simulation.executedAt), awaitingSyncAt: iso(row.awaitingSyncAt),
           quantity: row.quantity.toString(), plannedValueBrl: row.value.toString(),
           nativeCurrency: row.nativeCurrency, plannedNativeValue: row.nativeValue?.toString() ?? null,
@@ -555,21 +562,21 @@ export const portfolioTools: McpToolDefinition[] = [
   },
   {
     name: "preview_contribution", title: "Read-only aporte preview",
-    description: "Calculate a non-saving hypothetical aporte with UOVP's allocation engine, whole/fractional-unit rules and currency-scope target caps. Stored FX only; never execute or synchronize.",
+    description: "Calculate a non-saving aporte using TARGET_CAPPED (default) or FULL_BUDGET. Full budget may exceed global class targets while retaining eligible target ratios. Stored FX only; never execute or synchronize.",
     scope: "portfolio:read",
-    inputSchema: { amount: z.string().regex(/^\d+(\.\d{1,2})?$/).max(20), currency: z.enum(["BRL", "USD"]).default("BRL"), allocationScope: z.enum(["ALL_ASSETS", "BRL_ONLY", "USD_ONLY"]).optional() },
+    inputSchema: { amount: z.string().regex(/^\d+(\.\d{1,2})?$/).max(20), currency: z.enum(["BRL", "USD"]).default("BRL"), allocationScope: z.enum(["ALL_ASSETS", "BRL_ONLY", "USD_ONLY"]).optional(), budgetPolicy: z.enum(BUDGET_POLICIES).default("TARGET_CAPPED") },
     outputSchema: {
       status: z.enum(["UNAVAILABLE", "PREVIEW"]), saved: z.literal(false), executed: z.literal(false).optional(),
       reason: z.string().optional(), summary: z.object(summaryOutput).optional(),
       portfolioVersion: z.number().nullable().optional(), inputAmount: z.string().optional(),
-      inputCurrency: z.enum(["BRL", "USD"]).optional(), allocationScope: z.enum(["ALL_ASSETS", "BRL_ONLY", "USD_ONLY"]).optional(),
+      inputCurrency: z.enum(["BRL", "USD"]).optional(), allocationScope: z.enum(["ALL_ASSETS", "BRL_ONLY", "USD_ONLY"]).optional(), budgetPolicy: z.enum(BUDGET_POLICIES).optional(),
       requestedAmountBrl: z.string().optional(), unallocatedAmountBrl: z.string().optional(), unallocatedInputAmount: z.string().optional(),
       calculation: recordSchema.optional(), allocationMethod: z.enum(["IMPROVED", "CERRADO"]).optional(),
       fx: recordSchema.optional(), suggestions: z.array(recordSchema).optional(), warnings: z.array(z.string()).optional(),
     },
     execute: async (context, raw) => {
       const snapshot = await readAnalysis(context, async (db) => {
-      const input = z.object({ amount: z.string().regex(/^\d+(\.\d{1,2})?$/).max(20), currency: z.enum(["BRL", "USD"]).default("BRL"), allocationScope: z.enum(["ALL_ASSETS", "BRL_ONLY", "USD_ONLY"]).optional() }).parse(raw);
+      const input = z.object({ amount: z.string().regex(/^\d+(\.\d{1,2})?$/).max(20), currency: z.enum(["BRL", "USD"]).default("BRL"), allocationScope: z.enum(["ALL_ASSETS", "BRL_ONLY", "USD_ONLY"]).optional(), budgetPolicy: z.enum(BUDGET_POLICIES).default("TARGET_CAPPED") }).parse(raw);
       const amount = new Decimal(input.amount);
       if (amount.lte(0) || amount.gt(100_000_000)) throw new McpError("INVALID_ARGUMENT", "Contribution must be positive and at most 100,000,000.");
       const allocationScope = input.allocationScope ?? defaultContributionScope(input.currency);
@@ -615,11 +622,11 @@ export const portfolioTools: McpToolDefinition[] = [
       });
       if (snapshot.prepared !== true) return snapshot;
       const { input, amount, allocationScope, data, fx, fxUpdatedAt, assets, allocationMethod } = snapshot;
-      const result = await calculateContribution({ contribution: amount.mul(fx), targets: data.targets, assets, capEligibleClassesAtTarget: allocationScope !== "ALL_ASSETS" }, allocationMethod, context.userId)
+      const result = await calculateContribution({ contribution: amount.mul(fx), targets: data.targets, assets, budgetPolicy: input.budgetPolicy, capEligibleClassesAtTarget: allocationScope !== "ALL_ASSETS" }, allocationMethod, context.userId)
         .catch((error) => { if (isAllocationLimitError(error)) throw new McpError(error.code, error.message, 429); throw error; });
       const byId = new Map(assets.map((asset) => [asset.id, asset]));
       return {
-        calculation: result.calculation, allocationMethod,
+        calculation: result.calculation, allocationMethod, budgetPolicy: input.budgetPolicy,
         status: "PREVIEW", saved: false, executed: false, portfolioVersion: data.portfolio?.version ?? null,
         inputAmount: amount.toString(), inputCurrency: input.currency, allocationScope,
         requestedAmountBrl: amount.mul(fx).toString(), unallocatedAmountBrl: result.unallocatedAmount.toString(),

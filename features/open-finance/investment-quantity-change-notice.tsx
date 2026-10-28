@@ -13,7 +13,7 @@ function quantity(value: string | null) {
 }
 
 function snapshotKey(change: PluggyQuantityChangeDto) {
-  return JSON.stringify([change.linkId, change.expectedUpdatedAt, change.providerQuantity]);
+  return JSON.stringify([change.linkId, change.expectedUpdatedAt, change.providerQuantity, change.expectedRevision]);
 }
 
 export function InvestmentQuantityChangeNotice({ changes, syncBusy = false }: {
@@ -33,6 +33,8 @@ export function InvestmentQuantityChangeNotice({ changes, syncBusy = false }: {
       try {
         const result = await resolvePluggyQuantityChangeAction({
           linkId: change.linkId,
+          contributionBatchId: change.contributionBatchId,
+          expectedRevision: change.expectedRevision,
           expectedUpdatedAt: change.expectedUpdatedAt,
           expectedProviderQuantity: change.providerQuantity,
           decision,
@@ -69,10 +71,11 @@ export function InvestmentQuantityChangeNotice({ changes, syncBusy = false }: {
         <div key={snapshotKey(change)} className="space-y-3 rounded-xl border bg-[var(--card)] p-3">
           <strong className="block break-words text-sm">{change.name}{change.ticker && change.name !== change.ticker ? ` · ${change.ticker}` : ""}</strong>
           <p className="text-xs text-[var(--muted-foreground)]">{change.institution}</p>
+          {change.contributionBatchId && <p className="text-xs text-[var(--muted-foreground)]">A quantidade recebida difere da posição com {change.pendingContributions} aporte(s) pendente(s). Manter a posição informada continua temporário: uma atualização correspondente restaura a sincronização automática.</p>}
           <dl className="grid gap-3 text-xs sm:grid-cols-3">
             <div><dt className="text-[var(--muted-foreground)]">Instituição · anterior</dt><dd className="mt-1 font-semibold"><PrivateValue>{quantity(change.previousProviderQuantity)}</PrivateValue></dd></div>
             <div><dt className="text-[var(--muted-foreground)]">Instituição · agora</dt><dd className="mt-1 font-semibold"><PrivateValue>{quantity(change.providerQuantity)}</PrivateValue></dd></div>
-            <div><dt className="text-[var(--muted-foreground)]">Quantidade manual em uso</dt><dd className="mt-1 font-semibold"><PrivateValue>{quantity(change.manualQuantity)}</PrivateValue></dd></div>
+            <div><dt className="text-[var(--muted-foreground)]">{change.contributionBatchId ? "Quantidade com aportes em uso" : "Quantidade manual em uso"}</dt><dd className="mt-1 font-semibold"><PrivateValue>{quantity(change.manualQuantity)}</PrivateValue></dd></div>
           </dl>
           <div className="flex flex-wrap gap-2">
             <Button size="sm" className="h-auto min-h-9 w-full whitespace-normal sm:w-auto" disabled={pending || syncBusy} onClick={() => decide(change, "PROVIDER")}>Usar quantidade da instituição</Button>

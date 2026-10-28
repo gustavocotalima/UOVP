@@ -221,7 +221,7 @@ suite("saldo de conta na Carteira", () => {
     const row = await holding();
     const portfolio = await db!.portfolio.findUniqueOrThrow({ where: { userId: auth.userId } });
     const simulation = await db!.contributionSimulation.create({ data: {
-      userId: auth.userId, portfolioVersion: portfolio.version, allocationMethod: "IMPROVED", calculationVersion: "2", inputAmount: 100, requestedAmount: 100, unallocatedAmount: 0,
+      userId: auth.userId, portfolioVersion: portfolio.version, allocationMethod: "IMPROVED", calculationVersion: "3", inputAmount: 100, requestedAmount: 100, unallocatedAmount: 0,
       suggestions: { create: { assetId: row.assetId, quantity: 100, value: 100, suggestionPercentage: 100, totalAfterSuggestionPercentage: 100, executionStatus: "AWAITING_SYNC", awaitingSyncAt: new Date(), externalBaselines: { create: { holdingId: id, quantity: 100, providerValue: 100, currency: "USD", fxRateToBrl: 5 } } } },
     }, include: { suggestions: true } });
     await mutateBalance(100, { balanceFxRateToBrl: 6 });
@@ -255,7 +255,7 @@ suite("saldo de conta na Carteira", () => {
     const row = await holding();
     const portfolio = await db!.portfolio.findUniqueOrThrow({ where: { userId: auth.userId } });
     const simulation = await db!.contributionSimulation.create({ data: {
-      userId: auth.userId, portfolioVersion: portfolio.version, allocationMethod: "IMPROVED", calculationVersion: "2", inputAmount: 200, requestedAmount: 200, unallocatedAmount: 0,
+      userId: auth.userId, portfolioVersion: portfolio.version, allocationMethod: "IMPROVED", calculationVersion: "3", inputAmount: 200, requestedAmount: 200, unallocatedAmount: 0,
       suggestions: { create: { assetId: row.assetId, quantity: 200, value: 200, suggestionPercentage: 100, totalAfterSuggestionPercentage: 100 } },
     }, include: { suggestions: true } });
     const result = await executeContributionAction(simulation.id, simulation.suggestions[0].id, 200, undefined, { holdingId: id });
@@ -282,7 +282,7 @@ suite("saldo de conta na Carteira", () => {
     const row = await holding();
     const portfolio = await db!.portfolio.findUniqueOrThrow({ where: { userId: auth.userId } });
     const simulation = await db!.contributionSimulation.create({ data: {
-      userId: auth.userId, portfolioVersion: portfolio.version, allocationMethod: "IMPROVED", calculationVersion: "2", inputAmount: 200, requestedAmount: 200, unallocatedAmount: 0,
+      userId: auth.userId, portfolioVersion: portfolio.version, allocationMethod: "IMPROVED", calculationVersion: "3", inputAmount: 200, requestedAmount: 200, unallocatedAmount: 0,
       suggestions: { create: { assetId: row.assetId, quantity: 200, value: 200, suggestionPercentage: 100, totalAfterSuggestionPercentage: 100 } },
     }, include: { suggestions: true } });
     await executeContributionAction(simulation.id, simulation.suggestions[0].id, 200, undefined, { holdingId: id });

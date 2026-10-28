@@ -33,7 +33,7 @@ export type UserOperationLeaseContext = {
   assertOwned(): Promise<void>;
   runFencedTransaction<T>(
     action: (tx: Prisma.TransactionClient) => Promise<T>,
-    options?: { timeout?: number },
+    options?: { timeout?: number; isolationLevel?: Prisma.TransactionIsolationLevel },
   ): Promise<T>;
 };
 
@@ -176,6 +176,7 @@ export async function withUserOperationLease<T>({
         return transactionAction(tx);
       }, {
         timeout: options?.timeout ?? 30_000,
+        isolationLevel: options?.isolationLevel,
       });
     },
   };

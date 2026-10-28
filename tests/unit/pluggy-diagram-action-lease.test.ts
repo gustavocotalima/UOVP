@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   tx: {
-    pluggyInvestmentDiagramLink: { findFirst: vi.fn(), update: vi.fn() },
+    pluggyInvestmentDiagramLink: { findFirst: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
     fixedIncomeFamily: { findUnique: vi.fn() },
     asset: { update: vi.fn() },
     assetHolding: { update: vi.fn() },
@@ -70,6 +70,7 @@ describe("coordenação de ações de revisão Pluggy", () => {
       };
     });
     mocks.tx.asset.update.mockResolvedValue({ portfolioId: "portfolio-1" });
+    mocks.tx.pluggyInvestmentDiagramLink.findUnique.mockResolvedValue({ contributionBatches: [] });
     mocks.item.findFirst.mockImplementation(async () => {
       expect(mocks.inLease).toBe(true);
       return { id: "item-db-1" };

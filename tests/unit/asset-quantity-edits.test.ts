@@ -17,6 +17,7 @@ function fixture() {
   return {
     id: "cmrzcyi3305pglw710ptyacct", userId: "user-a", status: "MAPPED",
     updatedAt: new Date("2026-10-14T12:00:00Z"), metadataOverrideFields: ["ISSUER"],
+    contributionBatches: [],
     overrideQuantity: null as Prisma.Decimal | null,
     overrideQuantityProviderQuantity: null as Prisma.Decimal | null,
     overrideQuantityAcknowledgedAt: null as Date | null,

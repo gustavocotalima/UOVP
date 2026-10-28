@@ -38,6 +38,7 @@ export async function GET(
       pluggyDiagramLink: {
         select: {
           pluggyInvestmentDbId: true,
+          contributionBatches: { where: { state: { in: ["WAITING", "CONFLICT"] } }, select: { id: true }, take: 1 },
           investment: {
             select: {
               amountOriginal: true,
@@ -64,7 +65,8 @@ export async function GET(
     investedValue: holding.investedValue?.toString(),
     investedValueCurrency: holding.investedValueCurrency,
     providerCurrency: pluggyDiagramLink.investment.currencyCode,
-    amountOriginal: pluggyDiagramLink.investment.amountOriginal?.toString(),
+    amountOriginal: pluggyDiagramLink.contributionBatches?.length
+      ? holding.investedValue?.toString() : pluggyDiagramLink.investment.amountOriginal?.toString(),
     purchaseSummary: {
       version: pluggyDiagramLink.investment.purchaseSummaryVersion,
       quantity: pluggyDiagramLink.investment.purchaseQuantityTotal.toString(),

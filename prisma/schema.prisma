@@ -1153,6 +1153,7 @@ model PluggyInvestmentDiagramLink {
   overrideQuantityAcknowledgedAt DateTime?
   metadataOverrideUpdatedAt DateTime?
   lastReconciledAt         DateTime?
+  contributionBatches     PluggyContributionBatch[]
   createdAt                DateTime                   @default(now())
   updatedAt                DateTime                   @updatedAt
   user                     User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -1260,12 +1261,41 @@ model ContributionSuggestion {
   baselineQuantity               Decimal?                  @db.Decimal(30, 10)
   baselineValue                  Decimal?                  @db.Decimal(30, 2)
   confirmationReference          String?                   @unique
+  usesQuantityProjection         Boolean                   @default(false)
+  contributionBatchId            String?
+  expectedQuantityAfter          Decimal?                  @db.Decimal(30, 10)
+  syncResolution                 String?
+  contributionBatch              PluggyContributionBatch?  @relation(fields: [contributionBatchId], references: [id], onDelete: SetNull)
   simulation                     ContributionSimulation    @relation(fields: [simulationId], references: [id], onDelete: Cascade)
   asset                          Asset                     @relation(fields: [assetId], references: [id], onDelete: Restrict)
   externalBaselines              ContributionExternalBaseline[]
 
   @@unique([simulationId, assetId])
   @@index([assetId])
+  @@index([contributionBatchId, executionStatus])
+}
+
+// One WAITING/CONFLICT batch per link is enforced by a partial SQL index.
+model PluggyContributionBatch {
+  id                         String   @id @default(cuid())
+  linkId                     String
+  holdingId                  String
+  state                      String   @default("WAITING")
+  revision                   Int      @default(1)
+  startingQuantity           Decimal  @db.Decimal(30, 10)
+  providerBaselineQuantity   Decimal  @db.Decimal(30, 10)
+  expectedQuantity           Decimal  @db.Decimal(30, 10)
+  acknowledgedQuantity       Decimal  @db.Decimal(30, 10)
+  observedQuantity           Decimal? @db.Decimal(30, 10)
+  providerUpdatedAt          DateTime?
+  baselineCostNative         Decimal? @db.Decimal(30, 10)
+  currency                   String
+  createdAt                  DateTime @default(now())
+  resolvedAt                 DateTime?
+  link                       PluggyInvestmentDiagramLink @relation(fields: [linkId], references: [id], onDelete: Cascade)
+  suggestions                ContributionSuggestion[]
+
+  @@index([linkId, state])
 }
 
 model ContributionExternalBaseline {

@@ -4,6 +4,7 @@ import { OperationLeaseLostError, type UserOperationLeaseContext, withUserOperat
 import { prisma } from "@/lib/prisma";
 import { PLUGGY_DIAGRAM_EXCLUSION_REASON } from "./diagram-exclusion";
 import { hasPluggyQuantityOverride } from "./investment-quantity-override";
+import { resolveContributionQuantity } from "./contribution-quantity";
 
 async function invalidatePortfolioAfterDisconnection(
   tx: Prisma.TransactionClient,
@@ -161,6 +162,7 @@ async function resolvePluggyItemDisconnectionUnlocked(
 
   await lease.runFencedTransaction(async (tx) => {
     for (const entry of linked) {
+      await resolveContributionQuantity(tx, entry.link.id, resolution === "KEEP_MANUAL" ? "DISCONNECTED_MANUAL" : "USER_REMOVED");
       const userExcluded = entry.link.status === "EXCLUDED"
         && entry.link.reviewReason === PLUGGY_DIAGRAM_EXCLUSION_REASON.USER;
       if (resolution === "KEEP_MANUAL") {
@@ -172,7 +174,7 @@ async function resolvePluggyItemDisconnectionUnlocked(
           data: {
             positionSource: "MANUAL",
             pricingSource: entry.holding.pricingSource === "PLUGGY" ? "MANUAL" : entry.holding.pricingSource,
-            currentValue: entry.holding.pricingSource === "PLUGGY" ? providerValue : entry.holding.currentValue,
+            currentValue: entry.holding.pricingSource === "PLUGGY" ? entry.holding.currentValue ?? providerValue : entry.holding.currentValue,
             providerCurrentValue: null,
             includedInTotals: !userExcluded && (
               hasPluggyQuantityOverride(entry.link)

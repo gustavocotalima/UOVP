@@ -63,6 +63,27 @@ export function balancePurchases(model: BalanceModel): BalanceSolution {
   let best = evaluate(Array(n).fill(0));
   const considerBest = (s: State) => { if (valid(s) && better(s, best)) best = s; };
   considerBest(current);
+  // Round complete baskets together. Fractional positions reserve cents, so
+  // largest remainders must be assigned jointly rather than growing one asset
+  // until its score cap blocks the rest of the class.
+  const roundBasket = (raw: number[]) => {
+    const values = raw.map((value, i) => Math.min(model.assets[i].upper, Math.max(0, Math.floor(value))));
+    let used = values.reduce((s, value, i) => s + value * model.assets[i].cost, 0);
+    const order = raw.map((value, i) => ({ i, fraction: value - Math.floor(value) }))
+      .sort((a, b) => b.fraction - a.fraction || a.i - b.i);
+    for (const { i, fraction } of order) {
+      if (fraction > 1e-9 && values[i] < model.assets[i].upper && used + model.assets[i].cost <= model.budget) {
+        values[i]++; used += model.assets[i].cost;
+      }
+    }
+    return evaluate(values);
+  };
+  const initial = model.assets.map((a) => a.initial);
+  const floorSeed = evaluate(initial.map((value, i) => Math.min(model.assets[i].upper, Math.max(0, Math.floor(value)))));
+  const basketSeed = roundBasket(initial);
+  considerBest(floorSeed); considerBest(basketSeed);
+  if (better(basketSeed, current)) current = basketSeed;
+  if (better(floorSeed, current)) current = floorSeed;
   // Give the fallback real purchase candidates even if the refinement deadline
   // expires before the rounded seed can be repaired or restarted.
   for (let i = 0; i < n; i++) {
@@ -105,6 +126,35 @@ export function balancePurchases(model: BalanceModel): BalanceSolution {
       const candidate = evaluate(values);
       if (better(candidate, next)) next = candidate;
     };
+    const tryClassBasket = (group: number, addition: number) => {
+      if (!(addition > 0)) return;
+      const indices = model.assets.flatMap((a, i) => a.group === group && a.upper > 0 && a.share > 0 ? [i] : []);
+      if (!indices.length) return;
+      let available = current.groups[group] + addition + indices.reduce((s, i) => s + model.assets[i].current, 0);
+      let active = [...indices];
+      let scale = 0;
+      for (let pass = 0; pass <= indices.length; pass++) {
+        const weight = active.reduce((s, i) => s + model.assets[i].share, 0);
+        if (!(weight > 0)) return;
+        scale = available / weight;
+        const fixed = active.filter((i) => model.assets[i].current > scale * model.assets[i].share);
+        if (!fixed.length) break;
+        available -= fixed.reduce((s, i) => s + model.assets[i].current, 0);
+        active = active.filter((i) => !fixed.includes(i));
+      }
+      const raw = [...current.values];
+      for (const i of indices) {
+        const a = model.assets[i];
+        raw[i] = Math.min(a.upper, Math.max(0, (scale * a.share - a.current) / a.cost));
+      }
+      const candidate = roundBasket(raw);
+      if (better(candidate, next)) next = candidate;
+    };
+    for (let group = 0; group < m; group++) {
+      const c = model.classes[group], value = c.current + current.groups[group];
+      const room = c.target < 1 ? ((total + current.spent) * c.target + c.tolerance - value) / (1 - c.target) : remaining;
+      tryClassBasket(group, Math.min(remaining, Math.max(0, room)));
+    }
     const addRank: { i: number; deficit: number }[] = [], removeRank: { i: number; excess: number }[] = [];
     for (let i = 0; i < n; i++) {
       const a = model.assets[i], c = model.classes[a.group];

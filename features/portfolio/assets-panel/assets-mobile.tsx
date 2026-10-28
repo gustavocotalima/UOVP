@@ -2,12 +2,12 @@
 import { PrivateValue } from "@/components/ui/private-value";
 import { ChevronDown, ChevronRight, Clock3, FileSpreadsheet, Pencil, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { PendingContributions } from "./pending-contributions";
 import { formatDateOnly } from "@/lib/calendar";
-import { formatCurrency, formatMoney, formatPercent } from "@/lib/money";
+import { formatMoney, formatPercent } from "@/lib/money";
 import { INSTRUMENT_TYPE_META, INVESTMENT_CLASS_META } from "../constants";
 import { currentValue } from "./model";
-import { TemporaryQuantityBadge, ProviderQuantity, MoneyWithNative, CostValue, holdingProfitability, pluggyInvestmentSourceLabel, reviewDecimal, reviewDate } from "./presentation";
+import { TemporaryQuantityBadge, ProviderQuantity, MoneyWithNative, CostValue, holdingProfitability, pluggyInvestmentSourceLabel, reviewDate } from "./presentation";
 import { AssetLogo } from "./asset-logo";
 import { HoldingHistoryMobile } from "./holding-history";
 import type { AssetsPanelController } from "./use-assets-panel-controller";
@@ -64,16 +64,7 @@ export function AssetsMobile({ controller }: {
             {asset.instrumentType === "FIXED_INCOME" && <Button size="sm" onClick={() => startHolding(asset)}><Plus className="size-4" /> Aplicação</Button>}
           </div>
 
-          {asset.awaitingSyncContribution && (<div className="space-y-3 rounded-xl border border-[var(--primary)]/35 bg-[var(--primary)]/10 p-3 text-xs">
-            <span className="inline-flex items-center gap-1.5 font-semibold text-[var(--primary)]"><Clock3 className="size-4" /> Aguardando sync</span>
-            {asset.instrumentType === "FIXED_INCOME" ? (<p><PrivateValue>{formatMoney(asset.awaitingSyncContribution.value)}</PrivateValue></p>) : asset.awaitingSyncContribution.paidUnitPrice ? (<p><PrivateValue>{reviewDecimal(asset.awaitingSyncContribution.quantity)}</PrivateValue> un. · {asset.awaitingSyncContribution.paidUnitPriceNative && asset.awaitingSyncContribution.nativeCurrency ? <PrivateValue>{formatCurrency(asset.awaitingSyncContribution.paidUnitPriceNative, asset.awaitingSyncContribution.nativeCurrency)}</PrivateValue> : <PrivateValue>{formatMoney(asset.awaitingSyncContribution.paidUnitPrice)}</PrivateValue>} cada · <PrivateValue>{formatMoney(asset.awaitingSyncContribution.value)}</PrivateValue></p>) : (<div className="grid gap-2">
-              <span><PrivateValue>{reviewDecimal(asset.awaitingSyncContribution.quantity)}</PrivateValue> un.</span>
-              <div className="flex gap-2">
-                <Input type="number" min="0.00000001" step="any" value={pendingPriceByAsset[asset.id] ?? ""} onChange={(event) => setPendingPriceByAsset((current) => ({ ...current, [asset.id]: event.target.value }))} aria-label={`Preço unitário pago por ${asset.ticker} em ${asset.awaitingSyncContribution.nativeCurrency ?? "BRL"}`} placeholder={`Preço pago (${asset.awaitingSyncContribution.nativeCurrency ?? "R$"})`} className="h-10 bg-[var(--card)]" />
-                <Button type="button" onClick={() => savePendingContributionPrice(asset.id)} disabled={pending || !(Number(pendingPriceByAsset[asset.id]) > 0)}>Salvar</Button>
-              </div>
-            </div>)}
-          </div>)}
+          <PendingContributions asset={asset} prices={pendingPriceByAsset} pending={pending} onPriceChange={(id, value) => setPendingPriceByAsset((current) => ({ ...current, [id]: value }))} onSave={savePendingContributionPrice} />
 
           {asset.holdings.map((holding) => {
             const movementState = holdingTransactions[holding.id];

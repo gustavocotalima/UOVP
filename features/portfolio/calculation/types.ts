@@ -6,7 +6,10 @@ export type AllocationMethod = (typeof ALLOCATION_METHODS)[number];
 export const ALLOCATION_LABELS: Record<AllocationMethod, string> = {
   IMPROVED: "Melhorado", CERRADO: "Diagrama do Cerrado",
 };
-export const ALLOCATION_VERSIONS = { IMPROVED: "2", CERRADO: "1" } as const;
+export const ALLOCATION_VERSIONS = { IMPROVED: "3", CERRADO: "2" } as const;
+export const BUDGET_POLICIES = ["TARGET_CAPPED", "FULL_BUDGET"] as const;
+export type BudgetPolicy = (typeof BUDGET_POLICIES)[number];
+export const BUDGET_POLICY_LABELS: Record<BudgetPolicy, string> = { TARGET_CAPPED: "Limitar às metas", FULL_BUDGET: "Usar todo o aporte" };
 export const Money = Decimal.clone({ precision: 60, rounding: Decimal.ROUND_HALF_UP });
 export type AllocationAsset = {
   id: string; ticker: string; name: string; investmentClass: InvestmentClassKey;
@@ -20,6 +23,7 @@ export type AllocationInput = {
   targets: Record<InvestmentClassKey, Decimal.Value>;
   assets: AllocationAsset[];
   capEligibleClassesAtTarget?: boolean;
+  budgetPolicy?: BudgetPolicy;
 };
 export type AllocationSuggestion = {
   assetId: string; ticker: string; name: string; investmentClass: InvestmentClassKey;
@@ -32,6 +36,11 @@ export type CalculationDiagnostics = {
   stages: CalculationStage[]; warnings: string[];
   classTolerancesBrl: Partial<Record<InvestmentClassKey, string>>;
   reservedAmount: string;
+  budgetPolicy?: BudgetPolicy;
+  plannedAmount?: string;
+  originalTargets?: Record<string, string>;
+  planningTargets?: Record<string, string>;
+  unallocatedReasons?: Array<"TARGET_LIMIT" | "ROUNDING" | "NO_ELIGIBLE_ASSETS" | "METHOD_RULES">;
   heuristic?: { priorities: string[]; iterations: number; evaluations: number; stopReason: "stable" | "iteration_limit" | "time_limit" };
 };
 export type AllocationResult = {
@@ -41,6 +50,7 @@ export type AllocationResult = {
 export const sum = (values: Decimal.Value[]) => values.reduce<Decimal>((a, b) => a.plus(b), new Money(0));
 
 export function validateInput(input: AllocationInput) {
+  if (input.budgetPolicy !== undefined && !BUDGET_POLICIES.includes(input.budgetPolicy)) throw new Error("Política de aporte inválida.");
   const budget = new Money(input.contribution);
   if (!budget.isFinite() || budget.lt(0) || budget.gt("1000000000000")) throw new Error("Valor de aporte inválido.");
   const targets = Object.values(input.targets).map((x) => new Money(x));

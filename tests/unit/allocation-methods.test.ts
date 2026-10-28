@@ -1,3 +1,4 @@
+import { allocateCerradoCore } from "@/features/portfolio/calculation/cerrado";
 import { describe, expect, it } from "vitest";
 import Decimal from "decimal.js";
 import { allocateContribution } from "@/features/portfolio/allocation";
@@ -110,7 +111,7 @@ describe("replacement allocation engines", () => {
   });
   it("Cerrado preserves its observed two-pass policy and is separate from Improved", () => {
     const input = fixture([99, 100]); input.contribution = 5000;
-    const r = allocateContribution(input, "CERRADO");
+    const r = allocateCerradoCore(input);
     expect(r.calculation.algorithm).toBe("CERRADO");
     expect(r.suggestions.every((s) => s.quantity.isInteger())).toBe(true);
     expect(r.suggestions.reduce((s, a) => s.plus(a.value), new Money(0)).plus(r.unallocatedAmount).eq(5000)).toBe(true);
@@ -122,8 +123,8 @@ describe("replacement allocation engines", () => {
     input.assets.push({ ...input.assets[0], id: "1", ticker: "ASSET1", unitPrice: 70, currentValue: 0 },
       { ...input.assets[0], id: "2", ticker: "ASSET2", unitPrice: 1, currentValue: 0, fractional: true });
     const before = JSON.stringify(input);
-    const first = allocateContribution(input, "CERRADO");
-    const reversed = allocateContribution({ ...input, assets: [input.assets[1], input.assets[0], input.assets[2]] }, "CERRADO");
+    const first = allocateCerradoCore(input);
+    const reversed = allocateCerradoCore({ ...input, assets: [input.assets[1], input.assets[0], input.assets[2]] });
     expect(first.suggestions.map((s) => s.assetId)).toEqual(["2"]);
     expect(first.suggestions[0].value.toNumber()).toBeCloseTo(65, 10);
     expect(reversed.suggestions[0].value.toNumber()).toBeCloseTo(100, 8);
@@ -133,7 +134,7 @@ describe("replacement allocation engines", () => {
     const input = fixture([1]); input.contribution = 100; input.targets = { ...base, CRYPTO: 100 };
     input.assets = Array.from({ length: count }, (_, i) => ({ ...input.assets[0], id: String(i), ticker: String(i),
       investmentClass: "CRYPTO", fractional: true, score: 1 + i % 3 }));
-    const r = allocateContribution(input, "CERRADO");
+    const r = allocateCerradoCore(input);
     const spent = r.suggestions.reduce((s, a) => s.plus(a.value), new Money(0));
     expect(spent.lte(100)).toBe(true);
     expect(spent.plus(r.unallocatedAmount).eq(100)).toBe(true);
@@ -169,9 +170,9 @@ describe("replacement allocation engines", () => {
   it.each([true, false])("caps scoped Cerrado purchases against actual investment (fractional=%s)", (fractional) => {
     const input = fixture([fractional ? 1 : 100, 1], 15, [1000, 8000]); input.contribution = 1000;
     input.assets[0].fractional = fractional; input.assets[1].eligibleToReceive = false;
-    expect(allocateContribution(input, "CERRADO").suggestions[0].value.toString()).toBe("1000");
+    expect(allocateCerradoCore(input).suggestions[0].value.toString()).toBe("1000");
     input.capEligibleClassesAtTarget = true;
-    const r = allocateContribution(input, "CERRADO");
+    const r = allocateCerradoCore(input);
     expect(r.suggestions.map((s) => s.assetId)).toEqual(["0"]);
     expect(r.suggestions[0].value.toString()).toBe(fractional ? "411.7647058823" : "400");
     expect(r.suggestions[0].totalAfterSuggestionPercentage.lte(15)).toBe(true);
@@ -182,7 +183,7 @@ describe("replacement allocation engines", () => {
     input.targets = { ...base, BRAZILIAN_STOCKS: 33, REAL_ESTATE_FUNDS: 33, INTERNATIONAL_STOCKS: 34 };
     input.capEligibleClassesAtTarget = true;
     input.assets.push({ ...input.assets[0], id: "excluded", investmentClass: "INTERNATIONAL_STOCKS", currentValue: 10000, eligibleToReceive: false });
-    const r = allocateContribution(input, "CERRADO");
+    const r = allocateCerradoCore(input);
     const spent = r.suggestions.reduce((s, a) => s.plus(a.value), new Money(0));
     expect(spent.gt(18000)).toBe(true);
     expect(spent.plus(r.unallocatedAmount).eq(20000)).toBe(true);
@@ -195,7 +196,7 @@ describe("replacement allocation engines", () => {
     const input = fixture([1, 1], 49.999); input.contribution = 1000;
     input.targets = { ...base, BRAZILIAN_STOCKS: 49.999, REAL_ESTATE_FUNDS: 49.999, INTERNATIONAL_STOCKS: 0.002 };
     input.capEligibleClassesAtTarget = true; input.assets.forEach((a) => { a.fractional = true; });
-    const r = allocateContribution(input, "CERRADO");
+    const r = allocateCerradoCore(input);
     expect(r.suggestions).toEqual([]);
     expect(r.unallocatedAmount.toString()).toBe("1000");
   });

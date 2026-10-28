@@ -23,6 +23,7 @@ import {
 } from "./diagram-classification";
 import { shouldReconcileExcludedPluggyPosition } from "./diagram-exclusion";
 import { canReconcileChangedProviderSnapshot } from "./contribution-reconciliation";
+import { activeContributionBatchInclude, contributionCostProjection, reconcileContributionQuantities } from "./contribution-quantity";
 import { resolvePluggyInvestmentIssuer } from "./institution-logo";
 import { selectLatestPluggyMarketQuote } from "./market-quote";
 import {
@@ -34,7 +35,7 @@ import {
 type InvestmentWithItem = Prisma.PluggyInvestmentGetPayload<{
   include: {
     item: { select: { connectorName: true; institutionName: true; status: true; disconnectedAt: true } };
-    diagramLink: { include: { holding: { include: { asset: true } } } };
+    diagramLink: { include: { holding: { include: { asset: true } }; contributionBatches: typeof activeContributionBatchInclude } };
   };
 }>;
 
@@ -259,6 +260,19 @@ function applyMetadataOverrides(
       && (data.currency === "BRL" || (data.fxRateToBrl?.isFinite() === true && data.fxRateToBrl.gt(0)));
   }
 
+  const batch = link.contributionBatches?.[0];
+  if (batch && batch.holdingId === link.assetHoldingId && batch.currency === data.currency) {
+    // Compare/write the effective position, not a transient provider cost or
+    // value that reconciliation would immediately replace with the projection.
+    const cost = contributionCostProjection(batch);
+    data.quantity = batch.expectedQuantity;
+    data.investedValue = cost?.toDecimalPlaces(2) ?? null;
+    data.investedValueCurrency = cost !== null ? batch.currency : null;
+    data.currentValue = data.pricingSource === "PLUGGY" ? data.quantity.mul(data.unitPrice).toDecimalPlaces(2) : null;
+    data.includedInTotals = data.quantity.gt(0) && data.unitPrice.gt(0)
+      && (data.currency === "BRL" || Boolean(data.fxRateToBrl?.gt(0)));
+  }
+
   return data;
 }
 
@@ -271,6 +285,8 @@ async function confirmAwaitingSuggestions(
   const suggestions = await tx.contributionSuggestion.findMany({
     where: {
       executionStatus: "AWAITING_SYNC",
+      usesQuantityProjection: false,
+      OR: [{ syncResolution: null }, { syncResolution: { not: "NEEDS_REVIEW" } }],
       simulation: { userId },
       ...(assetIds ? { assetId: { in: [...assetIds] } } : {}),
     },
@@ -438,7 +454,7 @@ export async function reconcilePluggyInvestmentsForUser(
     where: { item: { userId }, ...(scope ? { pluggyItemDbId: scope.pluggyItemDbId } : {}) },
     include: {
       item: { select: { connectorName: true, institutionName: true, status: true, disconnectedAt: true } },
-      diagramLink: { include: { holding: { include: { asset: true } } } },
+      diagramLink: { include: { holding: { include: { asset: true } }, contributionBatches: activeContributionBatchInclude } },
     },
     orderBy: [{ type: "asc" }, { name: "asc" }],
   });
@@ -539,6 +555,7 @@ export async function reconcilePluggyInvestmentsForUser(
       const existingLink = await tx.pluggyInvestmentDiagramLink.findUnique({
         where: { pluggyInvestmentDbId: investment.id },
         include: {
+          contributionBatches: activeContributionBatchInclude,
           holding: {
             include: { asset: true },
           },
@@ -930,6 +947,9 @@ export async function reconcilePluggyInvestmentsForUser(
       if (holding) {
         changed ||= holding.assetId !== asset.id
           || !sameDecimal(holding.quantity, data.quantity)
+          || !sameDecimal(holding.unitPrice, data.unitPrice)
+          || !sameDecimal(holding.fxRateToBrl, data.fxRateToBrl)
+          || holding.currency !== data.currency
           || !sameDecimal(holding.providerCurrentValue, data.providerCurrentValue)
           || !sameDecimal(holding.investedValue, data.investedValue)
           || holding.investedValueCurrency !== data.investedValueCurrency
@@ -997,6 +1017,8 @@ export async function reconcilePluggyInvestmentsForUser(
 
     // Restrict the suggestions, never their holdings: a contribution baseline
     // can span several Pluggy connections holding the same asset.
+    const quantityChanged = await reconcileContributionQuantities(tx, userId, scope ? [...affectedAssetIds] : undefined);
+    changed = changed || quantityChanged;
     await confirmAwaitingSuggestions(tx, userId, scope ? [...affectedAssetIds] : undefined);
     if (changed) {
       await tx.portfolio.update({

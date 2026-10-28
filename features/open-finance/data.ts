@@ -6,6 +6,7 @@ import {
 } from "./institution-logo";
 import { connectedInvestmentMetadataDto } from "./investment-metadata-dto";
 import { pluggyQuantityChangeDto } from "./investment-quantity-change-dto";
+import { activeContributionBatchInclude } from "./contribution-quantity";
 
 import { sumAmountsByCurrency } from "./currency-totals";
 export { sumAmountsByCurrency } from "./currency-totals";
@@ -49,6 +50,7 @@ export async function getOpenFinanceData(userId: string) {
             },
             diagramLink: {
               include: {
+                contributionBatches: activeContributionBatchInclude,
                 holding: {
                   include: { asset: true },
                 },

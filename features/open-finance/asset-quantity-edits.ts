@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { allowsFractionalUnits } from "@/features/portfolio/fractional-assets";
 import { isPluggyPositionActive } from "./diagram-classification";
+import { activeContributionBatchInclude, resolveContributionQuantity } from "./contribution-quantity";
 import { canEditPluggyInvestmentQuantity, hasPluggyQuantityOverride, samePluggyQuantity } from "./investment-quantity-override";
 import { hasPluggyQuantityQuoteFx, resolvePluggyQuantityQuote, storedPluggyQuantityQuote, type PluggyQuantityQuote } from "./investment-quantity-quote";
 
@@ -26,6 +27,7 @@ type AssetContext = {
   marketRegion: string | null;
 };
 const include = {
+  contributionBatches: activeContributionBatchInclude,
   investment: { include: { item: { select: { userId: true, status: true, disconnectedAt: true } } } },
   holding: { include: { asset: { include: { portfolio: { select: { userId: true } }, holdings: true } } } },
 } satisfies Prisma.PluggyInvestmentDiagramLinkInclude;
@@ -99,6 +101,9 @@ export async function applyAssetQuantityEdits(
 ) {
   for (const [index, edit] of prepared.edits.entries()) {
     const link = links[index];
+    const batch = link.contributionBatches[0];
+    if (batch && edit.mode === "CUSTOM" && !batch.expectedQuantity.eq(edit.value!)) throw new Error("Resolva os aportes pendentes antes de editar a quantidade.");
+    if (batch && edit.mode === "PROVIDER") await resolveContributionQuantity(tx, link.id, "PROVIDER");
     const now = new Date();
     const custom = edit.mode === "CUSTOM";
     const quantity = custom ? new Prisma.Decimal(edit.value!) : link.investment.quantity ?? new Prisma.Decimal(0);

@@ -70,6 +70,7 @@ function fixture() {
     status: "MAPPED",
     updatedAt: new Date("2026-10-14T10:00:00Z"),
     metadataOverrideFields: [] as string[],
+    contributionBatches: [],
     overrideQuantity: null as Prisma.Decimal | null,
     overrideQuantityProviderQuantity: null as Prisma.Decimal | null,
     overrideQuantityAcknowledgedAt: null as Date | null,

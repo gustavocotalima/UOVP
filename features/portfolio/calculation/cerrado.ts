@@ -1,13 +1,14 @@
 import Decimal from "decimal.js";
 import { ALLOCATION_VERSIONS, finish, validateInput, type AllocationInput } from "./types";
 import { capScopedTargets } from "./scoped-targets";
+import { describeBudgetRemainder, prepareBudgetPolicy } from "./budget-policy";
 
 const Cash = Decimal.clone({ precision: 40, rounding: Decimal.ROUND_HALF_UP });
 const sum = (values: Decimal[]) => values.reduce((a, b) => a.plus(b), new Cash(0));
 
 /** Reconstructed two-pass policy. Source order governs reservations; ticker
  * order governs allocation. No globals, ticker tables or special budgets. */
-export function allocateCerrado(input: AllocationInput) {
+export function allocateCerradoCore(input: AllocationInput) {
   validateInput(input);
   const budget = new Cash(input.contribution);
   const source = [...input.assets].sort((a, b) => a.sourceOrder && b.sourceOrder
@@ -63,8 +64,21 @@ export function allocateCerrado(input: AllocationInput) {
   }
   const result = finish(input, new Map(assets.filter((a) => a.suggested.gt(0))
     .map((a) => [a.id, { quantity: a.suggested.div(a.price), value: a.suggested }])), {
-    algorithm: "CERRADO", version: ALLOCATION_VERSIONS.CERRADO, stages: [], warnings: [],
+    algorithm: "CERRADO", version: "1", stages: [], warnings: [],
     classTolerancesBrl: {}, reservedAmount: budget.minus(remaining).toString(),
   });
   return input.capEligibleClassesAtTarget ? capScopedTargets(input, result) : result;
+}
+
+/** UOVP's budget policy adapter; the reconstructed core above stays intact. */
+export function allocateCerrado(input: AllocationInput) {
+  const plan = prepareBudgetPolicy(input, "CERRADO");
+  const raw = allocateCerradoCore({ ...input, contribution: plan.plannedAmount, targets: plan.targets,
+    capEligibleClassesAtTarget: false,
+    assets: input.assets.map((asset, i) => ({ ...asset, eligibleToReceive: plan.eligible[i] })),
+  });
+  const result = finish(input, new Map(raw.suggestions.map((s) => [s.assetId, { quantity: s.quantity, value: s.value }])), {
+    ...raw.calculation, version: ALLOCATION_VERSIONS.CERRADO,
+  });
+  return describeBudgetRemainder(plan.policy === "TARGET_CAPPED" ? capScopedTargets(input, result) : result, plan);
 }

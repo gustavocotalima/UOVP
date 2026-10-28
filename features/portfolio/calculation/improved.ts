@@ -1,6 +1,7 @@
 import Decimal from "decimal.js";
 import { ALLOCATION_VERSIONS, Money, sum, finish, validateInput, type AllocationInput, type AllocationResult } from "./types";
 import { balancePurchases, type BalanceModel, type BalanceSolution } from "./balanced-search";
+import { prepareBudgetPolicy, describeBudgetRemainder } from "./budget-policy";
 
 export const IMPROVED_VERSION = ALLOCATION_VERSIONS.IMPROVED;
 
@@ -8,6 +9,8 @@ export const IMPROVED_VERSION = ALLOCATION_VERSIONS.IMPROVED;
  * in Decimal; only bounded numeric apportionment runs in the native worker. */
 export function* improvedCalculation(input: AllocationInput): Generator<BalanceModel, AllocationResult, BalanceSolution> {
   validateInput(input);
+  const plan = prepareBudgetPolicy(input, "IMPROVED");
+  const targets = plan.policy === "FULL_BUDGET" ? plan.targets : input.targets;
   if (input.assets.length > 256) throw new Error("O cálculo Melhorado aceita até 256 grupos de ativos por simulação.");
   const amount = new Money(input.contribution), budget = amount.mul(100).floor().toNumber();
   const assets = [...input.assets].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
@@ -16,7 +19,8 @@ export function* improvedCalculation(input: AllocationInput): Generator<BalanceM
   if (!Number.isSafeInteger(budget) || !Number.isFinite(total.toNumber()) || total.mul(100).gt(Number.MAX_SAFE_INTEGER / 4)) {
     throw new Error("Valor fora dos limites de precisão do cálculo.");
   }
-  const eligible = assets.map((a) => a.score > 0 && a.eligibleToReceive !== false && new Money(a.unitPrice).gt(0) && new Money(input.targets[a.investmentClass]).gt(0));
+  const sourceIndex = new Map(input.assets.map((a, i) => [a.id, i]));
+  const eligible = assets.map((a) => plan.eligible[sourceIndex.get(a.id)!]);
   const steps = assets.map((a) => new Money(a.quantityStep ?? (a.fractional ? a.instrumentType === "FIXED_INCOME" ? "0.01" : "0.0000000001" : 1)));
   const costs: number[] = [], upper: number[] = [], losses: Decimal[] = [], lots: Decimal[] = [];
   for (let i = 0; i < assets.length; i++) {
@@ -36,37 +40,26 @@ export function* improvedCalculation(input: AllocationInput): Generator<BalanceM
     losses.push(a.fractional && !exactFraction ? quantum.div(100) : new Money(0));
   }
   const current = new Map(classes.map((cls) => [cls, sum(assets.filter((a) => a.investmentClass === cls).map((a) => a.currentValue))]));
-  const scores = new Map(classes.map((cls) => [cls, assets.filter((a) => a.investmentClass === cls && a.score > 0).reduce((s, a) => s + a.score, 0)]));
-  const shares = assets.map((a) => a.score > 0 ? new Money(a.score).div(scores.get(a.investmentClass)!) : new Money(0));
+  const shares = assets.map((a) => plan.plannedShares[sourceIndex.get(a.id)!]);
   const granularities = new Map(classes.map((cls) => {
     const candidates = assets.flatMap((a, i) => a.investmentClass === cls && upper[i] ? [lots[i]] : []);
     return [cls, candidates.length ? Money.min(...candidates) : new Money(0)] as const;
   }));
   const roundingLoss = (cls: string, outside: boolean) => sum(losses.filter((_, i) => (assets[i].investmentClass !== cls) === outside));
-  const allClassesAvailable = classes.every((cls) => new Money(input.targets[cls]).eq(0) || granularities.get(cls)!.gt(0));
+  const allClassesAvailable = classes.every((cls) => new Money(targets[cls]).eq(0) || granularities.get(cls)!.gt(0));
   const tolerances = new Map(classes.map((cls) => {
-    const target = new Money(input.targets[cls]).div(100), own = granularities.get(cls)!;
+    const target = new Money(targets[cls]).div(100), own = granularities.get(cls)!;
     return [cls, Money.max(allClassesAvailable && own.gt("0.01") ? own.div(2) : 0,
       target.mul(sum([...granularities].filter(([other]) => other !== cls).map(([, g]) => g))),
       target.mul(roundingLoss(cls, true))).plus("0.01")] as const;
   }));
   const noteTolerances = assets.map((a, i) => lots[i].plus(shares[i].mul(roundingLoss(a.investmentClass, false).minus(losses[i]))));
-  const gaps = new Map(classes.map((cls) => [cls, assets.some((a, i) => a.investmentClass === cls && upper[i])
-    ? Money.max(0, total.plus(amount).mul(input.targets[cls]).div(100).minus(current.get(cls)!)) : new Money(0)]));
-  const allGaps = sum([...gaps.values()]);
-  const classReferences = new Map(classes.map((cls) => [cls, allGaps.gt(0) ? amount.mul(gaps.get(cls)!).div(allGaps) : new Money(0)]));
-  const assetReferences = assets.map(() => new Money(0));
-  for (const cls of classes) {
-    const reference = classReferences.get(cls)!, final = current.get(cls)!.plus(reference);
-    const deficits = assets.map((a, i) => a.investmentClass === cls && upper[i] ? Money.max(0, final.mul(shares[i]).minus(a.currentValue)) : new Money(0));
-    const all = sum(deficits);
-    if (all.gt(0)) assets.forEach((a, i) => { if (a.investmentClass === cls) assetReferences[i] = reference.mul(deficits[i]).div(all); });
-  }
+  const assetReferences = assets.map((a) => plan.assetAdditions[sourceIndex.get(a.id)!]);
   const guard = Math.max(0.0001, Number.EPSILON * total.plus(amount).mul(100).toNumber() * 32);
   const model: BalanceModel = {
     budget, timeLimitMs: 3000,
-    classes: classes.map((cls) => ({ current: current.get(cls)!.mul(100).toNumber(), target: new Money(input.targets[cls]).div(100).toNumber(),
-      tolerance: tolerances.get(cls)!.minus(new Money(input.targets[cls]).div(100).mul(roundingLoss(cls, true))).mul(100).toNumber() - guard })),
+    classes: classes.map((cls) => ({ current: current.get(cls)!.mul(100).toNumber(), target: new Money(targets[cls]).div(100).toNumber(),
+      tolerance: tolerances.get(cls)!.minus(new Money(targets[cls]).div(100).mul(roundingLoss(cls, true))).mul(100).toNumber() - guard })),
     assets: assets.map((a, i) => ({ group: classes.indexOf(a.investmentClass), current: new Money(a.currentValue).mul(100).toNumber(), share: shares[i].toNumber(),
       tolerance: lots[i].mul(100).toNumber() - guard, cost: costs[i], upper: upper[i], initial: assetReferences[i].mul(100).div(costs[i]).toNumber() })),
   };
@@ -88,7 +81,7 @@ export function* improvedCalculation(input: AllocationInput): Generator<BalanceM
   for (const cls of classes) {
     const group = assets.filter((a) => a.investmentClass === cls);
     const added = sum(group.map((a) => values.get(a.id)?.value ?? 0)), classFinal = current.get(cls)!.plus(added);
-    if (added.gt(0) && classFinal.gt(total.plus(spent).mul(input.targets[cls]).div(100).plus(tolerances.get(cls)!))) {
+    if (added.gt(0) && classFinal.gt(total.plus(spent).mul(targets[cls]).div(100).plus(tolerances.get(cls)!))) {
       throw new Error("A distribuição encontrada não respeita o limite da meta.");
     }
     for (let i = 0; i < assets.length; i++) {
@@ -98,11 +91,11 @@ export function* improvedCalculation(input: AllocationInput): Generator<BalanceM
       }
     }
   }
-  return finish(input, values, {
+  return describeBudgetRemainder(finish(input, values, {
     algorithm: "IMPROVED", version: IMPROVED_VERSION, stages: [], warnings: [],
     classTolerancesBrl: Object.fromEntries([...tolerances].map(([cls, value]) => [cls, value.toString()])), reservedAmount: reserved.toString(),
     heuristic: { priorities: ["class_balance", "score_balance", "budget_use"], iterations: solution.iterations, evaluations: solution.evaluations, stopReason: solution.stopReason },
-  });
+  }), plan);
 }
 
 export function allocateImproved(input: AllocationInput) {
