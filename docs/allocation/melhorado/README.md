@@ -18,7 +18,7 @@ The algorithm proposes purchases only. Overweight positions remain in the portfo
 
 ## Budget policy
 
-Both methods offer “Usar todo o aporte” for each calculation, unchecked by default. Changing the checkbox discards the displayed preview and requires recalculation; it does not change account preferences or holdings.
+Both methods offer “Usar todo o aporte” for BRL-only or USD-only calculations, unchecked by default. Changing the checkbox discards the displayed preview and requires recalculation; it does not change account preferences or holdings.
 
 - `TARGET_CAPPED`: preserve global class targets, with the lot-aware allowances below. Currency-excluded holdings remain in total wealth. The planner finds the continuous feasible investment ceiling using actual investment, rather than counting the uninvested amount as wealth.
 - `FULL_BUDGET`: allow global targets to be exceeded. Water-fill final eligible class balances in proportion to their original positive targets, counting existing positions as immutable lower bounds. Within each class, do the same using positive scores. Existing overweight or excluded holdings remain untouched; only underweight eligible holdings receive purchases until the others catch up.

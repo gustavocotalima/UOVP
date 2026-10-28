@@ -18,7 +18,7 @@ O algoritmo só propõe compras. Posições acima das metas permanecem na cartei
 
 ## Política de orçamento
 
-Os dois métodos oferecem “Usar todo o aporte” em cada cálculo, desmarcado por padrão. Alterar a opção descarta a prévia exibida e exige novo cálculo; não muda preferências da conta nem posições.
+Os dois métodos oferecem “Usar todo o aporte” nos cálculos somente em BRL ou somente em USD, desmarcado por padrão. Alterar a opção descarta a prévia exibida e exige novo cálculo; não muda preferências da conta nem posições.
 
 - `TARGET_CAPPED`: preservar metas globais, com as margens conforme as cotas descritas abaixo. Posições fora do filtro de moeda continuam no patrimônio total. O planejamento encontra o teto contínuo de investimento usando o aporte efetivo, sem contar o saldo não investido como patrimônio.
 - `FULL_BUDGET`: permitir ultrapassar as metas globais. Distribuir os saldos finais das classes elegíveis proporcionalmente às metas positivas originais, usando posições existentes como limites mínimos imutáveis. Dentro de cada classe, fazer o mesmo com as notas positivas. Posições acima da proporção ou excluídas são mantidas; apenas posições elegíveis abaixo da proporção recebem compras até as demais alcançarem o equilíbrio.

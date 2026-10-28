@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Calculator, CheckCircle2, Clock3, DollarSign } from "lucide-react";
+import { Calculator, CheckCircle2, Clock3, DollarSign, Info } from "lucide-react";
 import { PrivateValue } from "@/components/ui/private-value";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -60,6 +60,29 @@ function formatQuantity(value: string | number, maximumFractionDigits = 8) {
   return Number(value).toLocaleString("pt-BR", { maximumFractionDigits });
 }
 
+function FullAmountOption({ checked, onChange }: { checked: boolean; onChange: (checked: boolean) => void }) {
+  const [helpOpen, setHelpOpen] = useState(false);
+
+  return (
+    <div className="relative flex w-fit max-w-full items-center gap-1" onMouseLeave={() => setHelpOpen(false)} onBlur={(event) => {
+      if (!event.currentTarget.contains(event.relatedTarget)) setHelpOpen(false);
+    }} onKeyDown={(event) => {
+      if (event.key === "Escape") setHelpOpen(false);
+    }}>
+      <label className="flex cursor-pointer items-center gap-2 text-sm" htmlFor="contribution-use-full-amount">
+        <input id="contribution-use-full-amount" type="checkbox" className="size-4 accent-[var(--primary)]" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+        Usar todo o aporte
+      </label>
+      <button type="button" aria-label="Sobre usar todo o aporte" aria-expanded={helpOpen} aria-controls="contribution-use-full-amount-help" aria-describedby={helpOpen ? "contribution-use-full-amount-help" : undefined} className="inline-flex size-7 shrink-0 items-center justify-center rounded-full text-[var(--muted-foreground)] hover:text-[var(--foreground)] focus-visible:outline-2" onMouseEnter={() => setHelpOpen(true)} onFocus={() => setHelpOpen(true)} onClick={() => setHelpOpen(true)}>
+        <Info className="size-4" aria-hidden="true" />
+      </button>
+      {helpOpen && <div id="contribution-use-full-amount-help" role="tooltip" className="absolute left-0 top-full z-20 w-72 max-w-[calc(100vw-4rem)] rounded-xl border bg-[var(--card)] p-3 text-xs leading-relaxed text-[var(--foreground)] shadow-lg">
+        Permite ultrapassar as metas globais, mantendo a proporção entre as classes elegíveis e a distribuição por notas. Arredondamentos podem deixar sobra.
+      </div>}
+    </div>
+  );
+}
+
 function MoneyWithNative({
   brl,
   native,
@@ -89,7 +112,8 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
   const [currency, setCurrency] = useState<"BRL" | "USD">("BRL");
   const [scope, setScope] = useState<ContributionScopeKey>("ALL_ASSETS");
   const [useFullAmount, setUseFullAmount] = useState(false);
-  const budgetPolicy = useFullAmount ? "FULL_BUDGET" : "TARGET_CAPPED";
+  const isCurrencyScoped = scope !== "ALL_ASSETS";
+  const budgetPolicy = isCurrencyScoped && useFullAmount ? "FULL_BUDGET" : "TARGET_CAPPED";
   const [simulation, setSimulation] = useState<SimulationDto>();
   const [contributionModal, setContributionModal] = useState<ContributionModalState>();
   const [message, setMessage] = useState<string>();
@@ -269,9 +293,9 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
   return (
     <div className="space-y-6">
       <Card>
-        <CardContent data-private-editor className="grid gap-4 pt-4 sm:pt-5 @3xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_auto] @3xl:items-end">
-          <div className="w-full max-w-sm space-y-2">
-            <Label htmlFor="contribution-value">Valor do aporte</Label>
+        <CardContent data-private-editor data-testid="contribution-form" className="grid gap-4 pt-4 sm:pt-5 @2xl:grid-cols-[minmax(0,24rem)_minmax(0,20rem)] @2xl:items-end @3xl:grid-cols-[minmax(0,24rem)_minmax(0,20rem)_max-content] @3xl:justify-start">
+          <div className="min-w-0 space-y-2">
+            <Label className="block" htmlFor="contribution-value">Valor do aporte</Label>
             <div className="grid grid-cols-[minmax(0,1fr)_96px] gap-2">
               <Input id="contribution-value" type="number" min="0.01" step="0.01" value={value} onChange={(event) => {
                 calculationRequestId.current += 1;
@@ -287,8 +311,10 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
                   const nextCurrency = event.target.value as "BRL" | "USD";
                   setCurrency(nextCurrency);
                   setScope(defaultContributionScope(nextCurrency));
+                  setUseFullAmount(false);
                   setSimulation(undefined);
                   setContributionModal(undefined);
+                  setMessage(undefined);
                 }}
               >
                 <option value="BRL">BRL</option>
@@ -296,16 +322,19 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
               </Select>
             </div>
           </div>
-          <div className="w-full max-w-xs space-y-2">
-            <Label htmlFor="contribution-scope">Ativos que podem receber o aporte</Label>
+          <div className="min-w-0 space-y-2">
+            <Label className="block" htmlFor="contribution-scope">Ativos que podem receber o aporte</Label>
             <Select
               id="contribution-scope"
+              className="w-full"
               value={scope}
               onChange={(event) => {
                 calculationRequestId.current += 1;
                 setScope(event.target.value as ContributionScopeKey);
+                setUseFullAmount(false);
                 setSimulation(undefined);
                 setContributionModal(undefined);
+                setMessage(undefined);
               }}
             >
               <option value={currencyOnlyContributionScope(currency)}>
@@ -314,18 +343,14 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
               <option value="ALL_ASSETS">Todos os ativos elegíveis</option>
             </Select>
           </div>
-          <div className="space-y-1.5 @3xl:col-span-3 @3xl:row-start-2">
-            <label className="flex cursor-pointer items-center gap-2 text-sm" htmlFor="contribution-use-full-amount">
-              <input id="contribution-use-full-amount" type="checkbox" aria-describedby="contribution-use-full-amount-help" className="size-4 accent-[var(--primary)]" checked={useFullAmount} onChange={(event) => {
+          <Button className="@2xl:col-span-2 @3xl:col-span-1" size="lg" onClick={calculate} disabled={pending || value <= 0 || !assets.length}><Calculator className="size-4" /> {pending ? "Calculando…" : "Calcular"}</Button>
+          {isCurrencyScoped && <div className="col-span-full">
+            <FullAmountOption checked={useFullAmount} onChange={(checked) => {
                 calculationRequestId.current += 1;
-                setUseFullAmount(event.target.checked); setSimulation(undefined); setContributionModal(undefined); setMessage(undefined);
+                setUseFullAmount(checked); setSimulation(undefined); setContributionModal(undefined); setMessage(undefined);
               }} />
-              Usar todo o aporte
-            </label>
-            <p id="contribution-use-full-amount-help" className="max-w-3xl text-xs leading-relaxed text-[var(--muted-foreground)]">Permite ultrapassar as metas globais, mantendo a proporção entre as classes elegíveis e a distribuição por notas. Arredondamentos podem deixar sobra.</p>
-          </div>
-          <Button className="@3xl:col-start-3 @3xl:row-start-1" size="lg" onClick={calculate} disabled={pending || value <= 0 || !assets.length}><Calculator className="size-4" /> {pending ? "Calculando…" : "Calcular"}</Button>
-          {!assets.length && <p className="text-sm text-[var(--muted-foreground)] @3xl:col-span-3">Adicione ativos antes de simular.</p>}
+          </div>}
+          {!assets.length && <p className="col-span-full text-sm text-[var(--muted-foreground)]">Adicione ativos antes de simular.</p>}
         </CardContent>
       </Card>
       {message && <p role="status" className="rounded-xl border bg-[var(--card)] p-4 text-sm">{message}</p>}
@@ -333,7 +358,7 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
         {" "}Orçamento: {BUDGET_POLICY_LABELS[simulation.calculation?.budgetPolicy ?? "TARGET_CAPPED"]}.
         {simulation.calculation?.warnings.map((warning) => <span className="mt-1 block text-amber-700 dark:text-amber-400" key={warning}>{warning}</span>)}
         {simulation.calculation?.unallocatedReasons?.map((reason) => <span className="mt-1 block" key={reason}>{
-          reason === "TARGET_LIMIT" ? "Parte do aporte ficou disponível para preservar as metas. Marque “Usar todo o aporte” para permitir ultrapassá-las."
+          reason === "TARGET_LIMIT" ? `Parte do aporte ficou disponível para preservar as metas.${isCurrencyScoped ? " Marque “Usar todo o aporte” para permitir ultrapassá-las." : ""}`
             : reason === "NO_ELIGIBLE_ASSETS" ? "Não há ativos elegíveis para receber este aporte com os filtros, notas, preços e metas atuais."
               : reason === "METHOD_RULES" ? "As regras de distribuição e arredondamento do Diagrama do Cerrado deixaram um saldo não alocado."
                 : "Arredondamentos e limites de equilíbrio deixaram um saldo não alocado."
