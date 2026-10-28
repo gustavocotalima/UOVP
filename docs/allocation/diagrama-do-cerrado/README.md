@@ -51,3 +51,5 @@ Both methods share the per-account limit of one outstanding calculation and six 
 - Core Decimal arithmetic with precision 40; shared planner with precision 60; no global precision changes.
 - Synthetic tests are versioned. Personal captures and their replays remain outside Git.
 - Local validation replays available captured responses. Integration tests cover selection, isolation, invalidation and UI/MCP equivalence.
+
+The capped adapter tolerates only the calculable effect of rounding other fractional quantities and amounts down to ten decimals on a class target. It does not enlarge the cash budget or apply Improved’s lot allowances. This prevents subcent settlement differences from progressively erasing a balanced basket.

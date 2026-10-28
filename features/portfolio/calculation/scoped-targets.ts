@@ -10,13 +10,19 @@ export function capScopedTargets(input: AllocationInput, result: AllocationResul
   const values = new Map(result.suggestions.map((s) => [s.assetId, { quantity: s.quantity, value: s.value }]));
   const groups = Object.entries(input.targets).map(([cls, target]) => {
     const assets = input.assets.filter((a) => a.investmentClass === cls);
-    return { assets, target: new Money(target).div(100), current: sum(assets.map((a) => a.currentValue)) };
+    // Rounding other positions down to ten quantity/value decimals reduces
+    // this class's target denominator. Bound only that settlement difference;
+    // this never adds purchases or permits spending above the budget.
+    const outsideLoss = sum(input.assets.filter((a) => a.investmentClass !== cls && values.has(a.id))
+      .map((a) => new Money(a.fractional ? a.unitPrice : 0).mul("0.0000000001").plus("0.0000000001")));
+    const share = new Money(target).div(100);
+    return { assets, target: share, current: sum(assets.map((a) => a.currentValue)), settlementTolerance: share.mul(outsideLoss) };
   });
   const added = (group: typeof groups[number]) => sum(group.assets.map((a) => values.get(a.id)?.value ?? 0));
   const invested = () => sum([...values.values()].map((v) => v.value));
   const exceeds = (group: typeof groups[number], spent: Decimal) => {
     const buy = added(group);
-    return buy.gt(0) && group.current.plus(buy).gt(total.plus(spent).mul(group.target));
+    return buy.gt(0) && group.current.plus(buy).gt(total.plus(spent).mul(group.target).plus(group.settlementTolerance));
   };
   // Reducing one class also lowers the denominator of other classes. Recheck
   // after each pass; never round a quantity up to repair the distribution.
@@ -48,5 +54,7 @@ export function capScopedTargets(input: AllocationInput, result: AllocationResul
     if (!group) break;
     for (const a of group.assets) values.delete(a.id);
   }
-  return finish(input, values, { ...result.calculation, reservedAmount: invested().toString() });
+  return finish(input, values, { ...result.calculation, reservedAmount: invested().toString(),
+    classTolerancesBrl: Object.fromEntries(Object.keys(input.targets).map((cls, i) => [cls, groups[i].settlementTolerance.toString()])),
+  });
 }

@@ -36,6 +36,18 @@ describe("coordinated contribution baskets and budget policies", () => {
     const values = waterFill([new Money(80), new Money(20), new Money(0)], [new Money(1), new Money(1), new Money(1)], new Money(60), [new Money(200), new Money(200), new Money(30)]);
     expect(values.map(String)).toEqual(["0", "30", "30"]);
   });
+  it.each([1, 100, 5000])("Cerrado retains a balanced basket after ten-decimal settlement for budget %i BRL", (contribution) => {
+    const input: AllocationInput = { contribution, targets: { ...zeros, BRAZILIAN_STOCKS: 50, INTERNATIONAL_STOCKS: 50 },
+      assets: [99.97, 123.47].map((price, i) => ({ id: String(i), ticker: `S${i}`, name: "Synthetic",
+        investmentClass: i ? "INTERNATIONAL_STOCKS" : "BRAZILIAN_STOCKS", currentValue: 0,
+        quantity: 0, unitPrice: price, score: 10, fractional: true })),
+    };
+    const result = allocateContribution(input, "CERRADO");
+    expect(result.suggestions).toHaveLength(2);
+    expect(result.unallocatedAmount.lt("0.000001")).toBe(true);
+    for (const row of result.suggestions) expect(row.value.minus(new Money(contribution).div(2)).abs().lt("0.000001")).toBe(true);
+    assertCash(input, result);
+  });
   it.each(methods)("%s reaches the independent USD-only target ceiling instead of stopping at R$2,211", (method) => {
     const input = screenshot(), before = JSON.stringify(input), r = allocateContribution(input, method);
     const ideal = new Money(207445.91).div("0.83").minus("221929.09");

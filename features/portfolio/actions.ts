@@ -23,7 +23,7 @@ import {
 import { questionChangeAffectsAllocation } from "./allocation";
 import { calculateContribution } from "./calculation/server";
 import { ALLOCATION_VERSIONS, BUDGET_POLICIES, type BudgetPolicy } from "./calculation/types";
-import { CONTRIBUTION_UNIT_TYPES, registerContributionQuantity, reviewLegacyContribution, refreshContributionQuantityCost } from "@/features/open-finance/contribution-quantity";
+import { CONTRIBUTION_UNIT_TYPES, resolveContributionQuantity, registerContributionQuantity, reviewLegacyContribution, refreshContributionQuantityCost } from "@/features/open-finance/contribution-quantity";
 import { fixedIncomeHoldingFingerprint, holdingCurrentValue } from "./asset-groups";
 import { addInvestmentCost, investmentCostUpdate } from "./investment-cost";
 import { bumpPortfolioAndInvalidateDrafts } from "./invalidation";
@@ -1169,9 +1169,14 @@ export async function importPortfolioRowsAction(input: {
 export async function deleteAssetAction(assetId: string) {
   const userId = await requireUserId();
   const asset = await assertOwnedAsset(userId, assetId);
-  await prisma.$transaction(async (tx) => {
+  await withUserOperationLease({ userId, operation: "pluggy-sync", leaseMs: 60_000, action: (lease) => lease.runFencedTransaction(async (tx) => {
     const accountLinks = await tx.accountInvestmentLink.findMany({ where: { assetHolding: { assetId: asset.id }, account: { userId } } });
     for (const link of accountLinks) await setAccountInvestmentPreference(tx, userId, link.accountId, false);
+    const projectedLinks = await tx.pluggyInvestmentDiagramLink.findMany({
+      where: { userId, holding: { assetId: asset.id }, contributionBatches: { some: { state: { in: ["WAITING", "CONFLICT"] } } } },
+      select: { id: true },
+    });
+    for (const link of projectedLinks) await resolveContributionQuantity(tx, link.id, "USER_REMOVED");
     await tx.pluggyInvestmentDiagramLink.updateMany({
       where: { holding: { assetId: asset.id } },
       data: reopenDeletedPluggyPositionForReview(
@@ -1186,7 +1191,7 @@ export async function deleteAssetAction(assetId: string) {
     await tx.contributionSuggestion.deleteMany({ where: { assetId: asset.id } });
     await tx.asset.delete({ where: { id: asset.id } });
     await bumpPortfolioAndInvalidateDrafts(tx, asset.portfolioId, userId);
-  });
+  }) });
   revalidatePath("/carteira");
   revalidatePath("/home");
   revalidatePath("/open-finance");
@@ -1196,7 +1201,7 @@ export async function deleteAssetClassAction(investmentClass: InvestmentClassKey
   const userId = await requireUserId();
   const parsedClass = investmentClassSchema.parse(investmentClass) as InvestmentClass;
   const portfolio = await ensurePortfolio(userId);
-  await prisma.$transaction(async (tx) => {
+  await withUserOperationLease({ userId, operation: "pluggy-sync", leaseMs: 60_000, action: (lease) => lease.runFencedTransaction(async (tx) => {
     const assets = await tx.asset.findMany({
       where: { portfolioId: portfolio.id, investmentClass: parsedClass },
       select: {
@@ -1210,6 +1215,11 @@ export async function deleteAssetClassAction(investmentClass: InvestmentClassKey
     for (const asset of assets) {
       const accountLinks = await tx.accountInvestmentLink.findMany({ where: { assetHolding: { assetId: asset.id }, account: { userId } } });
       for (const link of accountLinks) await setAccountInvestmentPreference(tx, userId, link.accountId, false);
+      const projectedLinks = await tx.pluggyInvestmentDiagramLink.findMany({
+        where: { userId, holding: { assetId: asset.id }, contributionBatches: { some: { state: { in: ["WAITING", "CONFLICT"] } } } },
+        select: { id: true },
+      });
+      for (const link of projectedLinks) await resolveContributionQuantity(tx, link.id, "USER_REMOVED");
       await tx.pluggyInvestmentDiagramLink.updateMany({
         where: { holding: { assetId: asset.id } },
         data: reopenDeletedPluggyPositionForReview(
@@ -1225,7 +1235,7 @@ export async function deleteAssetClassAction(investmentClass: InvestmentClassKey
     await tx.contributionSuggestion.deleteMany({ where: { assetId: { in: assets.map((asset) => asset.id) } } });
     await tx.asset.deleteMany({ where: { portfolioId: portfolio.id, investmentClass: parsedClass } });
     await bumpPortfolioAndInvalidateDrafts(tx, portfolio.id, userId);
-  });
+  }) });
   revalidatePath("/carteira");
   revalidatePath("/home");
   revalidatePath("/open-finance");

@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { Prisma, PrismaClient, type InstrumentType, type InvestmentClass } from "@prisma/client";
 import { afterAll, describe, expect, it, vi } from "vitest";
-import { executeContributionAction, reviewAwaitingContributionAction, saveAwaitingContributionPriceAction } from "@/features/portfolio/actions";
+import { deleteAssetAction, deleteAssetClassAction, executeContributionAction, reviewAwaitingContributionAction, saveAwaitingContributionPriceAction } from "@/features/portfolio/actions";
 import { GET as holdingTransactions } from "@/app/api/portfolio/holdings/[holdingId]/transactions/route";
 import { getPortfolioData } from "@/features/portfolio/data";
 import { getOpenFinanceData } from "@/features/open-finance/data";
 import { reconcilePluggyInvestmentsForUser } from "@/features/open-finance/diagram-sync";
-import { resolvePluggyQuantityChangeAction } from "@/features/open-finance/diagram-actions";
+import { reviewPluggyDiagramLinkAction, resolvePluggyQuantityChangeAction } from "@/features/open-finance/diagram-actions";
 import { markPluggyItemDisconnected, resolvePluggyItemDisconnection } from "@/features/open-finance/disconnection";
 import { portfolioTools } from "@/features/mcp/portfolio-tools";
 
@@ -143,6 +143,58 @@ suite("Open Finance contribution quantity reconciliation", () => {
     await db!.pluggyInvestment.update({ where: { id: f.investment.id }, data: { quantity: null, balance: 9000, value: 90, providerUpdatedAt: new Date() } });
     await reconcilePluggyInvestmentsForUser(f.user.id);
     expect((await position(f)).quantity.toString()).toBe("110"); expect((await getPortfolioData(f.user.id)).quantityChanges).toEqual([]);
+  });
+  it.each([110, 108])("requires explicit review for a timestamp-less quantity of %i", async (quantity) => {
+    const f = await fixture();
+    await db!.pluggyInvestment.update({ where: { id: f.investment.id }, data: { providerUpdatedAt: null } });
+    const s = await buy(f);
+    await reconcilePluggyInvestmentsForUser(f.user.id);
+    expect((await getPortfolioData(f.user.id)).quantityChanges).toEqual([]);
+    await db!.pluggyInvestment.update({ where: { id: f.investment.id }, data: { quantity, providerUpdatedAt: null } });
+    await reconcilePluggyInvestmentsForUser(f.user.id);
+    expect((await position(f)).quantity.toString()).toBe("110");
+    expect((await db!.contributionSuggestion.findUniqueOrThrow({ where: { id: s.id } })).executionStatus).toBe("AWAITING_SYNC");
+    const change = (await getPortfolioData(f.user.id)).quantityChanges[0];
+    expect(change?.providerQuantity).toBe(String(quantity));
+    await decide(f, "KEEP_MANUAL");
+    await reconcilePluggyInvestmentsForUser(f.user.id);
+    expect((await getPortfolioData(f.user.id)).quantityChanges).toEqual([]);
+    await db!.pluggyInvestment.update({ where: { id: f.investment.id }, data: { quantity: quantity + 1, providerUpdatedAt: null } });
+    await reconcilePluggyInvestmentsForUser(f.user.id);
+    expect((await getPortfolioData(f.user.id)).quantityChanges).toHaveLength(1);
+    await decide(f, "PROVIDER");
+    expect((await position(f)).quantity.toString()).toBe(String(quantity + 1));
+    expect((await db!.contributionSuggestion.findUniqueOrThrow({ where: { id: s.id } })).syncResolution).toBe("USER_PROVIDER");
+  });
+  it("retains the last provider version when acknowledging a timestamp-less snapshot", async () => {
+    const f = await fixture(); const s = await buy(f);
+    const known = new Date(Date.now() + 60_000);
+    await db!.pluggyInvestment.update({ where: { id: f.investment.id }, data: { quantity: 108, providerUpdatedAt: known } });
+    await reconcilePluggyInvestmentsForUser(f.user.id); await decide(f, "KEEP_MANUAL");
+    await db!.pluggyInvestment.update({ where: { id: f.investment.id }, data: { quantity: 109, providerUpdatedAt: null } });
+    await reconcilePluggyInvestmentsForUser(f.user.id); await decide(f, "KEEP_MANUAL");
+    expect((await db!.pluggyContributionBatch.findFirstOrThrow({ where: { linkId: f.link.id } })).providerUpdatedAt).toEqual(known);
+    await db!.pluggyInvestment.update({ where: { id: f.investment.id }, data: { quantity: 110, providerUpdatedAt: new Date(known.getTime() - 1000) } });
+    await reconcilePluggyInvestmentsForUser(f.user.id);
+    expect((await db!.contributionSuggestion.findUniqueOrThrow({ where: { id: s.id } })).executionStatus).toBe("AWAITING_SYNC");
+  });
+  it.each(["ASSET", "CLASS"] as const)("retires the contribution projection before %s deletion and allows remapping", async (kind) => {
+    const f = await fixture(); await buy(f);
+    await db!.pluggyInvestmentDiagramLink.update({ where: { id: f.link.id }, data: {
+      metadataOverrideFields: ["QUANTITY", "PRODUCT_NAME"], overrideProductName: "My name",
+    } });
+    if (kind === "ASSET") await deleteAssetAction(f.asset.id); else await deleteAssetClassAction("BRAZILIAN_STOCKS");
+    const link = await db!.pluggyInvestmentDiagramLink.findUniqueOrThrow({ where: { id: f.link.id }, include: { contributionBatches: true } });
+    expect(link.contributionBatches[0].state).toBe("RESOLVED");
+    expect(link.overrideQuantity).toBeNull(); expect(link.metadataOverrideFields).toEqual(["PRODUCT_NAME"]);
+    expect(link.assetHoldingId).toBeNull();
+    await reviewPluggyDiagramLinkAction({ linkId: f.link.id, instrumentType: "STOCK", investmentClass: "BRAZILIAN_STOCKS", score: 5 });
+    const mapped = await db!.pluggyInvestmentDiagramLink.findUniqueOrThrow({ where: { id: f.link.id }, include: { holding: { include: { asset: true } } } });
+    expect(mapped.holding!.quantity.toString()).toBe("100");
+    const remapped = { ...f, asset: mapped.holding!.asset, holding: mapped.holding! };
+    await buy(remapped, 5);
+    expect((await position(remapped)).quantity.toString()).toBe("105");
+    expect(await db!.pluggyContributionBatch.count({ where: { linkId: f.link.id, state: "WAITING" } })).toBe(1);
   });
   it("requires a destination when multiple institutions hold the same asset", async () => {
     const f = await fixture(); const suffix = randomUUID();

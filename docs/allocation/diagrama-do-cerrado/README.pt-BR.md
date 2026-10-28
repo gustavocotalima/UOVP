@@ -51,3 +51,5 @@ Os dois métodos compartilham o limite por conta de um cálculo em andamento e s
 - Núcleo Decimal com precisão 40; planejamento comum com precisão 60; sem mudanças globais de precisão.
 - Testes sintéticos são versionados. Capturas pessoais e seus replays ficam fora do Git.
 - A execução local verifica a reconstrução contra as capturas disponíveis. Os testes de integração cobrem seleção, isolamento, invalidação e equivalência entre interface e MCP.
+
+O adaptador limitado tolera apenas o efeito calculável do arredondamento para baixo das quantidades fracionárias e dos valores de outras classes em dez casas sobre a meta. Não amplia o orçamento nem aplica as margens por cota do Melhorado. Isso impede que diferenças subcentavo de liquidação eliminem progressivamente um conjunto equilibrado de compras.

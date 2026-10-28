@@ -197,10 +197,18 @@ export async function reconcileContributionQuantities(tx: Prisma.TransactionClie
     if (!batch || !available(link) || batch.holdingId !== link.holding!.id) continue;
     const raw = link.investment.quantity, asOf = link.investment.providerUpdatedAt;
     const pending = batch.suggestions.filter((s) => s.executionStatus === "AWAITING_SYNC");
+    const validChange = raw?.isFinite() && raw.gte(0) && !sameContributionQuantity(raw, batch.acknowledgedQuantity);
+    if (raw && validChange && !asOf && (!batch.observedQuantity || !sameContributionQuantity(raw, batch.observedQuantity))) {
+      // Without a provider version we cannot prove freshness, even for an
+      // exact match. Expose the observation for an explicit user decision.
+      await tx.pluggyContributionBatch.update({ where: { id: batch.id }, data: {
+        state: "CONFLICT", observedQuantity: raw, revision: { increment: 1 },
+      } });
+      changed = true;
+    }
     // A purchase can predate its manual registration. Compare the source's
     // version with the captured provider baseline, not the user's entry time.
-    if (raw?.isFinite() && raw.gte(0) && asOf && asOf >= (batch.providerUpdatedAt ?? batch.createdAt)
-      && !sameContributionQuantity(raw, batch.acknowledgedQuantity)) {
+    if (raw && validChange && asOf && asOf >= (batch.providerUpdatedAt ?? batch.createdAt)) {
       const index = pending.findIndex((s) => s.expectedQuantityAfter && sameContributionQuantity(raw, s.expectedQuantityAfter));
       if (index >= 0) {
         await finishSuggestions(tx, pending.slice(0, index + 1), "PROVIDER_MATCH");
@@ -234,7 +242,7 @@ export async function resolveContributionQuantity(tx: Prisma.TransactionClient, 
     if (!raw) throw new Error("A instituição não informou uma quantidade válida.");
     await tx.pluggyContributionBatch.update({ where: { id: batch.id }, data: {
       state: "WAITING", acknowledgedQuantity: raw, observedQuantity: raw,
-      providerUpdatedAt: link.investment.providerUpdatedAt, revision: { increment: 1 },
+      providerUpdatedAt: link.investment.providerUpdatedAt ?? batch.providerUpdatedAt, revision: { increment: 1 },
     } });
     await writeOverride(tx, link, batch.expectedQuantity, raw);
   } else {
