@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchAvailableBrapiQuotes, fetchBrapiQuotes, fetchBrapiTickerMetadata, isBrapiOddLotSymbol, normalizeBrapiSymbol, preferredBrapiLogoUrl, searchBrapiEtfTickers, searchBrapiTickers } from "@/features/portfolio/brapi";
+import { fetchAvailableBrapiQuotes, fetchBrapiQuotes, isBrapiOddLotSymbol, normalizeBrapiSymbol, searchBrapiEtfTickers, searchBrapiTickers } from "@/features/portfolio/brapi";
 import { normalizeBrapiPlan } from "@/features/portfolio/brapi-plans";
 import { decryptCredential, encryptCredential } from "@/lib/credential-cipher";
 
@@ -85,57 +85,6 @@ describe("integração brapi", () => {
       lastPrice: 39.12,
       logoUrl: "https://icons.brapi.dev/icons/PETR4.svg",
     });
-  });
-
-  it("recupera pelo catálogo o logo legado associado ao ticker atual", async () => {
-    const fetcher = vi.fn(async () => new Response(JSON.stringify({
-      results: [{
-        symbol: "EMBJ3",
-        name: "EMBJ3",
-        longName: "Embraer S.A.",
-        assetType: "stock",
-        subType: "stock",
-        exchange: "B3",
-        currency: "BRL",
-        logoUrl: "https://icons.brapi.dev/icons/EMBR3.svg",
-      }],
-    }), { status: 200, headers: { "Content-Type": "application/json" } })) as unknown as typeof fetch;
-
-    const results = await fetchBrapiTickerMetadata({
-      tickers: ["embj3.sa", "EMBJ3"],
-      fetcher,
-    });
-
-    expect(fetcher).toHaveBeenCalledTimes(1);
-    expect(results).toEqual([expect.objectContaining({
-      symbol: "EMBJ3",
-      logoUrl: "https://icons.brapi.dev/icons/EMBR3.svg",
-    })]);
-    expect(new Headers(vi.mocked(fetcher).mock.calls[0][1]?.headers).get("Authorization")).toBeNull();
-  });
-
-  it("prioriza o logo do catálogo quando a cotação aponta para um ticker legado inexistente", () => {
-    expect(preferredBrapiLogoUrl({
-      metadataLogoUrl: "https://icons.brapi.dev/icons/EMBR3.svg",
-      quoteLogoUrl: "https://icons.brapi.dev/icons/EMBJ3.svg",
-      existingLogoUrl: null,
-    })).toBe("https://icons.brapi.dev/icons/EMBR3.svg");
-  });
-
-  it("ignora o placeholder genérico da brapi e preserva o logo específico existente", () => {
-    expect(preferredBrapiLogoUrl({
-      metadataLogoUrl: "https://icons.brapi.dev/icons/BRAPI.svg",
-      quoteLogoUrl: "https://icons.brapi.dev/icons/brapi.svg",
-      existingLogoUrl: "https://icons.brapi.dev/icons/SAPR4.svg",
-    })).toBe("https://icons.brapi.dev/icons/SAPR4.svg");
-  });
-
-  it("não usa o logo da cotação como fonte canônica", () => {
-    expect(preferredBrapiLogoUrl({
-      metadataLogoUrl: null,
-      quoteLogoUrl: "https://icons.brapi.dev/icons/EMBJ3.svg",
-      existingLogoUrl: null,
-    })).toBeNull();
   });
 
   it("remove o placeholder genérico retornado pelo catálogo", async () => {

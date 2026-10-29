@@ -3,7 +3,7 @@
 import { useId, useRef, type KeyboardEvent } from "react";
 import { cn } from "@/lib/utils";
 
-export type TabOption<T extends string> = {
+type TabOption<T extends string> = {
   value: T;
   label: string;
   panelId?: string;

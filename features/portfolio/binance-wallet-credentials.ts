@@ -4,9 +4,9 @@ import Decimal from "decimal.js";
 import { Prisma } from "@/generated/prisma/client";
 import type { BinanceApiPermissions, BinancePrivateCredentials } from "./binance-wallet-client";
 
-export type BinanceWalletAssetStatusDto = "AVAILABLE" | "NEEDS_REVIEW" | "TRACKED" | "IGNORED";
+type BinanceWalletAssetStatusDto = "AVAILABLE" | "NEEDS_REVIEW" | "TRACKED" | "IGNORED";
 
-export type BinanceWalletAssetDto = {
+type BinanceWalletAssetDto = {
   id: string;
   symbol: string;
   name: string | null;

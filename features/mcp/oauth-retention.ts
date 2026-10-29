@@ -2,7 +2,7 @@ import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 
 export const MCP_OAUTH_RETENTION_MS = 30 * 86_400_000;
-export const MCP_OAUTH_CLEANUP_BATCH_SIZE = 100;
+const MCP_OAUTH_CLEANUP_BATCH_SIZE = 100;
 
 type CleanupOptions = { now?: Date; batchSize?: number; apply?: boolean };
 
@@ -14,7 +14,7 @@ type CleanupOptions = { now?: Date; batchSize?: number; apply?: boolean };
  * Revoked ancestors remain evidence until the entire refresh family has passed
  * its last natural credential deadline/revocation plus the retention window.
  */
-export async function cleanupMcpOAuthBatch(
+async function cleanupMcpOAuthBatch(
   tx: Prisma.TransactionClient,
   userId: string,
   options: CleanupOptions = {},

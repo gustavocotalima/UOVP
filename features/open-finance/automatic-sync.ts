@@ -6,7 +6,7 @@ import {
 import { prisma } from "@/lib/prisma";
 import { syncSelectedPluggyItemsForUser } from "./sync";
 
-export type AutomaticPluggySyncResult = {
+type AutomaticPluggySyncResult = {
   status: "SKIPPED" | "UPDATED" | "PARTIAL" | "FAILED";
   changed: boolean;
   reason: "AUTOMATIC_STALE" | "WEBHOOK_PENDING" | null;

@@ -21,7 +21,6 @@ vi.mock("@/lib/operation-security", () => ({
   withUserOperationLease: mocks.lease,
   OperationInProgressError: class extends Error {},
 }));
-vi.mock("@/features/portfolio/invalidation", () => ({ bumpPortfolioAndInvalidateDrafts: mocks.invalidate }));
 vi.mock("@/features/open-finance/diagram-sync", () => ({ reconcilePluggyInvestmentsForUser: mocks.reconcile }));
 vi.mock("@/features/open-finance/disconnection", () => ({
   markPluggyItemDisconnected: mocks.disconnected, resolvePluggyItemDisconnection: vi.fn(),
@@ -101,7 +100,6 @@ describe("coordenação de ações de revisão Pluggy", () => {
     expect(mocks.tx.assetHolding.update).toHaveBeenCalledWith({
       where: { id: "holding-1" }, data: { includedInTotals: false },
     });
-    expect(mocks.invalidate).toHaveBeenCalledWith(mocks.tx, "portfolio-1", "user-1");
   });
 
   it("protege a exclusão remota com o lease sem manter SQL aberto durante a rede", async () => {

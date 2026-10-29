@@ -26,7 +26,6 @@ vi.mock("@/lib/operation-security", () => ({
   withUserOperationLease: mocks.withUserOperationLease,
   OperationInProgressError: class extends Error {},
 }));
-vi.mock("@/features/portfolio/invalidation", () => ({ bumpPortfolioAndInvalidateDrafts: mocks.invalidate }));
 vi.mock("@/features/open-finance/diagram-sync", () => ({ reconcilePluggyInvestmentsForUser: mocks.reconcile }));
 vi.mock("@/features/open-finance/disconnection", () => ({
   markPluggyItemDisconnected: vi.fn(), resolvePluggyItemDisconnection: vi.fn(),
@@ -178,7 +177,6 @@ describe("quantidade temporária de investimentos Pluggy", () => {
       where: { id: "holding-a" },
       data: { quantity: new Prisma.Decimal(0), includedInTotals: false },
     });
-    expect(mocks.invalidate).toHaveBeenCalledOnce();
   });
 
   it.each([null, -1, Number.NaN, Number.POSITIVE_INFINITY, 1e15 + 1, 0.00000000001])("rejeita quantidade inválida %s", async (value) => {

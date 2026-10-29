@@ -21,7 +21,7 @@ const connectorSchema = z
   })
   .passthrough();
 
-export const pluggyItemSchema = z
+const pluggyItemSchema = z
   .object({
     id: z.string().uuid(),
     clientUserId: nullableString,

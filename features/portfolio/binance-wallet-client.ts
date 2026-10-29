@@ -25,14 +25,14 @@ export type BinancePrivateCredentials = {
   apiSecret: string;
 };
 
-export type BinanceWalletBalance = {
+type BinanceWalletBalance = {
   symbol: string;
   name: string | null;
   quantity: string;
   btcValuation: string | null;
 };
 
-export type BinanceWalletBucketResult = {
+type BinanceWalletBucketResult = {
   kind: BinanceWalletKind;
   ok: boolean;
   balances: BinanceWalletBalance[];

@@ -1,12 +1,11 @@
 import { createPrismaClient } from "../../lib/prisma-client";
-import { ALLOCATION_VERSIONS } from "@/features/portfolio/calculation/types";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { Prisma } from "@/generated/prisma/client";
 import { classifyAccountInvestment, projectAccountInvestment, setAccountInvestmentPreference } from "@/features/finance/account-investments";
 import { accountInvestmentReviews } from "@/features/finance/account-investment-dto";
 import { createFinanceTransactionAction, updateFinanceTransactionAction, deleteFinanceTransactionAction, saveFinancialAccountAction, deleteFinancialAccountAction } from "@/features/finance/actions";
 import { getPortfolioData } from "@/features/portfolio/data";
-import { executeContributionAction } from "@/features/portfolio/actions";
+import { recordContributionAction } from "@/features/portfolio/actions";
 import { portfolioTools } from "@/features/mcp/portfolio-tools";
 import { financeTools } from "@/features/mcp/finance-tools";
 import type { McpContext } from "@/features/mcp/types";
@@ -221,15 +220,12 @@ suite("saldo de conta na Carteira", () => {
     await mutateBalance(100, { currencyCode: "USD", balanceFxRateToBrl: 5 });
     const id = await classify(accountId, "USD");
     const row = await holding();
-    const portfolio = await db!.portfolio.findUniqueOrThrow({ where: { userId: auth.userId } });
-    const simulation = await db!.contributionSimulation.create({ data: {
-      userId: auth.userId, portfolioVersion: portfolio.version, allocationMethod: "IMPROVED", calculationVersion: ALLOCATION_VERSIONS.IMPROVED, inputAmount: 100, requestedAmount: 100, unallocatedAmount: 0,
-      suggestions: { create: { assetId: row.assetId, quantity: 100, value: 100, suggestionPercentage: 100, totalAfterSuggestionPercentage: 100, executionStatus: "AWAITING_SYNC", awaitingSyncAt: new Date(), externalBaselines: { create: { holdingId: id, quantity: 100, providerValue: 100, currency: "USD", fxRateToBrl: 5 } } } },
-    }, include: { suggestions: true } });
+    await recordContributionAction({ assetId: row.assetId, quantity: 200, holdingId: id });
+    const simulation = await db!.pendingContribution.findFirstOrThrow({ where: { assetId: row.assetId } });
     await mutateBalance(100, { balanceFxRateToBrl: 6 });
-    expect((await db!.contributionSuggestion.findUniqueOrThrow({ where: { id: simulation.suggestions[0].id } })).executionStatus).toBe("AWAITING_SYNC");
+    expect(await db!.pendingContribution.findUnique({ where: { id: simulation.id } })).not.toBeNull();
     await mutateBalance(120);
-    expect((await db!.contributionSuggestion.findUniqueOrThrow({ where: { id: simulation.suggestions[0].id } })).executionStatus).toBe("EXECUTED");
+    expect(await db!.pendingContribution.findUnique({ where: { id: simulation.id } })).toBeNull();
     expect((await holding()).quantity.toString()).toBe("120");
   });
 
@@ -255,19 +251,14 @@ suite("saldo de conta na Carteira", () => {
   it("planejar aporte não altera saldos nem cria transações", async () => {
     const id = await classify();
     const row = await holding();
-    const portfolio = await db!.portfolio.findUniqueOrThrow({ where: { userId: auth.userId } });
-    const simulation = await db!.contributionSimulation.create({ data: {
-      userId: auth.userId, portfolioVersion: portfolio.version, allocationMethod: "IMPROVED", calculationVersion: ALLOCATION_VERSIONS.IMPROVED, inputAmount: 200, requestedAmount: 200, unallocatedAmount: 0,
-      suggestions: { create: { assetId: row.assetId, quantity: 200, value: 200, suggestionPercentage: 100, totalAfterSuggestionPercentage: 100 } },
-    }, include: { suggestions: true } });
-    const result = await executeContributionAction(simulation.id, simulation.suggestions[0].id, 200, undefined, { holdingId: id });
-    expect(result).toMatchObject({ awaitingSync: true });
+    await recordContributionAction({ assetId: row.assetId, quantity: 200, holdingId: id });
+    const simulation = await db!.pendingContribution.findFirstOrThrow({ where: { assetId: row.assetId } });
     expect((await holding()).quantity.toString()).toBe("1000");
     expect((await db!.financialAccount.findUniqueOrThrow({ where: { id: accountId } })).balance.toString()).toBe("1000");
     expect(await db!.financeTransaction.count({ where: { accountId } })).toBe(0);
     await transaction(200);
     expect((await holding()).quantity.toString()).toBe("1200");
-    expect((await db!.contributionSuggestion.findUniqueOrThrow({ where: { id: simulation.suggestions[0].id } })).executionStatus).toBe("EXECUTED");
+    expect(await db!.pendingContribution.findUnique({ where: { id: simulation.id } })).toBeNull();
   });
 
   it("transações concorrentes mantêm o mesmo saldo na conta e na Carteira", async () => {
@@ -282,16 +273,11 @@ suite("saldo de conta na Carteira", () => {
     await transaction(100);
     const movement = await db!.financeTransaction.findFirstOrThrow({ where: { accountId } });
     const row = await holding();
-    const portfolio = await db!.portfolio.findUniqueOrThrow({ where: { userId: auth.userId } });
-    const simulation = await db!.contributionSimulation.create({ data: {
-      userId: auth.userId, portfolioVersion: portfolio.version, allocationMethod: "IMPROVED", calculationVersion: ALLOCATION_VERSIONS.IMPROVED, inputAmount: 200, requestedAmount: 200, unallocatedAmount: 0,
-      suggestions: { create: { assetId: row.assetId, quantity: 200, value: 200, suggestionPercentage: 100, totalAfterSuggestionPercentage: 100 } },
-    }, include: { suggestions: true } });
-    await executeContributionAction(simulation.id, simulation.suggestions[0].id, 200, undefined, { holdingId: id });
+    await recordContributionAction({ assetId: row.assetId, quantity: 200, holdingId: id });
+    const simulation = await db!.pendingContribution.findFirstOrThrow({ where: { assetId: row.assetId } });
     await updateFinanceTransactionAction({ id: movement.id, description: "Descrição corrigida", referenceYear: 2026, referenceMonth: 10, tagIds: [], updateAccountBalance: true });
     expect((await holding()).quantity.toString()).toBe("1100");
-    expect((await db!.contributionSuggestion.findUniqueOrThrow({ where: { id: simulation.suggestions[0].id } })).executionStatus).toBe("AWAITING_SYNC");
-    expect((await db!.portfolio.findUniqueOrThrow({ where: { userId: auth.userId } })).version).toBe(portfolio.version);
+    expect(await db!.pendingContribution.findUnique({ where: { id: simulation.id } })).not.toBeNull();
   });
 
   it("MCP identifica a sobreposição nos dois lados e conta revisões pendentes", async () => {
@@ -303,9 +289,7 @@ suite("saldo de conta na Carteira", () => {
     const result = await portfolioTools.find((tool) => tool.name === "list_holdings")!.execute(context, {});
     expect(result).toMatchObject({ holdings: [expect.objectContaining({ id, accountBalanceSource: expect.objectContaining({ accountId, sameMoneyAsAccountBalance: true }) })] });
     expect(await financeTools.find((tool) => tool.name === "list_accounts")!.execute(context, {})).toMatchObject({ data: { accounts: [expect.objectContaining({ id: accountId, portfolioOverlap: expect.objectContaining({ holdingId: id, sameMoneyAsAccountBalance: true }) })] } });
-    const before = await db!.portfolio.findUniqueOrThrow({ where: { userId: auth.userId } });
     await summary.execute(context, {});
-    expect((await db!.portfolio.findUniqueOrThrow({ where: { userId: auth.userId } })).version).toBe(before.version);
   });
 
   it("câmbio ausente é desconhecido no MCP, não um saldo BRL zero", async () => {

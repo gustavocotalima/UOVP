@@ -13,7 +13,7 @@ import {
 } from "@/lib/shared-cache";
 
 export type YahooSearchKind = "INTERNATIONAL_STOCKS" | "REITS" | "ETF";
-export type YahooReitStatus = "CONFIRMED" | "POSSIBLE" | "AMBIGUOUS" | "CONTRADICTED";
+type YahooReitStatus = "CONFIRMED" | "POSSIBLE" | "AMBIGUOUS" | "CONTRADICTED";
 
 export type YahooTickerSearchResult = {
   symbol: string;
@@ -40,7 +40,7 @@ export type YahooQuote = {
   asOf: Date;
 };
 
-export type CachedYahooQuote = {
+type CachedYahooQuote = {
   quote: YahooQuote;
   cachedAt: Date;
 };
@@ -65,14 +65,14 @@ export async function readCachedYahooQuotes(symbols: string[]) {
   }));
 }
 
-export type YahooFxRate = {
+type YahooFxRate = {
   currency: string;
   symbol: string;
   rateToBrl: number;
   asOf: Date;
 };
 
-export type YahooHistoricalFxRate = {
+type YahooHistoricalFxRate = {
   currency: string;
   symbol: string;
   rateToBrl: number;

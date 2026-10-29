@@ -4,7 +4,7 @@ import { formatDateOnly } from "@/lib/calendar";
 import { FIXED_INCOME_INDEXATION_META, INSTRUMENT_TYPE_META, INVESTMENT_CLASS_META } from "../constants";
 import type { ReviewForm } from "./model";
 import { reviewMoney, reviewDecimal, reviewDateTime, reviewOperationDate, reviewProfitability, reviewPercentage } from "./presentation";
-export function ReviewDetailsGrid({ title, details }: {
+function ReviewDetailsGrid({ title, details }: {
   title: string;
   details: Array<{
     label: string;

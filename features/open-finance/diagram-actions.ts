@@ -18,7 +18,6 @@ import {
   INVESTMENT_CLASSES,
   RATE_CONVENTIONS,
 } from "@/features/portfolio/constants";
-import { bumpPortfolioAndInvalidateDrafts } from "@/features/portfolio/invalidation";
 import { allowsFractionalUnits } from "@/features/portfolio/fractional-assets";
 import { reconcilePluggyInvestmentsForUser } from "./diagram-sync";
 import { markPluggyItemDisconnected, resolvePluggyItemDisconnection } from "./disconnection";
@@ -323,7 +322,7 @@ export async function reviewPluggyDiagramLinkAction(input: PluggyDiagramReviewIn
           include: { holding: { select: { assetId: true } } },
         });
         if (!mapped?.holding) throw new Error("Não foi possível integrar este investimento.");
-        const asset = await tx.asset.update({
+        await tx.asset.update({
           where: { id: mapped.holding.assetId },
           data: {
             score: parsed.score,
@@ -334,7 +333,6 @@ export async function reviewPluggyDiagramLinkAction(input: PluggyDiagramReviewIn
           },
           select: { portfolioId: true },
         });
-        await bumpPortfolioAndInvalidateDrafts(tx, asset.portfolioId, userId);
       });
     },
   });
@@ -381,13 +379,13 @@ export async function savePluggyInvestmentMetadataOverridesAction(
         const link = await readOwnedMetadataLink(tx, userId, parsed);
 
         if (parsed.quantity) {
-          let quantityChanged = false;
+
           const batch = link.contributionBatches[0];
           if (batch && parsed.quantity.mode === "CUSTOM" && !batch.expectedQuantity.eq(parsed.quantity.value!)) {
             throw new Error("Esta quantidade inclui aportes pendentes. Resolva a revisão de sincronização antes de alterá-la.");
           }
           if (batch && parsed.quantity.mode === "PROVIDER") {
-            quantityChanged = await resolveContributionQuantity(tx, link.id, "PROVIDER");
+            await resolveContributionQuantity(tx, link.id, "PROVIDER");
           }
           const canEditQuantity = canEditPluggyInvestmentQuantity({
             link,
@@ -407,7 +405,7 @@ export async function savePluggyInvestmentMetadataOverridesAction(
                 includedInTotals: false,
               },
             });
-            quantityChanged = true;
+
           }
           if (parsed.quantity.mode === "CUSTOM") {
             const quantity = new Prisma.Decimal(parsed.quantity.value!);
@@ -438,7 +436,6 @@ export async function savePluggyInvestmentMetadataOverridesAction(
               });
             }
           }
-          if (quantityChanged) await bumpPortfolioAndInvalidateDrafts(tx, link.holding.asset.portfolioId, userId);
         }
 
         const fixedIncome = link.holding.asset.instrumentType === "FIXED_INCOME";
@@ -582,7 +579,6 @@ export async function resolvePluggyQuantityChangeAction(input: PluggyQuantityCha
           if (link.status !== "MAPPED" || !link.investment.providerAvailable || link.investment.item.disconnectedAt
             || link.investment.item.status === "DELETED") return { status: "UNAVAILABLE" as const };
           await resolveContributionQuantity(tx, link.id, value.decision);
-          if (value.decision === "PROVIDER") await bumpPortfolioAndInvalidateDrafts(tx, link.holding.asset.portfolioId, userId);
           return { status: "SAVED" as const };
         }
         if (value.contributionBatchId) return { status: "CONFLICT" as const };
@@ -648,7 +644,6 @@ export async function excludePluggyDiagramLinkAction(linkId: string) {
           where: { id: link.holding.id },
           data: { includedInTotals: false },
         });
-        await bumpPortfolioAndInvalidateDrafts(tx, link.holding.asset.portfolioId, userId);
       }
     }),
   });

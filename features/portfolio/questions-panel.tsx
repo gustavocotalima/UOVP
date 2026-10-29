@@ -15,7 +15,6 @@ import {
   updateQuestionAction,
   useQuestionModelAction as applyQuestionModelAction,
 } from "./actions";
-import { notifyPortfolioSimulationInvalidated } from "./client-events";
 import type { DiagramQuestionDto } from "./types";
 
 type DiagramType = "CERRADO" | "REAL_ESTATE";
@@ -46,7 +45,7 @@ export function QuestionsPanel({ questions }: { questions: DiagramQuestionDto[] 
       try {
         if (form.id) await updateQuestionAction(form.id, { criterion: form.criterion, text: form.text });
         else await createQuestionAction({ type, criterion: form.criterion, text: form.text });
-        notifyPortfolioSimulationInvalidated();
+
         setForm(undefined);
         setMessage(form.id ? "Pergunta atualizada." : "Pergunta adicionada.");
       } catch (error) {
@@ -60,7 +59,7 @@ export function QuestionsPanel({ questions }: { questions: DiagramQuestionDto[] 
     startTransition(async () => {
       try {
         await deleteQuestionAction(form.id!);
-        notifyPortfolioSimulationInvalidated();
+
         setDeleteConfirmation(false);
         setForm(undefined);
         setMessage("Pergunta excluída.");
@@ -76,7 +75,7 @@ export function QuestionsPanel({ questions }: { questions: DiagramQuestionDto[] 
       try {
         if (modelConfirmation === "restore") await resetQuestionsAction(type);
         else await applyQuestionModelAction(type);
-        notifyPortfolioSimulationInvalidated();
+
         setModelConfirmation(undefined);
         setMessage("Modelo de perguntas aplicado.");
       } catch (error) {

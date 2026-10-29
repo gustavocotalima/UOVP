@@ -175,19 +175,20 @@ export default defineConfig({
             await prisma.$disconnect();
           }
         },
-        async invalidateContributionSimulations({ email }: { email: string }) {
+        async getPendingContributionCount({ email }: { email: string }) {
+          if (!/^cypress-[^@]+@example\.com$/.test(email)) throw new Error("Only Cypress users may be inspected");
+          const prisma = createPrismaClient();
+          try { const user = await prisma.user.findUniqueOrThrow({ where: { email } });
+            return prisma.pendingContribution.count({ where: { userId: user.id } });
+          } finally { await prisma.$disconnect(); }
+        },
+        async changeContributionPosition({ email }: { email: string }) {
           if (!/^cypress-[^@]+@example\.com$/.test(email)) throw new Error("Only Cypress users may be updated");
           const prisma = createPrismaClient();
           try {
             const user = await prisma.user.findUniqueOrThrow({ where: { email }, include: { portfolio: true } });
             if (!user.portfolio) throw new Error("Portfolio not found");
-            await prisma.$transaction(async (tx) => {
-              await tx.portfolio.update({ where: { id: user.portfolio!.id }, data: { version: { increment: 1 } } });
-              await tx.contributionSimulation.updateMany({
-                where: { userId: user.id, status: "DRAFT" },
-                data: { status: "STALE" },
-              });
-            });
+            await prisma.assetHolding.updateMany({ where: { asset: { portfolioId: user.portfolio.id } }, data: { unitPrice: { increment: 1 } } });
             return true;
           } finally {
             await prisma.$disconnect();

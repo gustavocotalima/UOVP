@@ -1,3 +1,4 @@
+import { contributionBaselines } from "./pending-contributions";
 import { Prisma } from "@/generated/prisma/client";
 import Decimal from "decimal.js";
 import { prisma } from "@/lib/prisma";
@@ -8,7 +9,6 @@ import {
   withUserOperationLease,
   type UserOperationLeaseContext,
 } from "@/lib/operation-security";
-import { bumpPortfolioAndInvalidateDrafts } from "./invalidation";
 import { fetchBinanceQuotes, type BinanceQuote } from "./binance";
 import { BinancePrivateClient, type BinanceWalletKind, type BinanceWalletSnapshot } from "./binance-wallet-client";
 import { requireBinanceCredentials } from "./binance-wallet-credentials";
@@ -34,7 +34,7 @@ const BUCKET_UPDATED_AT_FIELD: Record<BinanceWalletKind, "spotUpdatedAt" | "fund
   EARN_LOCKED: "earnLockedUpdatedAt",
 };
 
-export type BinanceWalletSyncResult = {
+type BinanceWalletSyncResult = {
   status: "SKIPPED" | "UPDATED" | "PARTIAL" | "FAILED";
   changed: boolean;
   portfolioChanged: boolean;
@@ -74,37 +74,13 @@ function quoteUnitPriceBrl(quote: BinanceQuote) {
 }
 
 async function reconcileBinanceContributions(tx: Prisma.TransactionClient, userId: string) {
-  const suggestions = await tx.contributionSuggestion.findMany({
-    where: {
-      executionStatus: "AWAITING_SYNC",
-      simulation: { userId },
-      externalBaselines: { some: { holding: { positionSource: "BINANCE" } } },
-    },
-    include: {
-      externalBaselines: { include: { holding: true } },
-    },
-  });
-  for (const suggestion of suggestions) {
-    const increase = suggestion.externalBaselines.reduce((total, baseline) => {
-      if (baseline.holding.positionSource !== "BINANCE") return total;
-      return total.add(Prisma.Decimal.max(0, baseline.holding.quantity.sub(baseline.quantity)));
+  const pending = await tx.pendingContribution.findMany({ where: { userId, asset: { holdings: { some: { positionSource: "BINANCE" } } } }, include: { asset: { include: { holdings: true } } } });
+  for (const contribution of pending) {
+    const increase = contributionBaselines(contribution.baselines).reduce((total, baseline) => {
+      const holding = contribution.asset.holdings.find((row) => row.id === baseline.holdingId && row.positionSource === "BINANCE");
+      return holding ? total.add(Prisma.Decimal.max(0, holding.quantity.sub(baseline.quantity))) : total;
     }, new Prisma.Decimal(0));
-    if (increase.lt(suggestion.quantity.mul("0.999999"))) continue;
-    const confirmationReference = `BINANCE_POSITION:${suggestion.id}:${increase.toString()}`;
-    const claimed = await tx.contributionSuggestion.updateMany({
-      where: { id: suggestion.id, executionStatus: "AWAITING_SYNC" },
-      data: { executed: true, executionStatus: "EXECUTED", confirmationReference },
-    });
-    if (!claimed.count) continue;
-    const remaining = await tx.contributionSuggestion.count({
-      where: { simulationId: suggestion.simulationId, executed: false },
-    });
-    if (!remaining) {
-      await tx.contributionSimulation.update({
-        where: { id: suggestion.simulationId },
-        data: { status: "EXECUTED", executedAt: new Date() },
-      });
-    }
+    if (increase.gte(contribution.quantity.mul("0.999999"))) await tx.pendingContribution.delete({ where: { id: contribution.id } });
   }
 }
 
@@ -238,7 +214,7 @@ async function persistSnapshot({
   const btcQuote = quoteBySymbol.get("BTC");
   const trackedRows = walletRows.filter((asset) => asset.status === "TRACKED" && asset.holdingId);
   let portfolioChanged = false;
-  const portfolio = await prisma.portfolio.findUnique({ where: { userId } });
+
 
   if (walletRows.length) {
     await lease.runFencedTransaction(async (tx) => {
@@ -301,7 +277,6 @@ async function persistSnapshot({
         await tx.assetHolding.update({ where: { id: holding.id }, data: update });
       }
       await reconcileBinanceContributions(tx, userId);
-      if (portfolioChanged && portfolio) await bumpPortfolioAndInvalidateDrafts(tx, portfolio.id, userId);
     }, { timeout: 120_000 });
     progress.portfolioChanged = portfolioChanged;
   }

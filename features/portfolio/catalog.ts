@@ -1,4 +1,4 @@
-export type AssetCatalogSeedItem = {
+type AssetCatalogSeedItem = {
   id: number;
   category: string;
   name: string;
@@ -24,7 +24,7 @@ export const FIXED_INCOME_FAMILIES = [
   { code: "CORPORATE_DEBT", name: "Dívida corporativa", shortCode: "DEB/NP", sortOrder: 130 },
 ] as const;
 
-export type FixedIncomeFamilyCode = (typeof FIXED_INCOME_FAMILIES)[number]["code"];
+type FixedIncomeFamilyCode = (typeof FIXED_INCOME_FAMILIES)[number]["code"];
 
 export const CATALOG_FAMILY_BY_ID: Readonly<Record<number, FixedIncomeFamilyCode>> = {
   1: "PUBLIC_TREASURY",

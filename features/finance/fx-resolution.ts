@@ -1,6 +1,6 @@
 import Decimal from "decimal.js";
 
-export type TransactionFxResolution = {
+type TransactionFxResolution = {
   reportingAmountBrl: Decimal | null;
   fxRateToBrl: Decimal | null;
   fxRateDate: Date | null;

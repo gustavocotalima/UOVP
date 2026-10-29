@@ -100,11 +100,6 @@ enum PluggyDisconnectionResolution {
   REMOVE
 }
 
-enum SuggestionExecutionStatus {
-  PENDING
-  AWAITING_SYNC
-  EXECUTED
-}
 
 enum FixedIncomeIndexation {
   PRE_FIXED
@@ -194,23 +189,8 @@ enum BalanceSheetCategory {
   NON_CURRENT_LIABILITY
 }
 
-enum SimulationStatus {
-  DRAFT
-  EXECUTED
-  STALE
-  CANCELLED
-}
 
-enum ContributionCurrency {
-  BRL
-  USD
-}
 
-enum ContributionScope {
-  ALL_ASSETS
-  BRL_ONLY
-  USD_ONLY
-}
 
 model User {
   id                         String                        @id @default(cuid())
@@ -230,10 +210,7 @@ model User {
   portfolio                  Portfolio?
   investmentTargets          InvestmentTarget[]
   diagramQuestions           DiagramQuestion[]
-  budgetMonths               BudgetMonth[]
-  recurringExpenses          RecurringExpense[]
   balanceSheetEntries        BalanceSheetEntry[]
-  contributionSimulations    ContributionSimulation[]
   pluggyItems                PluggyItem[]
   financeProfile             FinanceProfile?
   financeGoals               FinanceGoal[]
@@ -243,6 +220,7 @@ model User {
   financeClassificationRules FinanceClassificationRule[]
   pluggyDiagramLinks         PluggyInvestmentDiagramLink[]
   pluggyWebhookEvents        PluggyWebhookEvent[]
+  pendingContributions       PendingContribution[]
   operationLeases            UserOperationLease[]
   binanceConnection          BinanceConnection?
   createdRegistrationInvites RegistrationInvite[]           @relation("CreatedRegistrationInvites")
@@ -440,7 +418,6 @@ model HistoricalFxRate {
 model Portfolio {
   id        String   @id @default(cuid())
   userId    String   @unique
-  version   Int      @default(1)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -467,7 +444,7 @@ model Asset {
   fixedIncomeFamily     FixedIncomeFamily?       @relation(fields: [fixedIncomeFamilyCode], references: [code], onDelete: Restrict)
   holdings              AssetHolding[]
   answers               AssetQuestionAnswer[]
-  suggestions           ContributionSuggestion[]
+  pendingContributions  PendingContribution[]
 
   @@unique([portfolioId, investmentClass, ticker])
   @@index([portfolioId, investmentClass])
@@ -548,7 +525,6 @@ model AssetHolding {
   asset                Asset                        @relation(fields: [assetId], references: [id], onDelete: Cascade)
   catalogItem          AssetCatalogItem?            @relation(fields: [catalogItemId], references: [id], onDelete: SetNull)
   pluggyDiagramLink    PluggyInvestmentDiagramLink?
-  contributionBaselines ContributionExternalBaseline[]
   binanceWalletAsset    BinanceWalletAsset?
   accountInvestmentLink AccountInvestmentLink?
 
@@ -556,6 +532,8 @@ model AssetHolding {
   @@index([pricingSource, ticker])
   @@index([pricingSource, providerSymbol])
   @@index([catalogItemId])
+  pendingContributions PendingContribution[]
+
 }
 
 model BinanceConnection {
@@ -643,15 +621,6 @@ model InvestmentTarget {
   @@index([userId])
 }
 
-model InvestorProfilePreset {
-  id          String   @id @default(cuid())
-  slug        String   @unique
-  name        String
-  description String
-  targets     Json
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-}
 
 model DiagramQuestion {
   id        String                @id @default(cuid())
@@ -686,31 +655,7 @@ model AssetQuestionAnswer {
   @@index([questionId])
 }
 
-model BudgetMonth {
-  id        String         @id @default(cuid())
-  userId    String
-  year      Int
-  month     Int
-  income    Decimal        @default(0) @db.Decimal(20, 2)
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
-  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  targets   BudgetTarget[]
-  expenses  Expense[]
 
-  @@unique([userId, year, month])
-  @@index([userId, year, month])
-}
-
-model BudgetTarget {
-  id            String         @id @default(cuid())
-  budgetMonthId String
-  category      BudgetCategory
-  percentage    Decimal        @db.Decimal(5, 2)
-  budgetMonth   BudgetMonth    @relation(fields: [budgetMonthId], references: [id], onDelete: Cascade)
-
-  @@unique([budgetMonthId, category])
-}
 
 model FinanceProfile {
   id                  String   @id @default(cuid())
@@ -918,22 +863,6 @@ model FinanceClassificationRuleTag {
   @@index([tagId])
 }
 
-model Expense {
-  id                 String            @id @default(cuid())
-  budgetMonthId      String
-  recurringExpenseId String?
-  name               String
-  amount             Decimal           @db.Decimal(20, 2)
-  category           BudgetCategory
-  spentAt            DateTime
-  createdAt          DateTime          @default(now())
-  updatedAt          DateTime          @updatedAt
-  budgetMonth        BudgetMonth       @relation(fields: [budgetMonthId], references: [id], onDelete: Cascade)
-  recurringExpense   RecurringExpense? @relation(fields: [recurringExpenseId], references: [id], onDelete: SetNull)
-
-  @@unique([budgetMonthId, recurringExpenseId])
-  @@index([budgetMonthId, category])
-}
 
 model PluggyItem {
   id                    String             @id @default(cuid())
@@ -1186,22 +1115,10 @@ model PluggyInvestmentTransaction {
 
   @@index([pluggyInvestmentDbId, date])
   @@index([type])
+  contributionMatched Boolean @default(false)
+
 }
 
-model RecurringExpense {
-  id        String         @id @default(cuid())
-  userId    String
-  name      String
-  amount    Decimal        @db.Decimal(20, 2)
-  category  BudgetCategory
-  active    Boolean        @default(true)
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
-  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  expenses  Expense[]
-
-  @@index([userId, active])
-}
 
 model BalanceSheetEntry {
   id        String               @id @default(cuid())
@@ -1216,63 +1133,35 @@ model BalanceSheetEntry {
   @@index([userId, category])
 }
 
-model ContributionSimulation {
-  id                String                   @id @default(cuid())
-  userId            String
-  portfolioVersion  Int
-  allocationMethod  AllocationMethod?
-  calculationVersion String?
-  calculationDetails Json?
-  inputAmount       Decimal                  @db.Decimal(20, 2)
-  inputCurrency     ContributionCurrency     @default(BRL)
-  allocationScope   ContributionScope        @default(ALL_ASSETS)
-  requestedAmount   Decimal                  @db.Decimal(32, 12)
-  unallocatedAmount Decimal                  @db.Decimal(32, 12)
-  fxRateToBrl       Decimal?                 @db.Decimal(20, 10)
-  fxUpdatedAt       DateTime?
-  fxSource          FinancialFxSource?
-  status            SimulationStatus         @default(DRAFT)
-  createdAt         DateTime                 @default(now())
-  executedAt        DateTime?
-  user              User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  suggestions       ContributionSuggestion[]
 
-  @@index([userId, createdAt])
-}
+model PendingContribution {
+  id                    String   @id @default(cuid())
+  userId                String
+  assetId               String
+  holdingId             String?
+  quantity              Decimal  @db.Decimal(30, 10)
+  value                 Decimal  @db.Decimal(30, 10)
+  paidUnitPrice         Decimal? @db.Decimal(30, 10)
+  nativeCurrency        String?
+  nativeValue           Decimal? @db.Decimal(30, 10)
+  fxRateToBrl            Decimal? @db.Decimal(20, 10)
+  paidUnitPriceNative   Decimal? @db.Decimal(30, 10)
+  executionFxRateToBrl   Decimal? @db.Decimal(20, 10)
+  awaitingSyncAt        DateTime @default(now())
+  baselineQuantity      Decimal? @db.Decimal(30, 10)
+  baselineValue         Decimal? @db.Decimal(30, 2)
+  baselines             Json     @default("[]")
+  needsReview           Boolean  @default(false)
+  contributionBatchId   String?
+  expectedQuantityAfter Decimal? @db.Decimal(30, 10)
+  user                  User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  asset                 Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  holding               AssetHolding? @relation(fields: [holdingId], references: [id], onDelete: Cascade)
+  contributionBatch     PluggyContributionBatch? @relation(fields: [contributionBatchId], references: [id], onDelete: Cascade)
 
-model ContributionSuggestion {
-  id                             String                    @id @default(cuid())
-  simulationId                   String
-  assetId                        String
-  quantity                       Decimal                   @db.Decimal(30, 10)
-  value                          Decimal                   @db.Decimal(30, 10)
-  paidUnitPrice                  Decimal?                  @db.Decimal(30, 10)
-  nativeCurrency                 String?
-  nativeUnitPrice                Decimal?                  @db.Decimal(30, 10)
-  nativeValue                    Decimal?                  @db.Decimal(30, 10)
-  fxRateToBrl                    Decimal?                  @db.Decimal(20, 10)
-  paidUnitPriceNative            Decimal?                  @db.Decimal(30, 10)
-  executionFxRateToBrl           Decimal?                  @db.Decimal(20, 10)
-  suggestionPercentage           Decimal                   @db.Decimal(12, 8)
-  totalAfterSuggestionPercentage Decimal                   @db.Decimal(12, 8)
-  executed                       Boolean                   @default(false)
-  executionStatus                SuggestionExecutionStatus @default(PENDING)
-  awaitingSyncAt                 DateTime?
-  baselineQuantity               Decimal?                  @db.Decimal(30, 10)
-  baselineValue                  Decimal?                  @db.Decimal(30, 2)
-  confirmationReference          String?                   @unique
-  usesQuantityProjection         Boolean                   @default(false)
-  contributionBatchId            String?
-  expectedQuantityAfter          Decimal?                  @db.Decimal(30, 10)
-  syncResolution                 String?
-  contributionBatch              PluggyContributionBatch?  @relation(fields: [contributionBatchId], references: [id], onDelete: SetNull)
-  simulation                     ContributionSimulation    @relation(fields: [simulationId], references: [id], onDelete: Cascade)
-  asset                          Asset                     @relation(fields: [assetId], references: [id], onDelete: Restrict)
-  externalBaselines              ContributionExternalBaseline[]
-
-  @@unique([simulationId, assetId])
+  @@index([userId, awaitingSyncAt])
   @@index([assetId])
-  @@index([contributionBatchId, executionStatus])
+  @@index([contributionBatchId])
 }
 
 // One WAITING/CONFLICT batch per link is enforced by a partial SQL index.
@@ -1291,48 +1180,14 @@ model PluggyContributionBatch {
   baselineCostNative         Decimal? @db.Decimal(30, 10)
   currency                   String
   createdAt                  DateTime @default(now())
-  resolvedAt                 DateTime?
   link                       PluggyInvestmentDiagramLink @relation(fields: [linkId], references: [id], onDelete: Cascade)
-  suggestions                ContributionSuggestion[]
+  contributions              PendingContribution[]
 
   @@index([linkId, state])
 }
 
-model ContributionExternalBaseline {
-  id                          String                 @id @default(cuid())
-  suggestionId                String
-  holdingId                   String
-  quantity                    Decimal                @db.Decimal(30, 10)
-  providerValue               Decimal?               @db.Decimal(30, 2)
-  currency                    String
-  fxRateToBrl                 Decimal?               @db.Decimal(20, 10)
-  providerLatestTransactionAt DateTime?
-  createdAt                   DateTime               @default(now())
-  suggestion                  ContributionSuggestion @relation(fields: [suggestionId], references: [id], onDelete: Cascade)
-  holding                     AssetHolding           @relation(fields: [holdingId], references: [id], onDelete: Cascade)
 
-  @@unique([suggestionId, holdingId])
-  @@index([holdingId])
-}
 
-model FaqCategory {
-  id        String    @id @default(cuid())
-  slug      String    @unique
-  title     String
-  sortOrder Int       @default(0)
-  items     FaqItem[]
-}
-
-model FaqItem {
-  id         String      @id @default(cuid())
-  categoryId String
-  question   String
-  answer     String
-  sortOrder  Int         @default(0)
-  category   FaqCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
-
-  @@index([categoryId, sortOrder])
-}
 
 model AuthRateLimit {
   id              String    @id @default(cuid())

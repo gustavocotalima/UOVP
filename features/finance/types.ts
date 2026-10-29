@@ -7,7 +7,7 @@ export type FinanceTagDto = {
   color: string;
 };
 
-export type FinanceAssignmentSourceDto = "UNASSIGNED" | "PROVIDER_DEFAULT" | "USER_RULE" | "MANUAL";
+type FinanceAssignmentSourceDto = "UNASSIGNED" | "PROVIDER_DEFAULT" | "USER_RULE" | "MANUAL";
 
 export type FinanceClassificationRuleDto = {
   id: string;
@@ -124,7 +124,7 @@ export type FinanceTransactionPageDto = {
   };
 };
 
-export type FinanceHistoryPointDto = {
+type FinanceHistoryPointDto = {
   year: number;
   month: number;
   netIncome: number;
@@ -132,7 +132,7 @@ export type FinanceHistoryPointDto = {
   balance: number;
 };
 
-export type FinanceUserDto = {
+type FinanceUserDto = {
   name: string | null;
   email: string | null;
   image: string | null;

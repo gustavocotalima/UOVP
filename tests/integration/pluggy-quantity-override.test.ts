@@ -157,12 +157,11 @@ suite("quantidade temporária de posições Pluggy", () => {
   it("recoloca a posição zerada na Carteira sem alterar snapshot ou operações", async () => {
     const f = await fixture();
     await customQuantity(f.link.id, 110);
-    const version = f.user.portfolio!.version;
 
     await reconcilePluggyInvestmentsForUser(f.user.id);
     await reconcilePluggyInvestmentsForUser(f.user.id);
 
-    const [holding, raw, operations, asset, portfolio] = await Promise.all([
+    const [holding, raw, operations, asset] = await Promise.all([
       db!.assetHolding.findUniqueOrThrow({ where: { id: f.holding.id } }),
       db!.pluggyInvestment.findUniqueOrThrow({ where: { id: f.investment.id } }),
       db!.pluggyInvestmentTransaction.findMany({ where: { pluggyInvestmentDbId: f.investment.id } }),
@@ -179,7 +178,6 @@ suite("quantidade temporária de posições Pluggy", () => {
     expect(raw.status).toBe("TOTAL_WITHDRAWAL");
     expect(operations).toEqual([f.operation]);
     expect(asset.score).toBe(9);
-    expect(portfolio.version).toBeGreaterThan(version);
     const details = await portfolioTools.find((tool) => tool.name === "get_holding_details")!.execute({
       userId: f.user.id,
       scopes: ["portfolio:read"],
@@ -380,40 +378,13 @@ suite("quantidade temporária de posições Pluggy", () => {
 
   it("não confirma um aporte só porque o usuário corrigiu a quantidade", async () => {
     const f = await fixture();
-    const simulation = await db!.contributionSimulation.create({
-      data: {
-        userId: f.user.id,
-        portfolioVersion: f.user.portfolio!.version, allocationMethod: "IMPROVED", calculationVersion: "2",
-        inputAmount: 500,
-        requestedAmount: 500,
-        unallocatedAmount: 0,
-        suggestions: {
-          create: {
-            assetId: f.asset.id,
-            quantity: 10,
-            value: 500,
-            suggestionPercentage: 100,
-            totalAfterSuggestionPercentage: 100,
-            executionStatus: "AWAITING_SYNC",
-            awaitingSyncAt: new Date("2026-10-13T12:00:00.000Z"),
-            baselineQuantity: 0,
-            baselineValue: 0,
-            externalBaselines: {
-              create: { holdingId: f.holding.id, quantity: 0, providerValue: 0, currency: "BRL", fxRateToBrl: 1 },
-            },
-          },
-        },
-      },
-      include: { suggestions: true },
-    });
+    const simulation = await db!.pendingContribution.create({ data: { userId: f.user.id, assetId: f.asset.id, quantity: 10, value: 500, awaitingSyncAt: new Date("2026-10-13T12:00:00.000Z"), baselineQuantity: 0, baselineValue: 0, baselines: JSON.parse(JSON.stringify([{ holdingId: f.holding.id, quantity: 0, providerValue: 0, currency: "BRL", fxRateToBrl: 1 }])), holdingId: f.holding.id, needsReview: false } });
     await customQuantity(f.link.id, 110);
     await reconcilePluggyInvestmentsForUser(f.user.id);
-    const suggestion = await db!.contributionSuggestion.findUniqueOrThrow({
-      where: { id: simulation.suggestions[0].id },
+    const suggestion = await db!.pendingContribution.findUniqueOrThrow({
+      where: { id: simulation.id },
     });
-    expect(suggestion.executionStatus).toBe("AWAITING_SYNC");
-    expect(suggestion.executed).toBe(false);
-    expect(suggestion.confirmationReference).toBeNull();
+    expect(suggestion).toBeDefined();
   });
 
   it("materializa a quantidade efetiva ao manter a posição como manual na desconexão", async () => {

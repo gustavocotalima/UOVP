@@ -45,7 +45,7 @@ const errorSchema = z.object({
   msg: z.string().optional(),
 }).passthrough();
 
-export type BinanceSpotPair = {
+type BinanceSpotPair = {
   symbol: string;
   baseAsset: string;
   quoteAsset: string;
@@ -99,7 +99,7 @@ type PriceCacheEntry = {
   fetchedAt: number;
 };
 
-export type CachedBinancePairPrice = {
+type CachedBinancePairPrice = {
   price: number;
   cachedAt: Date;
 };
@@ -205,7 +205,7 @@ async function fetchCatalog(fetcher: typeof fetch) {
   });
 }
 
-export async function getBinanceSpotCatalog({
+async function getBinanceSpotCatalog({
   fetcher = fetch,
   now = Date.now(),
 }: {

@@ -5,8 +5,8 @@ import { formatMoney, formatPercent } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import { PrivateValue } from "@/components/ui/private-value";
 
-export type DonutDatum = { name: string; value: number; color: string };
-export type DonutValueUnit = "money" | "percent";
+type DonutDatum = { name: string; value: number; color: string };
+type DonutValueUnit = "money" | "percent";
 
 export function formatDonutValue(value: number, unit: DonutValueUnit) {
   return unit === "percent" ? formatPercent(value) : formatMoney(value);

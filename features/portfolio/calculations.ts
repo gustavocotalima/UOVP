@@ -1,11 +1,11 @@
 import Decimal from "decimal.js";
 
-export const CONTRIBUTION_ROWS = [
+const CONTRIBUTION_ROWS = [
   50, 100, 200, 300, 400, 500, 1000, 2000, 3000, 5000, 10000, 15000, 20000, 30000,
   50000,
 ] as const;
 
-export const PROJECTION_YEARS = [10, 15, 20, 25, 30, 35, 40] as const;
+const PROJECTION_YEARS = [10, 15, 20, 25, 30, 35, 40] as const;
 
 export function effectiveMonthlyRate(annualPercent: Decimal.Value) {
   const annual = new Decimal(annualPercent).div(100);

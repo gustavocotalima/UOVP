@@ -1,7 +1,7 @@
 import { parseNumericDraft } from "@/lib/numeric-draft";
 import { INVESTMENT_CLASSES, type InvestmentClassKey } from "./constants";
 
-export type TargetDrafts = Record<InvestmentClassKey, string>;
+type TargetDrafts = Record<InvestmentClassKey, string>;
 
 /** Exact hundredths match InvestmentTarget.percentage DECIMAL(5, 2). */
 export function targetPercentageCents(value: Decimal.Value): number | null {

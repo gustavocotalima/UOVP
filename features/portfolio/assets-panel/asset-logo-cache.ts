@@ -5,7 +5,7 @@ type Resolver = (input: {
   assetId: string;
   failedLogoUrls: string[];
 }) => Promise<string | null>;
-export type AssetLogoSnapshot = Readonly<{
+type AssetLogoSnapshot = Readonly<{
   logoUrl: string | null;
   displayedLogoUrl: string | null;
 }>;

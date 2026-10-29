@@ -18,18 +18,6 @@ export function reportingValue(transaction: FinanceTransactionDto) {
   return Number(transaction.reportingAmountBrl);
 }
 
-export function needsFinanceClassification(
-  transaction: Pick<
-    FinanceTransactionDto,
-    "budgetCategorySource" | "ignored" | "internalTransfer" | "kind"
-  >,
-) {
-  return transaction.kind === "EXPENSE"
-    && transaction.budgetCategorySource === "UNASSIGNED"
-    && !transaction.internalTransfer
-    && !transaction.ignored;
-}
-
 export function resolveFinancialReference(
   date: Date,
   startDay: number,
@@ -38,7 +26,7 @@ export function resolveFinancialReference(
   return financialReferenceForTimeZone(date, startDay, timeZone);
 }
 
-export type FinancePeriodAmount = {
+type FinancePeriodAmount = {
   kind: "INCOME" | "EXPENSE";
   budgetCategory: BudgetCategoryKey | null;
   referenceYear: number;
@@ -249,34 +237,6 @@ export function calculateTagTotals(transactions: FinanceTransactionDto[], tags: 
       income: fromCents(incomeCents),
     }))
     .sort((left, right) => (right.value + right.income) - (left.value + left.income));
-}
-
-export function calculateHistory(
-  transactions: FinanceTransactionDto[],
-  endYear: number,
-  endMonth: number,
-  months = 6,
-) {
-  const endIndex = endYear * 12 + endMonth - 1;
-  return Array.from({ length: months }, (_, index) => {
-    const monthIndex = endIndex + index - months + 1;
-    const year = Math.floor(monthIndex / 12);
-    const month = (monthIndex % 12) + 1;
-    const period = calculatePeriod(
-      transactions.filter(
-        (transaction) => transaction.referenceYear === year && transaction.referenceMonth === month,
-      ),
-    );
-    return {
-      key: `${year}-${String(month).padStart(2, "0")}`,
-      month: new Intl.DateTimeFormat("pt-BR", { month: "short", timeZone: "UTC" })
-        .format(new Date(Date.UTC(year, month - 1, 1)))
-        .replace(".", ""),
-      income: period.income,
-      spent: period.spent,
-      balance: period.balance,
-    };
-  });
 }
 
 function invoicePeriodForDate(

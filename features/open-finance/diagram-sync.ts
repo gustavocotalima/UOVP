@@ -1,3 +1,4 @@
+import { contributionBaselines } from "@/features/portfolio/pending-contributions";
 import {
   Prisma,
   type FixedIncomeIndexation,
@@ -282,18 +283,13 @@ async function confirmAwaitingSuggestions(
   assetIds?: readonly string[],
 ) {
   if (assetIds && !assetIds.length) return;
-  const suggestions = await tx.contributionSuggestion.findMany({
+  const suggestions = await tx.pendingContribution.findMany({
     where: {
-      executionStatus: "AWAITING_SYNC",
-      usesQuantityProjection: false,
-      OR: [{ syncResolution: null }, { syncResolution: { not: "NEEDS_REVIEW" } }],
-      simulation: { userId },
+      userId, contributionBatchId: null, needsReview: false,
       ...(assetIds ? { assetId: { in: [...assetIds] } } : {}),
     },
     orderBy: [{ awaitingSyncAt: "asc" }, { id: "asc" }],
     include: {
-      simulation: true,
-      externalBaselines: true,
       asset: {
         include: {
           holdings: {
@@ -314,10 +310,10 @@ async function confirmAwaitingSuggestions(
   });
 
   for (const suggestion of suggestions) {
-    const requestedAt = suggestion.awaitingSyncAt ?? suggestion.simulation.createdAt;
+    const requestedAt = suggestion.awaitingSyncAt;
     const pluggyHoldings = suggestion.asset.holdings.filter((holding) => holding.positionSource === "PLUGGY");
     const holdingById = new Map(pluggyHoldings.map((holding) => [holding.id, holding]));
-    const detailedBaselines = suggestion.externalBaselines;
+    const detailedBaselines = contributionBaselines(suggestion.baselines);
     // User corrections are not evidence of a provider-confirmed contribution.
     const providerQuantity = (holding: typeof pluggyHoldings[number]) =>
       holding.pluggyDiagramLink?.investment.quantity ?? new Prisma.Decimal(0);
@@ -361,7 +357,7 @@ async function confirmAwaitingSuggestions(
       );
     const matchingBuy = pluggyHoldings.flatMap((holding) =>
       holding.pluggyDiagramLink?.investment.transactions.filter((transaction) => {
-        if (transaction.type !== "BUY" || transaction.date < requestedAt) return false;
+        if (transaction.contributionMatched || transaction.type !== "BUY" || transaction.date < requestedAt) return false;
         const amount = transaction.netAmount ?? transaction.amount;
         if (!amount) return false;
         const baseline = detailedBaselines.find((item) => item.holdingId === holding.id);
@@ -398,33 +394,11 @@ async function confirmAwaitingSuggestions(
         baselineQuantity: baselineQuantity?.toString() ?? null,
       });
     if (!quantityConfirmed && !valueConfirmed && !matchingBuy && !snapshotReconciled) continue;
-    const confirmationReference = matchingBuy
-      ? `PLUGGY_TRANSACTION:${matchingBuy.id}`
-      : snapshotReconciled
-        ? `PLUGGY_RECONCILED_SNAPSHOT:${suggestion.assetId}:${requestedAt.toISOString()}:${currentQuantity.toString()}`
-        : `PLUGGY_POSITION:${suggestion.assetId}:${requestedAt.toISOString()}:${currentQuantity.toString()}:${currentValue.toString()}`;
-    const alreadyConsumed = await tx.contributionSuggestion.count({
-      where: { confirmationReference },
-    });
-    if (alreadyConsumed) continue;
-    const confirmed = await tx.contributionSuggestion.updateMany({
-      where: { id: suggestion.id, executionStatus: "AWAITING_SYNC" },
-      data: {
-        executed: true,
-        executionStatus: "EXECUTED",
-        confirmationReference,
-      },
-    });
-    if (!confirmed.count) continue;
-    const remaining = await tx.contributionSuggestion.count({
-      where: { simulationId: suggestion.simulationId, executed: false },
-    });
-    if (remaining === 0) {
-      await tx.contributionSimulation.update({
-        where: { id: suggestion.simulationId },
-        data: { status: "EXECUTED", executedAt: new Date() },
-      });
+    if (matchingBuy) {
+      const claimed = await tx.pluggyInvestmentTransaction.updateMany({ where: { id: matchingBuy.id, contributionMatched: false }, data: { contributionMatched: true } });
+      if (!claimed.count) continue;
     }
+    await tx.pendingContribution.delete({ where: { id: suggestion.id } });
   }
 }
 
@@ -1020,20 +994,7 @@ export async function reconcilePluggyInvestmentsForUser(
     const quantityChanged = await reconcileContributionQuantities(tx, userId, scope ? [...affectedAssetIds] : undefined);
     changed = changed || quantityChanged;
     await confirmAwaitingSuggestions(tx, userId, scope ? [...affectedAssetIds] : undefined);
-    if (changed) {
-      await tx.portfolio.update({
-        where: { id: portfolio.id },
-        data: { version: { increment: 1 } },
-      });
-      await tx.contributionSimulation.updateMany({
-        where: {
-          userId,
-          status: "DRAFT",
-          suggestions: { none: { executionStatus: "AWAITING_SYNC" } },
-        },
-        data: { status: "STALE" },
-      });
-    }
+
   };
   await lease.runFencedTransaction(reconcile, { timeout: reconciliationTimeoutMs });
 

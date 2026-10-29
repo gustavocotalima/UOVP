@@ -30,7 +30,7 @@ describe("política de orçamento dos aportes", () => {
       cy.contains("Parte do aporte ficou disponível para preservar as metas.").should("not.exist");
       cy.contains("Arredondamentos e limites de equilíbrio").should("not.exist");
       cy.get("#contribution-use-full-amount").check();
-      cy.get('table[aria-label="Sugestões de investimento"]').should("not.exist");
+      cy.get('table[aria-label="Sugestões de investimento"]').should("be.visible").and("contain.text", "411");
       cy.get("#contribution-value").should("have.value", "1000");
       cy.contains("button", "Calcular").click();
       cy.get('table[aria-label="Sugestões de investimento"]').within(() => {
@@ -47,7 +47,7 @@ describe("política de orçamento dos aportes", () => {
       cy.get('[data-testid="mobile-contribution-card"]').should("be.visible").and("contain.text", "1.000,00");
       cy.get("#contribution-scope").select("ALL_ASSETS");
       cy.get("#contribution-use-full-amount").should("not.exist");
-      cy.get('[data-testid="mobile-contribution-card"]').should("not.exist");
+      cy.get('[data-testid="mobile-contribution-card"]').should("be.visible").and("contain.text", "1.000,00");
       cy.get("#contribution-scope").select("BRL_ONLY");
       cy.get("#contribution-use-full-amount").should("not.be.checked");
       cy.get("#contribution-use-full-amount").check();

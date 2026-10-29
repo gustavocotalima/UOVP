@@ -10,7 +10,7 @@ export const DEFAULT_FINANCE_TAGS = {
 } as const;
 
 export type DefaultFinanceTagKey = keyof typeof DEFAULT_FINANCE_TAGS;
-export type FinanceRuleMatchType =
+type FinanceRuleMatchType =
   | "MERCHANT_CNPJ"
   | "MERCHANT_NAME"
   | "COUNTERPARTY_NAME"
@@ -18,7 +18,7 @@ export type FinanceRuleMatchType =
   | "DESCRIPTION_PREFIX"
   | "PROVIDER_CATEGORY";
 
-export type ClassifiableTransaction = {
+type ClassifiableTransaction = {
   kind: "INCOME" | "EXPENSE";
   description: string;
   descriptionRaw?: string | null;
@@ -30,14 +30,14 @@ export type ClassifiableTransaction = {
   merchantCategory?: string | null;
 };
 
-export type ProviderClassification = {
+type ProviderClassification = {
   recognized: boolean;
   budgetCategory: BudgetCategoryKey | null;
   tagKeys: DefaultFinanceTagKey[];
   internalTransfer: boolean;
 };
 
-export type RuleCandidate = {
+type RuleCandidate = {
   matchType: FinanceRuleMatchType;
   matchValue: string;
   matchLabel: string;

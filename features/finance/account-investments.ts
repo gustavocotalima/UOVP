@@ -3,7 +3,6 @@ import "server-only";
 import { Prisma } from "@/generated/prisma/client";
 import { z } from "zod";
 import { FIXED_INCOME_INDEXATION_META } from "@/features/portfolio/constants";
-import { bumpPortfolioAndInvalidateDrafts } from "@/features/portfolio/invalidation";
 
 export const accountInvestmentReviewSchema = z.object({
   linkId: z.string().cuid(),
@@ -95,20 +94,8 @@ export async function projectAccountInvestment(tx: Prisma.TransactionClient, acc
   });
   // FX-only changes must never acknowledge a planned deposit.
   if (included && nativeChanged) {
-    const pending = await tx.contributionSuggestion.findMany({
-      where: {
-        executionStatus: "AWAITING_SYNC", simulation: { userId: account.userId },
-        externalBaselines: { some: { holdingId: holding.id } },
-      },
-      select: { id: true, simulationId: true },
-    });
-    for (const suggestion of pending) {
-      await tx.contributionSuggestion.update({ where: { id: suggestion.id }, data: { executed: true, executionStatus: "EXECUTED" } });
-      const remaining = await tx.contributionSuggestion.count({ where: { simulationId: suggestion.simulationId, executed: false } });
-      if (!remaining) await tx.contributionSimulation.update({ where: { id: suggestion.simulationId }, data: { status: "EXECUTED", executedAt: new Date() } });
-    }
+    await tx.pendingContribution.deleteMany({ where: { userId: account.userId, holdingId: holding.id } });
   }
-  if (valueChanged) await bumpPortfolioAndInvalidateDrafts(tx, holding.asset.portfolioId, account.userId);
 }
 
 export async function setAccountInvestmentPreference(
@@ -198,6 +185,5 @@ export async function classifyAccountInvestment(
     distinctAutomaticBalance: parsed.confirmDistinctAutomaticBalance || link.distinctAutomaticBalance,
   } });
   await projectAccountInvestment(tx, account.id);
-  await bumpPortfolioAndInvalidateDrafts(tx, portfolio.id, userId);
   return holding.id;
 }

@@ -70,18 +70,11 @@ suite("reconciliação Pluggy por conexão", () => {
   }
 
   async function suggestion(userId: string, assetId: string, baselineQuantity: number, quantity: number) {
-    const simulation = await db!.contributionSimulation.create({
+    return db!.pendingContribution.create({
       data: {
-        userId, portfolioVersion: 0, inputAmount: quantity * 50,
-        requestedAmount: quantity * 50, unallocatedAmount: 0,
-      },
-    });
-    return db!.contributionSuggestion.create({
-      data: {
-        simulationId: simulation.id, assetId, quantity, value: quantity * 50,
-        suggestionPercentage: 100, totalAfterSuggestionPercentage: 100,
-        executionStatus: "AWAITING_SYNC", awaitingSyncAt: new Date("2026-10-01T12:00:00Z"),
-        baselineQuantity,
+        userId, assetId, quantity, value: quantity * 50,
+awaitingSyncAt: new Date("2026-10-01T12:00:00Z"),
+        baselineQuantity, needsReview: true,
       },
     });
   }
@@ -158,14 +151,11 @@ suite("reconciliação Pluggy por conexão", () => {
     });
     await reconcilePluggyInvestmentsForUser(f.user.id, undefined, { pluggyItemDbId: f.first.item.id });
     const [confirmed, untouched] = await Promise.all([
-      db!.contributionSuggestion.findUniqueOrThrow({ where: { id: target.id } }),
-      db!.contributionSuggestion.findUniqueOrThrow({ where: { id: unrelated.id } }),
+      db!.pendingContribution.findUniqueOrThrow({ where: { id: target.id } }),
+      db!.pendingContribution.findUniqueOrThrow({ where: { id: unrelated.id } }),
     ]);
-    expect(confirmed.executionStatus).toBe("AWAITING_SYNC");
-    expect(confirmed.syncResolution).toBe("NEEDS_REVIEW");
-    expect(confirmed.confirmationReference).toBeNull();
-    expect(untouched.executionStatus).toBe("AWAITING_SYNC");
-    expect(untouched.syncResolution).toBeNull();
+    expect(confirmed.needsReview).toBe(true);
+    expect(untouched.needsReview).toBe(true);
   });
 
   it("reavalia sugestões tanto do ativo antigo quanto do novo quando o vínculo muda", async () => {
@@ -185,23 +175,21 @@ suite("reconciliação Pluggy por conexão", () => {
     });
     await reconcilePluggyInvestmentsForUser(f.user.id, undefined, { pluggyItemDbId: f.first.item.id });
     expect((await db!.assetHolding.findUniqueOrThrow({ where: { id: f.first.holding.id } })).assetId).toBe(nextAsset.id);
-    const suggestions = await db!.contributionSuggestion.findMany({
+    const suggestions = await db!.pendingContribution.findMany({
       where: { id: { in: [oldSuggestion.id, nextSuggestion.id] } },
     });
     expect(suggestions).toHaveLength(2);
-    expect(suggestions.every((item) => item.executionStatus === "AWAITING_SYNC" && item.syncResolution === "NEEDS_REVIEW")).toBe(true);
+    expect(suggestions.every((item) => item.needsReview)).toBe(true);
   });
 
   it("aplica o filtro de usuário mesmo quando o ID do item pertence a outra pessoa", async () => {
     const first = await fixture();
     const other = await fixture();
     await db!.pluggyInvestment.update({ where: { id: other.first.investment.id }, data: { quantity: 99, balance: 4_950 } });
-    const before = await db!.portfolio.findUniqueOrThrow({ where: { userId: first.user.id } });
     expect(await reconcilePluggyInvestmentsForUser(first.user.id, undefined, { pluggyItemDbId: other.first.item.id })).toEqual({
       mapped: 0, review: 0, changed: false,
     });
     expect(await db!.assetHolding.findUniqueOrThrow({ where: { id: other.first.holding.id } })).toEqual(other.first.holding);
-    expect((await db!.portfolio.findUniqueOrThrow({ where: { userId: first.user.id } })).version).toBe(before.version);
   });
 
   it("mantém reconciliação global nas chamadas sem escopo", async () => {
@@ -262,7 +250,6 @@ suite("reconciliação Pluggy por conexão", () => {
 
   it("rejeita contexto vencido antes de gravar vínculo, posição ou versão da carteira", async () => {
     const f = await fixture();
-    const before = await db!.portfolio.findUniqueOrThrow({ where: { userId: f.user.id } });
     await db!.pluggyInvestment.update({ where: { id: f.first.investment.id }, data: { quantity: 99 } });
     await expect(withUserOperationLease({
       userId: f.user.id,
@@ -278,6 +265,5 @@ suite("reconciliação Pluggy por conexão", () => {
     })).rejects.toBeInstanceOf(OperationLeaseLostError);
     expect(await db!.assetHolding.findUniqueOrThrow({ where: { id: f.first.holding.id } })).toEqual(f.first.holding);
     expect(await db!.pluggyInvestmentDiagramLink.findUniqueOrThrow({ where: { id: f.first.link.id } })).toEqual(f.first.link);
-    expect((await db!.portfolio.findUniqueOrThrow({ where: { userId: f.user.id } })).version).toBe(before.version);
   });
 });

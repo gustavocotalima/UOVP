@@ -17,9 +17,6 @@ suite("isolamento entre usuários", () => {
   let secondUserId = "";
   let firstAssetId = "";
   let secondQuestionId = "";
-  let secondSimulationId = "";
-  let firstBudgetMonthId = "";
-  let secondRecurringExpenseId = "";
   let firstFinanceTransactionId = "";
   let firstFinancialAccountId = "";
   let secondFinanceTagId = "";
@@ -52,29 +49,6 @@ suite("isolamento entre usuários", () => {
       },
     });
     secondQuestionId = question.id;
-    const simulation = await db!.contributionSimulation.create({
-      data: {
-        userId: second.id,
-        portfolioVersion: second.portfolio!.version,
-        inputAmount: 100,
-        requestedAmount: 100,
-        unallocatedAmount: 100,
-      },
-    });
-    secondSimulationId = simulation.id;
-    const budget = await db!.budgetMonth.create({
-      data: { userId: first.id, year: 2099, month: 1, income: 1_000 },
-    });
-    firstBudgetMonthId = budget.id;
-    const recurring = await db!.recurringExpense.create({
-      data: {
-        userId: second.id,
-        name: "Despesa isolada",
-        amount: 10,
-        category: "FIXED_COSTS",
-      },
-    });
-    secondRecurringExpenseId = recurring.id;
     const financialAccount = await db!.financialAccount.create({
       data: {
         userId: first.id,
@@ -186,30 +160,10 @@ suite("isolamento entre usuários", () => {
     })).rejects.toThrow();
   });
 
-  it("rejeita sugestão que relaciona simulação e ativo de usuários diferentes", async () => {
-    await expect(db!.contributionSuggestion.create({
-      data: {
-        simulationId: secondSimulationId,
-        assetId: firstAssetId,
-        quantity: 1,
-        value: 10,
-        suggestionPercentage: 10,
-        totalAfterSuggestionPercentage: 10,
-      },
-    })).rejects.toThrow();
-  });
-
-  it("rejeita despesa recorrente ligada ao orçamento de outro usuário", async () => {
-    await expect(db!.expense.create({
-      data: {
-        budgetMonthId: firstBudgetMonthId,
-        recurringExpenseId: secondRecurringExpenseId,
-        name: "Tentativa cruzada",
-        amount: 10,
-        category: "FIXED_COSTS",
-        spentAt: new Date(),
-      },
-    })).rejects.toThrow();
+  it("rejeita pendência de compra no ativo de outro usuário", async () => {
+    await expect(db!.pendingContribution.create({ data: {
+      userId: secondUserId, assetId: firstAssetId, quantity: 1, value: 10,
+    } })).rejects.toThrow();
   });
 
   it("não mantém a tabela de backup financeiro após a migração", async () => {

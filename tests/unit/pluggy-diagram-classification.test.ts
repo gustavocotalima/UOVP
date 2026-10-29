@@ -1,12 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  applyExistingAssetClassification,
-  classifyPluggyInvestment,
-  fundAssetCode,
-  isPluggyPositionActive,
-  isPluggyPositionSold,
-  normalizePluggyTicker,
-} from "@/features/open-finance/diagram-classification";
+import { applyExistingAssetClassification, classifyPluggyInvestment, fundAssetCode, normalizePluggyTicker } from "@/features/open-finance/diagram-classification";
 import {
   PLUGGY_DIAGRAM_EXCLUSION_REASON,
   PLUGGY_DIAGRAM_REVIEW_REASON,
@@ -143,14 +136,6 @@ describe("Pluggy diagram classification", () => {
       investmentClass: "STORE_OF_VALUE",
       needsReview: false,
     });
-  });
-
-  it("uses TOTAL_WITHDRAWAL—not a zero balance—as the sold signal", () => {
-    expect(isPluggyPositionSold({ status: "TOTAL_WITHDRAWAL" })).toBe(true);
-    expect(isPluggyPositionSold({ status: "ACTIVE" })).toBe(false);
-    expect(isPluggyPositionActive({ status: "ACTIVE", providerAvailable: true })).toBe(true);
-    expect(isPluggyPositionActive({ status: "PENDING", providerAvailable: true })).toBe(false);
-    expect(isPluggyPositionActive({ status: "ACTIVE", providerAvailable: false })).toBe(false);
   });
 
   it("reactivates only exclusions caused by removing a connection", () => {

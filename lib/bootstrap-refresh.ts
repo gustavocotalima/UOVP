@@ -1,4 +1,4 @@
-export type BootstrapRefreshStatus = "SKIPPED" | "UPDATED" | "PARTIAL" | "FAILED";
+type BootstrapRefreshStatus = "SKIPPED" | "UPDATED" | "PARTIAL" | "FAILED";
 
 export type BootstrapRefreshIntegrationResult = {
   status: BootstrapRefreshStatus;

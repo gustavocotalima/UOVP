@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Calculator, CheckCircle2, DollarSign, Info } from "lucide-react";
 import { PrivateValue } from "@/components/ui/private-value";
@@ -12,15 +12,14 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { DonutChart } from "@/components/charts/donut-chart";
 import { formatCurrency, formatMoney, formatPercent } from "@/lib/money";
-import { executeContributionAction, simulateContributionAction } from "./actions";
-import { PORTFOLIO_SIMULATION_INVALIDATED_EVENT } from "./client-events";
+import { recordContributionAction, calculateContributionAction } from "./actions";
 import {
   currencyOnlyContributionScope,
   defaultContributionScope,
   type ContributionScopeKey,
 } from "./contribution-scope";
 import { INVESTMENT_CLASSES, INVESTMENT_CLASS_META, RATE_CONVENTIONS, RATE_CONVENTION_META, type RateConventionKey } from "./constants";
-import type { AssetDto, PortfolioDto, SimulationDto } from "./types";
+import type { AssetDto, PortfolioDto, ContributionPreview } from "./types";
 
 type NewFixedIncomeHolding = {
   catalogItemId: number | null;
@@ -35,7 +34,7 @@ type NewFixedIncomeHolding = {
 };
 
 type ContributionModalState = {
-  suggestionId: string;
+  assetId: string;
   quantity: string;
   unitPricePaid: string;
   destination: "EXISTING" | "NEW";
@@ -113,8 +112,10 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
   const [useFullAmount, setUseFullAmount] = useState(false);
   const isCurrencyScoped = scope !== "ALL_ASSETS";
   const budgetPolicy = isCurrencyScoped && useFullAmount ? "FULL_BUDGET" : "TARGET_CAPPED";
-  const [simulation, setSimulation] = useState<SimulationDto>();
+  const [simulation, setSimulation] = useState<ContributionPreview>();
+  const [calculationAssets, setCalculationAssets] = useState<AssetDto[]>([]);
   const [contributionModal, setContributionModal] = useState<ContributionModalState>();
+  const [recordedAssets, setRecordedAssets] = useState<Set<string>>(() => new Set());
   const [message, setMessage] = useState<string>();
   const [pending, startTransition] = useTransition();
   const calculationRequestId = useRef(0);
@@ -123,8 +124,8 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
     color: INVESTMENT_CLASS_META[investmentClass].color,
     value: simulation.suggestions.filter((item) => item.investmentClass === investmentClass).reduce((sum, item) => sum + Number(item.value), 0),
   })).filter((item) => item.value > 0) : [], [simulation]);
-  const selectedSuggestion = simulation?.suggestions.find((item) => item.id === contributionModal?.suggestionId);
-  const selectedAsset = assets.find((asset) => asset.id === selectedSuggestion?.assetId);
+  const selectedSuggestion = simulation?.suggestions.find((item) => item.assetId === contributionModal?.assetId);
+  const selectedAsset = calculationAssets.find((asset) => asset.id === selectedSuggestion?.assetId);
   const selectedQuantity = Number(contributionModal?.quantity ?? 0);
   const selectedUnitPricePaid = Number(contributionModal?.unitPricePaid ?? 0);
   const isFixedIncome = selectedAsset?.instrumentType === "FIXED_INCOME";
@@ -151,29 +152,14 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
     ? catalog.filter((item) => item.familyCode === selectedAsset.fixedIncomeFamilyCode)
     : [];
 
-  useEffect(() => {
-    const invalidate = () => {
-      calculationRequestId.current += 1;
-      setSimulation((current) => {
-        if (current) {
-          setMessage("A carteira, as metas ou as notas mudaram. Calcule o aporte novamente.");
-        }
-        return undefined;
-      });
-      setContributionModal(undefined);
-    };
-    window.addEventListener(PORTFOLIO_SIMULATION_INVALIDATED_EVENT, invalidate);
-    return () => window.removeEventListener(PORTFOLIO_SIMULATION_INVALIDATED_EVENT, invalidate);
-  }, []);
-
-  function openContribution(suggestionId: string, quantity: string) {
-    const suggestion = simulation?.suggestions.find((item) => item.id === suggestionId);
-    const asset = assets.find((item) => item.id === suggestion?.assetId);
+  function openContribution(assetId: string, quantity: string) {
+    const suggestion = simulation?.suggestions.find((item) => item.assetId === assetId);
+    const asset = calculationAssets.find((item) => item.id === suggestion?.assetId);
     const candidates = asset?.instrumentType !== "FIXED_INCOME" && asset?.holdings.some((holding) => holding.positionSource === "PLUGGY")
       ? asset.holdings.filter((holding) => holding.positionSource === "PLUGGY") : asset?.holdings ?? [];
     const firstHolding = candidates.length === 1 || asset?.instrumentType === "FIXED_INCOME" ? candidates[0] : undefined;
     setContributionModal({
-      suggestionId,
+      assetId,
       quantity,
       unitPricePaid: "",
       destination: firstHolding ? "EXISTING" : "NEW",
@@ -186,11 +172,13 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
     const requestId = ++calculationRequestId.current;
     setMessage(undefined);
     setSimulation(undefined);
+    setRecordedAssets(new Set());
     setContributionModal(undefined);
     startTransition(async () => {
       try {
-        const result = await simulateContributionAction(value, currency, scope, budgetPolicy);
+        const result = await calculateContributionAction(value, currency, scope, budgetPolicy);
         if (calculationRequestId.current !== requestId) return;
+        setCalculationAssets(result.assetSnapshot);
         setSimulation(result);
         if (!result.suggestions.length) setMessage("Nenhum ativo elegível. Confira metas, notas e preços.");
       } catch (error) {
@@ -198,25 +186,6 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
         setMessage(error instanceof Error ? error.message : "Não foi possível calcular.");
       }
     });
-  }
-
-  async function recalculateAfterInvalidation() {
-    const requestId = ++calculationRequestId.current;
-    setSimulation(undefined);
-    setContributionModal(undefined);
-    setMessage("A carteira mudou. Recalculando o aporte…");
-    router.refresh();
-    try {
-      const result = await simulateContributionAction(value, currency, scope, budgetPolicy);
-      if (calculationRequestId.current !== requestId) return;
-      setSimulation(result);
-      setMessage(result.suggestions.length
-        ? "A carteira mudou. Revise a nova sugestão antes de registrar o aporte."
-        : "A carteira mudou e não há ativos elegíveis. Confira metas, notas e preços.");
-    } catch {
-      if (calculationRequestId.current !== requestId) return;
-      setMessage("A simulação anterior expirou. Não foi possível recalcular agora; tente Calcular novamente.");
-    }
   }
 
   function executeContribution() {
@@ -250,33 +219,14 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
                   maturityDate: contributionModal.newHolding.maturityDate || null,
                 },
               }
-          : quantityProjection && selectedHolding ? { holdingId: selectedHolding.id, expectedUpdatedAt: selectedHolding.updatedAt } : undefined;
-        const result = await executeContributionAction(
-          simulation.id,
-          selectedSuggestion.id,
-          selectedQuantity,
-          isFixedIncome ? undefined : selectedUnitPricePaid,
-          destination,
-        );
-        if (result.status === "INVALIDATED") {
-          await recalculateAfterInvalidation();
-          return;
-        }
-        setSimulation({
-          ...simulation,
-          suggestions: simulation.suggestions.map((item) => item.id === selectedSuggestion.id
-            ? {
-                ...item,
-                quantity: selectedQuantity.toString(),
-                value: selectedEquivalentBrl.toString(),
-                nativeValue: item.nativeCurrency
-                  ? selectedEquivalentNative.toString()
-                  : item.nativeValue,
-                executed: !result.awaitingSync,
-                executionStatus: result.awaitingSync ? "AWAITING_SYNC" : "EXECUTED",
-              }
-            : item),
+          : quantityProjection && selectedHolding ? { holdingId: selectedHolding.id } : undefined;
+        await recordContributionAction({
+          assetId: selectedSuggestion.assetId, quantity: selectedQuantity,
+          paidUnitPrice: isFixedIncome ? undefined : selectedUnitPricePaid, ...destination,
+          fxRateToBrl: quantityProjection ? paidCurrency === "BRL" ? 1 : Number(selectedHolding?.fxRateToBrl)
+            : selectedSuggestion.fxRateToBrl ? Number(selectedSuggestion.fxRateToBrl) : null,
         });
+        setRecordedAssets((current) => new Set(current).add(selectedSuggestion.assetId));
         setContributionModal(undefined);
         router.refresh();
       } catch (error) {
@@ -293,22 +243,16 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
             <Label className="block" htmlFor="contribution-value">Valor do aporte</Label>
             <div className="grid grid-cols-[minmax(0,1fr)_96px] gap-2">
               <Input id="contribution-value" type="number" min="0.01" step="0.01" value={value} onChange={(event) => {
-                calculationRequestId.current += 1;
                 setValue(Number(event.target.value));
-                setSimulation(undefined);
-                setContributionModal(undefined);
               }} />
               <Select
                 aria-label="Moeda do aporte"
                 value={currency}
                 onChange={(event) => {
-                  calculationRequestId.current += 1;
                   const nextCurrency = event.target.value as "BRL" | "USD";
                   setCurrency(nextCurrency);
                   setScope(defaultContributionScope(nextCurrency));
                   setUseFullAmount(false);
-                  setSimulation(undefined);
-                  setContributionModal(undefined);
                   setMessage(undefined);
                 }}
               >
@@ -324,11 +268,8 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
               className="w-full"
               value={scope}
               onChange={(event) => {
-                calculationRequestId.current += 1;
                 setScope(event.target.value as ContributionScopeKey);
                 setUseFullAmount(false);
-                setSimulation(undefined);
-                setContributionModal(undefined);
                 setMessage(undefined);
               }}
             >
@@ -341,8 +282,7 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
           <div data-testid="contribution-actions" className="flex min-w-0 items-center gap-3 @2xl:col-span-2 @4xl:col-span-1">
             <Button className={isCurrencyScoped ? "shrink-0 px-3 @4xl:px-6" : "w-full @4xl:w-auto"} size="lg" onClick={calculate} disabled={pending || value <= 0 || !assets.length}><Calculator className="size-4" /> {pending ? "Calculando…" : "Calcular"}</Button>
             {isCurrencyScoped && <FullAmountOption checked={useFullAmount} onChange={(checked) => {
-                calculationRequestId.current += 1;
-                setUseFullAmount(checked); setSimulation(undefined); setContributionModal(undefined); setMessage(undefined);
+                setUseFullAmount(checked);
               }} />}
           </div>
           {!assets.length && <p className="col-span-full text-sm text-[var(--muted-foreground)]">Adicione ativos antes de simular.</p>}
@@ -392,10 +332,10 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
             <CardContent>
               <div className="space-y-3 lg:hidden">
                 {simulation.suggestions.map((item) => {
-                  const asset = assets.find((candidate) => candidate.id === item.assetId);
+                  const asset = calculationAssets.find((candidate) => candidate.id === item.assetId);
                   const meta = INVESTMENT_CLASS_META[item.investmentClass];
                   return (
-                    <article key={item.id} data-testid="mobile-contribution-card" className="rounded-2xl border bg-[var(--card)] p-4">
+                    <article key={item.assetId} data-testid="mobile-contribution-card" className="rounded-2xl border bg-[var(--card)] p-4">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <strong className="block truncate text-base">{item.ticker}</strong>
@@ -411,9 +351,9 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
                         <div className="col-span-2"><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Total após aporte</dt><dd className="mt-1 font-semibold">{formatPercent(item.totalAfterSuggestionPercentage)}</dd></div>
                       </dl>
                       <div className="mt-4">
-                        {item.executed || item.executionStatus === "AWAITING_SYNC"
+                        {recordedAssets.has(item.assetId)
                           ? <span className="inline-flex min-h-11 w-full items-center justify-center gap-1 rounded-xl bg-[var(--success)]/10 text-sm text-[var(--success)]"><CheckCircle2 className="size-4" /> Aporte registrado</span>
-                          : <Button className="w-full" onClick={() => openContribution(item.id, item.quantity)} disabled={pending}><DollarSign className="size-5" /> Aportar</Button>}
+                          : <Button className="w-full" onClick={() => openContribution(item.assetId, item.quantity)} disabled={pending}><DollarSign className="size-5" /> Aportar</Button>}
                       </div>
                     </article>
                   );
@@ -436,10 +376,10 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
                   </thead>
                   <tbody>
                     {simulation.suggestions.map((item) => {
-                      const asset = assets.find((candidate) => candidate.id === item.assetId);
+                      const asset = calculationAssets.find((candidate) => candidate.id === item.assetId);
                       const meta = INVESTMENT_CLASS_META[item.investmentClass];
                       return (
-                        <tr key={item.id} className="border-b last:border-0">
+                        <tr key={item.assetId} className="border-b last:border-0">
                           <td className="px-4 py-4 text-center"><span className="inline-flex rounded-full px-4 py-2 font-semibold text-black" style={{ background: meta.color }}>{meta.label}</span></td>
                           <td className="px-4 py-4 font-semibold">{item.ticker}</td>
                           <td className="px-4 py-4 font-semibold text-[var(--success)]"><MoneyWithNative brl={asset?.currentValue ?? 0} native={asset?.nativeCurrentValue} currency={asset?.nativeCurrency} /></td>
@@ -449,9 +389,9 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
                           <td className="px-4 py-4 text-center font-semibold text-[var(--success)]"><MoneyWithNative brl={item.value} native={item.nativeValue} currency={item.nativeCurrency} /></td>
                           <td className="px-4 py-4 text-center font-semibold"><PrivateValue>{formatQuantity(item.quantity)}</PrivateValue></td>
                           <td className="px-4 py-4 text-center">
-                            {item.executed || item.executionStatus === "AWAITING_SYNC"
+                            {recordedAssets.has(item.assetId)
                               ? <span className="inline-flex items-center gap-1 text-xs text-[var(--success)]"><CheckCircle2 className="size-4" /> Aporte registrado</span>
-                              : <Button onClick={() => openContribution(item.id, item.quantity)} disabled={pending}><DollarSign className="size-5" /> Aportar</Button>}
+                              : <Button onClick={() => openContribution(item.assetId, item.quantity)} disabled={pending}><DollarSign className="size-5" /> Aportar</Button>}
                           </td>
                         </tr>
                       );

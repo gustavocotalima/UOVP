@@ -1,9 +1,9 @@
 import { parseNumericDraft } from "@/lib/numeric-draft";
 import { effectiveMonthlyRate, firstMillionMatrix } from "@/features/portfolio/calculations";
 
-export type FirstMillionInputs = { annualRate: number; initialValue: number; desiredValue: number };
+type FirstMillionInputs = { annualRate: number; initialValue: number; desiredValue: number };
 export type FirstMillionDrafts = { [Key in keyof FirstMillionInputs]: string };
-export type FirstMillionResult = {
+type FirstMillionResult = {
   inputs: FirstMillionInputs;
   monthlyRate: number;
   matrix: Array<{ contribution: number; values: Array<{ years: number; value: number }> }>;

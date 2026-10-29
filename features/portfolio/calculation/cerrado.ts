@@ -64,7 +64,7 @@ export function allocateCerradoCore(input: AllocationInput) {
   }
   const result = finish(input, new Map(assets.filter((a) => a.suggested.gt(0))
     .map((a) => [a.id, { quantity: a.suggested.div(a.price), value: a.suggested }])), {
-    algorithm: "CERRADO", version: "1", stages: [], warnings: [],
+    algorithm: "CERRADO", version: "1",
     classTolerancesBrl: {}, reservedAmount: budget.minus(remaining).toString(),
   });
   return input.capEligibleClassesAtTarget ? capScopedTargets(input, result) : result;

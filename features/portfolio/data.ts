@@ -81,26 +81,8 @@ export async function getPortfolioData(userId: string) {
           },
           orderBy: [{ maturityDate: "asc" }, { productName: "asc" }],
         },
-        suggestions: {
-          where: {
-            executionStatus: "AWAITING_SYNC",
-            simulation: { userId },
-          },
-          orderBy: [{ awaitingSyncAt: "desc" }, { id: "desc" }],
-          select: {
-            id: true,
-            syncResolution: true,
-            usesQuantityProjection: true,
-            externalBaselines: { select: { holdingId: true } },
-            contributionBatch: { select: { holdingId: true } },
-            quantity: true,
-            value: true,
-            paidUnitPrice: true,
-            nativeCurrency: true,
-            paidUnitPriceNative: true,
-            executionFxRateToBrl: true,
-            awaitingSyncAt: true,
-          },
+        pendingContributions: {
+          where: { userId }, orderBy: [{ awaitingSyncAt: "desc" }, { id: "desc" }],
         },
       },
     }),
@@ -162,7 +144,6 @@ export async function getPortfolioData(userId: string) {
   const accountReviews = await accountInvestmentReviews(prisma, userId);
   return {
     id: portfolio.id,
-    version: portfolio.version,
     timeZone: preference?.timeZone ?? "America/Sao_Paulo",
     allocationMethod: preference?.allocationMethod ?? "IMPROVED",
     targets,
@@ -177,11 +158,11 @@ export async function getPortfolioData(userId: string) {
     assets: assets.filter((asset) => {
       const activeHoldings = asset.holdings.filter((holding) => holding.includedInTotals);
       return activeHoldings.length > 0
-        || asset.suggestions.length > 0
+        || asset.pendingContributions.length > 0
         || !asset.holdings.some((holding) => holding.positionSource !== "MANUAL");
     }).map((asset) => {
       const holdings = asset.holdings.filter((holding) => holding.includedInTotals);
-      const awaitingSyncContribution = asset.suggestions[0] ?? null;
+      const awaitingSyncContribution = asset.pendingContributions[0] ?? null;
       const holdingValues = holdings.map(holdingCurrentValue);
       const supportsAveragePrice = ["STOCK", "ETF", "REAL_ESTATE_FUND", "REIT"].includes(asset.instrumentType);
       const holdingAveragePrices = holdings.map((holding) =>
@@ -294,14 +275,14 @@ export async function getPortfolioData(userId: string) {
               awaitingSyncAt: awaitingSyncContribution.awaitingSyncAt?.toISOString() ?? null,
             }
           : null,
-        awaitingSyncContributions: asset.suggestions.map((suggestion) => ({
+        awaitingSyncContributions: asset.pendingContributions.map((suggestion) => ({
           id: suggestion.id, quantity: suggestion.quantity.toString(), value: suggestion.value.toString(),
           paidUnitPrice: suggestion.paidUnitPrice?.toString() ?? null,
           nativeCurrency: suggestion.nativeCurrency, paidUnitPriceNative: suggestion.paidUnitPriceNative?.toString() ?? null,
           executionFxRateToBrl: suggestion.executionFxRateToBrl?.toString() ?? null,
           awaitingSyncAt: suggestion.awaitingSyncAt?.toISOString() ?? null,
-          quantityProjected: suggestion.usesQuantityProjection, needsReview: suggestion.syncResolution === "NEEDS_REVIEW",
-          holdingId: suggestion.contributionBatch?.holdingId ?? (suggestion.externalBaselines.length === 1 ? suggestion.externalBaselines[0].holdingId : null),
+          quantityProjected: Boolean(suggestion.contributionBatchId), needsReview: suggestion.needsReview,
+          holdingId: suggestion.holdingId,
         })),
         holdings: holdings.map((holding, index) => ({
           id: holding.id,

@@ -4,7 +4,7 @@ const ALGORITHM = "aes-256-gcm";
 const ENVELOPE_VERSION = "v3";
 const PROJECT_NAMESPACE = "uovp";
 
-export type CredentialContext = {
+type CredentialContext = {
   userId: string;
   type: "brapi" | "pluggy-client-id" | "pluggy-client-secret" | "pluggy-webhook-secret" | "binance-api-key" | "binance-api-secret";
 };

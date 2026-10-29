@@ -64,11 +64,8 @@ vi.mock("@/features/portfolio/data", () => ({
   getPortfolioData: vi.fn(),
 }));
 
-vi.mock("@/features/portfolio/invalidation", () => ({
-  bumpPortfolioAndInvalidateDrafts: mocks.bumpPortfolioAndInvalidateDrafts,
-}));
 
-import { executeContributionAction, saveAssetAction } from "@/features/portfolio/actions";
+import { saveAssetAction } from "@/features/portfolio/actions";
 
 describe("edição da classificação de ativos Pluggy", () => {
   beforeEach(() => {
@@ -225,49 +222,5 @@ describe("edição da classificação de ativos Pluggy", () => {
 
     expect(mocks.tx.asset.update).toHaveBeenCalled();
     expect(mocks.tx.assetHolding.update).not.toHaveBeenCalled();
-  });
-});
-
-describe("execução de aporte invalidado", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mocks.requireUserId.mockResolvedValue("user-a");
-  });
-
-  it.each([
-    { status: "STALE", portfolioVersion: 756, version: 757 },
-    { status: "DRAFT", portfolioVersion: 756, version: 757 },
-    { status: "EXECUTED", portfolioVersion: 757, version: 757 },
-  ])("devolve estado recuperável para simulação $status", async ({ status, portfolioVersion, version }) => {
-    mocks.tx.contributionSimulation.findFirst.mockResolvedValue({
-      status,
-      portfolioVersion,
-      user: { portfolio: { id: "portfolio-a", version } },
-    });
-
-    await expect(executeContributionAction("cmrzcyi3305pglw710ptyacct")).resolves.toEqual({ status: "INVALIDATED" });
-    expect(mocks.tx.contributionSimulation.findFirst).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: "cmrzcyi3305pglw710ptyacct", userId: "user-a" },
-    }));
-    expect(mocks.tx.portfolio.updateMany).not.toHaveBeenCalled();
-  });
-
-  it("permite recalcular quando a simulação não existe mais", async () => {
-    mocks.tx.contributionSimulation.findFirst.mockResolvedValue(null);
-
-    await expect(executeContributionAction("cmrzcyi3305pglw710ptyacct")).resolves.toEqual({ status: "INVALIDATED" });
-    expect(mocks.tx.portfolio.updateMany).not.toHaveBeenCalled();
-  });
-
-  it("permite recalcular quando a sugestão já foi consumida", async () => {
-    mocks.tx.contributionSimulation.findFirst.mockResolvedValue({
-      status: "DRAFT",
-      portfolioVersion: 757,
-      user: { portfolio: { id: "portfolio-a", version: 757 } },
-      suggestions: [],
-    });
-
-    await expect(executeContributionAction("cmrzcyi3305pglw710ptyacct")).resolves.toEqual({ status: "INVALIDATED" });
-    expect(mocks.tx.portfolio.updateMany).not.toHaveBeenCalled();
   });
 });

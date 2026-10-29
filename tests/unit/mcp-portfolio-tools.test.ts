@@ -17,7 +17,7 @@ const database = vi.hoisted(() => ({
   assetQuestionAnswer: { findMany: vi.fn() },
   pluggyInvestmentTransaction: { findMany: vi.fn(), findFirst: vi.fn() },
   pluggyInvestment: { findMany: vi.fn(), findFirst: vi.fn() },
-  contributionSuggestion: { findMany: vi.fn(), findFirst: vi.fn() },
+  pendingContribution: { findMany: vi.fn(), findFirst: vi.fn() },
   pluggyItem: { findMany: vi.fn() },
   binanceConnection: { findUnique: vi.fn() },
 }));
@@ -75,7 +75,7 @@ beforeEach(() => {
   database.assetQuestionAnswer.findMany.mockResolvedValue([]);
   database.pluggyInvestmentTransaction.findMany.mockResolvedValue([]);
   database.pluggyInvestment.findMany.mockResolvedValue([]);
-  database.contributionSuggestion.findMany.mockResolvedValue([]);
+  database.pendingContribution.findMany.mockResolvedValue([]);
   database.pluggyItem.findMany.mockResolvedValue([]);
   database.binanceConnection.findUnique.mockResolvedValue(null);
 });
@@ -317,11 +317,11 @@ describe("operations and freshness", () => {
   it("keeps imported operations separate from locally recorded aportes", async () => {
     const imported = await run("list_investment_operations", { assetId: "asset-1", source: "IMPORTED", startDate: "2026-01-01", endDate: "2026-01-31" });
     expect(imported.source).toBe("IMPORTED");
-    expect(database.contributionSuggestion.findMany).not.toHaveBeenCalled();
+    expect(database.pendingContribution.findMany).not.toHaveBeenCalled();
     expect(database.pluggyInvestmentTransaction.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ investment: expect.objectContaining({ diagramLink: expect.objectContaining({ userId: context.userId }) }) }) }));
     const local = await run("list_investment_operations", { assetId: "asset-1", source: "LOCAL", startDate: "2026-01-01", endDate: "2026-01-31" });
     expect(local.source).toBe("LOCAL");
-    expect(database.contributionSuggestion.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ simulation: expect.objectContaining({ userId: context.userId }), executionStatus: { in: ["AWAITING_SYNC", "EXECUTED"] } }) }));
+    expect(database.pendingContribution.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ userId: context.userId, asset: { portfolio: { userId: context.userId } } }) }));
   });
 
   it("rejects invalid or over-12-month operation windows", async () => {

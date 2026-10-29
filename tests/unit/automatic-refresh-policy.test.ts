@@ -3,7 +3,6 @@ import {
   AUTOMATIC_REFRESH_STALE_MS,
   isAutomaticRefreshStale,
   shouldRefreshMarketHoldings,
-  shouldSyncPluggyItems,
   selectPluggyItemsForAutomaticSync,
   shouldSyncBinanceConnection,
 } from "@/lib/automatic-refresh-policy";
@@ -32,16 +31,16 @@ describe("política de atualização automática", () => {
 
   it("identifica conexões pendentes, ausentes ou vencidas", () => {
     const recent = new Date(now.getTime() - 60_000);
-    expect(shouldSyncPluggyItems([
+    expect((selectPluggyItemsForAutomaticSync([
       { syncPending: false, lastSyncAt: recent },
       { syncPending: true, lastSyncAt: recent },
-    ], now)).toBe(true);
-    expect(shouldSyncPluggyItems([
+    ], now).length > 0)).toBe(true);
+    expect((selectPluggyItemsForAutomaticSync([
       { syncPending: false, lastSyncAt: null },
-    ], now)).toBe(true);
-    expect(shouldSyncPluggyItems([
+    ], now).length > 0)).toBe(true);
+    expect((selectPluggyItemsForAutomaticSync([
       { syncPending: false, lastSyncAt: new Date(now.getTime() - AUTOMATIC_REFRESH_STALE_MS) },
-    ], now)).toBe(true);
+    ], now).length > 0)).toBe(true);
   });
 
   it("seleciona somente os itens pendentes ou vencidos em uma lista mista", () => {
@@ -59,10 +58,10 @@ describe("política de atualização automática", () => {
   });
 
   it("não sincroniza Pluggy recente e sem pendências", () => {
-    expect(shouldSyncPluggyItems([
+    expect((selectPluggyItemsForAutomaticSync([
       { syncPending: false, lastSyncAt: new Date(now.getTime() - 60_000) },
-    ], now)).toBe(false);
-    expect(shouldSyncPluggyItems([], now)).toBe(false);
+    ], now).length > 0)).toBe(false);
+    expect((selectPluggyItemsForAutomaticSync([], now).length > 0)).toBe(false);
   });
 
   it("sincroniza a Binance somente quando a conexão está pendente ou vencida", () => {

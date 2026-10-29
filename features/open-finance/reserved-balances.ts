@@ -2,11 +2,11 @@ import { createHash } from "node:crypto";
 import Decimal from "decimal.js";
 import type { PluggyAccountResponse } from "./pluggy";
 
-export type AccountInvestmentSource =
+type AccountInvestmentSource =
   | "ACCOUNT_RESERVED_BALANCE"
   | "ACCOUNT_AUTOMATIC_BALANCE";
 
-export type AccountInvestmentSnapshot = {
+type AccountInvestmentSnapshot = {
   source: AccountInvestmentSource;
   pluggyInvestmentId: string;
   providerReference: string;
@@ -19,7 +19,7 @@ export type AccountInvestmentSnapshot = {
   metadata: Record<string, unknown>;
 };
 
-export type AccountInvestmentExtraction = {
+type AccountInvestmentExtraction = {
   managed: boolean;
   complete: boolean;
   mode: "DETAILED" | "AUTOMATIC" | "EMPTY" | "UNAVAILABLE";

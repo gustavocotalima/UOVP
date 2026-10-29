@@ -10,7 +10,7 @@ import { formatCurrency, formatMoney } from "@/lib/money";
 import type { AssetDto } from "../types";
 import { reviewAwaitingContributionAction } from "../actions";
 
-function LegacyContributionReview({ asset, suggestionId }: { asset: AssetDto; suggestionId: string }) {
+function PendingContributionReview({ asset, pendingId }: { asset: AssetDto; pendingId: string }) {
   const router = useRouter();
   const [holdingId, setHoldingId] = useState("");
   const [quantity, setQuantity] = useState("");
@@ -19,7 +19,7 @@ function LegacyContributionReview({ asset, suggestionId }: { asset: AssetDto; su
   function review(decision: "PROVIDER" | "PROJECT") {
     startTransition(async () => {
       try {
-        await reviewAwaitingContributionAction({ suggestionId, decision, holdingId, ...(decision === "PROJECT" ? { expectedQuantity: Number(quantity) } : {}) });
+        await reviewAwaitingContributionAction({ pendingId, decision, holdingId, ...(decision === "PROJECT" ? { expectedQuantity: Number(quantity) } : {}) });
         router.refresh();
       } catch (error) { setMessage(error instanceof Error ? error.message : "Não foi possível revisar o aporte."); }
     });
@@ -57,7 +57,7 @@ export function PendingContributions({ asset, prices, pending, onPriceChange, on
         <p><PrivateValue>{formatMoney(entry.value)}</PrivateValue>{asset.instrumentType !== "FIXED_INCOME" && <> · <PrivateValue>{Number(entry.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 10 })}</PrivateValue> un.</>}</p>
         {entry.quantityProjected && <p>Quantidade já incluída temporariamente na Carteira.</p>}
         {entry.needsReview && <p role="status">Aporte anterior precisa de revisão da posição de destino. A quantidade não foi alterada automaticamente.</p>}
-        {entry.needsReview && <LegacyContributionReview asset={asset} suggestionId={entry.id} />}
+        {entry.needsReview && <PendingContributionReview asset={asset} pendingId={entry.id} />}
         {entry.paidUnitPrice && <p>Preço pago: <PrivateValue>{entry.nativeCurrency && entry.paidUnitPriceNative ? formatCurrency(entry.paidUnitPriceNative, entry.nativeCurrency) : formatMoney(entry.paidUnitPrice)}</PrivateValue></p>}
         {asset.instrumentType !== "FIXED_INCOME" && !entry.paidUnitPrice && <div className="flex flex-wrap gap-2" data-private-editor>
           <Input type="number" min="0.00000001" step="any" value={prices[entry.id] ?? ""} onChange={(event) => onPriceChange(entry.id, event.target.value)} aria-label={`Preço unitário pago por ${asset.ticker} em ${entry.nativeCurrency ?? "BRL"}`} className="h-10 bg-[var(--card)]" />

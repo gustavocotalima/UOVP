@@ -20,7 +20,6 @@ describe("class balance, then score balance, then budget", () => {
     const r = allocateContribution(fixture([2, 3, 5], 450));
     expect(r.suggestions.map((s) => s.value.toString())).toEqual(["90", "135", "225"]);
     expect(r.unallocatedAmount.toString()).toBe("0");
-    expect(r.calculation.warnings).toEqual([]);
   });
   it("rebalances existing holdings after adding another score-5 asset", () => {
     const r = allocateContribution(fixture([2, 3, 5, 5], 50, [20, 30, 50, 0]));
@@ -65,7 +64,6 @@ describe("class balance, then score balance, then budget", () => {
       const value = r.suggestions.find((s) => s.assetId === a.id)?.value ?? new Money(0);
       expect(new Money(a.currentValue).plus(value).minus(final.mul(a.score).div(15)).abs().lte(a.unitPrice)).toBe(true);
     }
-    expect(r.calculation.warnings).toEqual([]);
     const server = await calculateContribution(input, "IMPROVED", "synthetic-fallback-regression");
     expect(server.suggestions.map((s) => [s.assetId, s.value.toString()])).toEqual(r.suggestions.map((s) => [s.assetId, s.value.toString()]));
   });

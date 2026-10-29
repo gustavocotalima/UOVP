@@ -8,7 +8,6 @@ import { requireUserId } from "@/lib/current-user";
 import { assertUserOperationRateLimit, withUserOperationLease } from "@/lib/operation-security";
 import { prisma } from "@/lib/prisma";
 import { allowsFractionalUnits } from "./fractional-assets";
-import { bumpPortfolioAndInvalidateDrafts } from "./invalidation";
 import { fetchBinanceQuotes, type BinanceQuote } from "./binance";
 import { BinancePrivateApiError, BinancePrivateClient } from "./binance-wallet-client";
 import {
@@ -116,8 +115,7 @@ export async function resolveBinanceWalletAssetAction(input: {
             });
           }
           await tx.binanceWalletAsset.update({ where: { id: walletAsset.id }, data: { status: "IGNORED" } });
-          const portfolio = await tx.portfolio.findUnique({ where: { userId } });
-          if (portfolio) await bumpPortfolioAndInvalidateDrafts(tx, portfolio.id, userId);
+
         });
         return;
       }
@@ -225,7 +223,6 @@ export async function resolveBinanceWalletAssetAction(input: {
           where: { id: walletAsset.id },
           data: { status: "TRACKED", holdingId: holding.id },
         });
-        await bumpPortfolioAndInvalidateDrafts(tx, portfolio.id, userId);
       });
     },
   });
@@ -262,13 +259,12 @@ export async function disconnectBinanceAction(resolution: "KEEP_MANUAL" | "REMOV
         await tx.assetHolding.deleteMany({ where: { id: { in: holdingIds } } });
         for (const assetId of assetIds) {
           const remaining = await tx.assetHolding.count({ where: { assetId } });
-          const suggestions = await tx.contributionSuggestion.count({ where: { assetId } });
+          const suggestions = await tx.pendingContribution.count({ where: { assetId } });
           if (!remaining && !suggestions) await tx.asset.delete({ where: { id: assetId } });
         }
       }
       await tx.binanceConnection.delete({ where: { id: connection.id } });
-      const portfolio = await tx.portfolio.findUnique({ where: { userId } });
-      if (portfolio) await bumpPortfolioAndInvalidateDrafts(tx, portfolio.id, userId);
+
     }),
   });
   revalidateBinancePaths();
