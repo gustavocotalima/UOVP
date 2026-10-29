@@ -26,7 +26,8 @@ class DevDeploymentTests(unittest.TestCase):
         self.deployed = False
         self.active_deployment = False
         self.after_command = None
-        self.application = {"uuid": deploy.DEV_APPLICATION, "git_branch": "dev", "fqdn": "http://uovp-dev.cotalima.com.br", "destination_id": 3, "status": "running:healthy"}
+        self.application = {"uuid": deploy.DEV_APPLICATION, "git_branch": "dev", "fqdn": "http://uovp-dev.cotalima.com.br", "destination_id": 3, "destination": {"server": {"uuid": "devserver"}}, "status": "running:healthy"}
+        self.cleanup_policy = {"delete_unused_volumes": False}
         self.databases = {uuid: {"uuid": uuid, "name": name, "database_type": kind, "destination_id": 3, "status": "running:healthy"} for uuid, name, kind in deploy.DEV_DATABASES}
         contexts = contextlib.ExitStack()
         self.addCleanup(contexts.close)
@@ -61,6 +62,8 @@ class DevDeploymentTests(unittest.TestCase):
                 self.application.update(data)
                 return {}
             return dict(self.application)
+        if path == "/api/v1/servers/devserver/docker-cleanup":
+            return dict(self.cleanup_policy)
         if "/databases/" in path:
             return dict(self.databases[path.rsplit("/", 1)[1]])
         if "/deployments/applications/" in path:
@@ -147,6 +150,30 @@ class DevDeploymentTests(unittest.TestCase):
         deploy.main()
         self.assertEqual(len(self.commands), 3)
         self.assertFalse(self.deployed)
+
+    def test_volume_deletion_or_unknown_policy_prevents_any_stop(self):
+        self.main = self.sha
+        for policy in [{"delete_unused_volumes": True}, {}]:
+            with self.subTest(policy=policy):
+                self.cleanup_policy = policy
+                with self.assertRaisesRegex(RuntimeError, "unused-volume deletion"):
+                    deploy.main()
+                self.tool.assert_not_called()
+
+    def test_missing_server_identity_prevents_any_stop(self):
+        self.main = self.sha
+        self.application.pop("destination")
+        with self.assertRaisesRegex(RuntimeError, "volume retention"):
+            deploy.main()
+        self.tool.assert_not_called()
+
+    def test_reenabling_volume_deletion_mid_sleep_keeps_databases_running(self):
+        self.main = self.sha
+        self.after_command = lambda _: self.cleanup_policy.update(delete_unused_volumes=True)
+        with self.assertRaisesRegex(RuntimeError, "unused-volume deletion"):
+            deploy.main()
+        self.assertEqual(self.commands, [("stop", deploy.DEV_APPLICATION)])
+        self.assertTrue(all(database["status"] == "running:healthy" for database in self.databases.values()))
 
     def test_already_sleeping_dev_is_idempotent(self):
         self.main = self.sha

@@ -588,7 +588,7 @@ cmd_stop() {
   local uuid="${1:-}"
   [[ "$uuid" =~ ^[a-z0-9]+$ ]] || die "A valid application UUID is required"
   api POST "/applications/$uuid/stop?docker_cleanup=false" > /dev/null || die "Could not stop application"
-  success "Application stop queued; persistent volumes are retained"
+  success "Application stop queued; keep unused-volume cleanup disabled for persistent data"
 }
 
 cmd_database() {
@@ -600,7 +600,7 @@ cmd_database() {
     *) die "Usage: coolify-deploy database <start|stop> <uuid>" ;;
   esac
   api POST "/databases/$uuid/$action$suffix" > /dev/null || die "Could not $action database"
-  success "Database $action queued; persistent volumes are retained"
+  success "Database $action queued; keep unused-volume cleanup disabled for persistent data"
 }
 
 cmd_list() {
