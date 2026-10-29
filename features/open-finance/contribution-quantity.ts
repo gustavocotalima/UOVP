@@ -1,4 +1,4 @@
-import { Prisma, type InstrumentType, type PluggyInvestmentMetadataOverrideField } from "@prisma/client";
+import { Prisma, type InstrumentType, type PluggyInvestmentMetadataOverrideField } from "@/generated/prisma/client";
 import { calculateHoldingAveragePrice } from "@/features/portfolio/average-price";
 import { allowsFractionalUnits } from "@/features/portfolio/fractional-assets";
 import { hasPluggyQuantityOverride, pendingPluggyQuantityChange } from "./investment-quantity-override";

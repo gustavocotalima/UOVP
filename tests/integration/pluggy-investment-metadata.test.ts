@@ -1,9 +1,10 @@
+import { createPrismaClient } from "../../lib/prisma-client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { Prisma, PrismaClient } from "@prisma/client";
+import { Prisma } from "@/generated/prisma/client";
 import { reconcilePluggyInvestmentsForUser } from "@/features/open-finance/diagram-sync";
 
 const enabled = Boolean(process.env.DATABASE_URL);
-const db = enabled ? new PrismaClient() : null;
+const db = enabled ? createPrismaClient() : null;
 const suite = enabled ? describe : describe.skip;
 
 suite("overrides de metadados dos investimentos Pluggy", () => {

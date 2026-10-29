@@ -10,15 +10,17 @@ Este motor reproduz a lógica reconstruída por observação das respostas da AU
 
 Filtros BRL/USD e classes adicionais do UOVP são extensões: a captura oficial usada na investigação recebia apenas o valor do aporte. A classificação da posição continua sendo a definida pelo usuário, inclusive ETFs em renda fixa e reserva de valor.
 
-## Adaptador de orçamento do UOVP (versão 2)
+## Adaptador de orçamento do UOVP (versão 3)
 
 O núcleo reconstruído permanece na versão 1, com as etapas abaixo intactas. O cálculo público primeiro aplica a política comum de orçamento do UOVP; essa extensão não pretende reproduzir uma configuração da AUVP.
 
-“Usar todo o aporte” aparece nos aportes somente em BRL ou somente em USD, desmarcado por padrão. `TARGET_CAPPED` planeja o teto viável de investimento pelas metas globais e pelo patrimônio efetivamente investido. `FULL_BUDGET` usa o orçamento completo como teto e planeja os saldos finais das classes elegíveis proporcionalmente às metas positivas originais, incluindo posições existentes. Os dois preservam filtros de moeda, notas, preços e incrementos de compra. A opção pertence ao cálculo atual e também está disponível no campo `budgetPolicy` do MCP.
+“Usar todo o aporte” aparece nos aportes somente em BRL ou somente em USD, desmarcado por padrão. `TARGET_CAPPED` planeja o teto viável de investimento pelas metas globais e pelo patrimônio efetivamente investido. `FULL_BUDGET` executa primeiro esse cálculo normal limitado às metas. Se um teto global deixar pelo menos um centavo de sobra, mantém essas compras como posições existentes e calcula apenas a sobra, usando metas relativas entre as classes elegíveis. Os dois preservam filtros de moeda, notas, preços e incrementos de compra. A opção pertence ao cálculo atual e também está disponível no campo `budgetPolicy` do MCP.
 
-O adaptador fornece o valor planejado e as metas efetivas de classe ao núcleo original de duas passadas. O núcleo continua aplicando suas lacunas pelas notas, reservas e arredondamentos. Uma proteção final do modo limitado arredonda compras para baixo e verifica novamente as metas quando o denominador diminui, com até 32 passadas e uma saída conservadora. O modo integral não aplica esse teto global; ainda pode deixar sobra pelas regras do núcleo. Nenhum modo ultrapassa o orçamento solicitado ou vende posições existentes.
+As duas políticas produzem compras idênticas até que um teto global de classe realmente limite o aporte. Arredondamento isolado nunca ativa a segunda etapa. O modo integral só flexibiliza o teto global para a sobra; as regras das notas continuam iguais, e as primeiras compras não podem ser reduzidas nem substituídas.
 
-Metas originais e de planejamento, política, valor planejado e motivos da sobra ficam nos diagnósticos. Percentuais finais exibidos sempre usam o patrimônio total original mais o investimento efetivo. Rascunhos antigos não registrados exigem novo cálculo; histórico registrado e aguardando sincronização é preservado. Testes de paridade do núcleo ficam separados dos testes do adaptador.
+O adaptador fornece o valor planejado e as metas efetivas de classe ao núcleo original de duas passadas. O núcleo continua aplicando suas lacunas pelas notas, reservas e arredondamentos. Uma proteção final arredonda compras para baixo e verifica novamente as metas quando o denominador diminui, com até 32 passadas e uma saída conservadora. Somente a etapa adicional da sobra dispensa o teto global; ainda pode deixar sobra pelas regras do núcleo. Nenhum modo ultrapassa o orçamento solicitado ou vende posições existentes.
+
+Metas originais e de planejamento, política, valor planejado e motivos da sobra ficam nos diagnósticos. Resultados em duas etapas também registram o investimento inicial, seu orçamento restante e o investimento adicional. As quantidades e os valores retornados somam as duas etapas por ativo, sem alterar as primeiras compras. Percentuais finais exibidos sempre usam o patrimônio total original mais o investimento efetivo. Rascunhos antigos não registrados exigem novo cálculo; histórico registrado e aguardando sincronização é preservado. Testes de paridade do núcleo ficam separados dos testes do adaptador.
 
 ## Etapas
 

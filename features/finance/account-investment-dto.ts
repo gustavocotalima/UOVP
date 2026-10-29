@@ -1,5 +1,5 @@
 import "server-only";
-import type { Prisma } from "@prisma/client";
+import type { Prisma } from "@/generated/prisma/client";
 import type { PortfolioDto } from "@/features/portfolio/types";
 
 export async function accountInvestmentReviews(tx: Prisma.TransactionClient, userId: string): Promise<PortfolioDto["integrationReview"]> {

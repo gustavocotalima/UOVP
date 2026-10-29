@@ -1,4 +1,4 @@
-import type { InvestmentClass, PricingSource, RateConvention } from "@prisma/client";
+import type { InvestmentClass, PricingSource, RateConvention } from "@/generated/prisma/client";
 import type {
   ConnectedInvestmentMetadataDto,
   PluggyInvestmentMetadataOverrideField,

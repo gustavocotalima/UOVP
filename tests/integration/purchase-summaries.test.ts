@@ -1,10 +1,11 @@
+import { createPrismaClient } from "../../lib/prisma-client";
 import { randomUUID } from "node:crypto";
-import { Prisma, PrismaClient } from "@prisma/client";
+import { Prisma } from "@/generated/prisma/client";
 import { afterAll, describe, expect, it } from "vitest";
 import { calculateHoldingAveragePrice, summarizePurchaseTransactions, type AveragePriceTransaction } from "@/features/portfolio/average-price";
 
 const enabled = Boolean(process.env.DATABASE_URL);
-const db = enabled ? new PrismaClient() : null;
+const db = enabled ? createPrismaClient() : null;
 const suite = enabled ? describe : describe.skip;
 
 suite("resumos transacionais de compras Pluggy", () => {

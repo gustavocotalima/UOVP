@@ -1,4 +1,4 @@
-import type { InstrumentType, InvestmentClass, PricingSource } from "@prisma/client";
+import type { InstrumentType, InvestmentClass, PricingSource } from "@/generated/prisma/client";
 
 type FractionalAssetInput = {
   instrumentType: InstrumentType | null;

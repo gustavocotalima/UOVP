@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { decryptCredential, encryptCredential } from "@/lib/credential-cipher";
 import Decimal from "decimal.js";
-import { Prisma } from "@prisma/client";
+import { Prisma } from "@/generated/prisma/client";
 import type { BinanceApiPermissions, BinancePrivateCredentials } from "./binance-wallet-client";
 
 export type BinanceWalletAssetStatusDto = "AVAILABLE" | "NEEDS_REVIEW" | "TRACKED" | "IGNORED";

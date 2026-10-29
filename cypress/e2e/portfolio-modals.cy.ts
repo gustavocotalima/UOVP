@@ -337,6 +337,6 @@ describe("modais da carteira", () => {
     cy.get("#contribution-quantity").type("{selectall}1");
     cy.get("#contribution-unit-price").type("{selectall}100");
     cy.get('[role="dialog"]').contains("button", "Aportar").click();
-    cy.contains("Aporte registrado.").should("be.visible");
+    cy.get('table[aria-label="Sugestões de investimento"]').should("contain.text", "Aporte registrado");
   });
 });

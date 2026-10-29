@@ -1,4 +1,4 @@
-import type { FixedIncomeIndexation, InstrumentType, InvestmentClass, MarketRegion } from "@prisma/client";
+import type { FixedIncomeIndexation, InstrumentType, InvestmentClass, MarketRegion } from "@/generated/prisma/client";
 
 export const PLUGGY_DIAGRAM_EXCLUSION_REASON = {
   USER: "Excluído pelo usuário.",

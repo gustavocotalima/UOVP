@@ -1,12 +1,13 @@
+import { createPrismaClient } from "../../lib/prisma-client";
 import { randomUUID } from "node:crypto";
-import { PrismaClient, type PluggyInvestmentSource } from "@prisma/client";
+import { type PluggyInvestmentSource } from "@/generated/prisma/client";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const observations = vi.hoisted(() => ({ links: vi.fn(), conflicts: vi.fn(), accountReads: vi.fn() }));
 vi.mock("@/lib/prisma", async () => {
-  const { PrismaClient: Client } = await import("@prisma/client");
+  const { createPrismaClient: createClient } = await import("@/lib/prisma-client");
   return {
-    prisma: new Client().$extends({
+    prisma: createClient().$extends({
       query: {
         accountInvestmentLink: { async findMany({ args, query }) { observations.links(args); return query(args); } },
         pluggyInvestmentDiagramLink: { async findMany({ args, query }) { observations.conflicts(args); return query(args); } },
@@ -21,7 +22,7 @@ import { accountInvestmentReviews } from "@/features/finance/account-investment-
 import { accountAutomaticBalanceConflicts } from "@/features/finance/account-investments";
 
 const enabled = Boolean(process.env.DATABASE_URL);
-const db = enabled ? new PrismaClient() : null;
+const db = enabled ? createPrismaClient() : null;
 const suite = enabled ? describe : describe.skip;
 
 suite("revisões de saldo com conflitos consultados em lote", () => {

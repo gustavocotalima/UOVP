@@ -1,4 +1,4 @@
-import type { FinanceTransaction, Prisma } from "@prisma/client";
+import type { FinanceTransaction, Prisma } from "@/generated/prisma/client";
 
 export type HistoricalFxBackfillSnapshot = Pick<FinanceTransaction,
   "id" | "userId" | "source" | "amount" | "date" | "currencyCode" | "updatedAt"

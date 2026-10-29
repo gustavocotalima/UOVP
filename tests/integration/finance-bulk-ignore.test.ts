@@ -1,5 +1,5 @@
+import { createPrismaClient } from "../../lib/prisma-client";
 import { randomUUID } from "node:crypto";
-import { PrismaClient } from "@prisma/client";
 import { afterAll, describe, expect, it, vi } from "vitest";
 
 const currentUser = vi.hoisted(() => ({ id: "" }));
@@ -9,7 +9,7 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 import { setFinanceTransactionsIgnoredAction } from "@/features/finance/actions";
 
 const enabled = Boolean(process.env.DATABASE_URL);
-const db = enabled ? new PrismaClient() : null;
+const db = enabled ? createPrismaClient() : null;
 const suite = enabled ? describe : describe.skip;
 
 suite("atomicidade de transações ignoradas em lote", () => {

@@ -1,5 +1,6 @@
+import { createPrismaClient } from "../../lib/prisma-client";
 import { randomUUID } from "node:crypto";
-import { PrismaClient, type InstrumentType, type InvestmentClass } from "@prisma/client";
+import { type InstrumentType, type InvestmentClass } from "@/generated/prisma/client";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -37,7 +38,7 @@ vi.mock("@/features/portfolio/market-logo-resolver", async (importOriginal) => (
 
 import { saveAssetAction } from "@/features/portfolio/actions";
 
-const db = process.env.DATABASE_URL ? new PrismaClient() : null;
+const db = process.env.DATABASE_URL ? createPrismaClient() : null;
 const suite = db ? describe : describe.skip;
 const asOf = new Date("2026-10-21T12:00:00.000Z");
 

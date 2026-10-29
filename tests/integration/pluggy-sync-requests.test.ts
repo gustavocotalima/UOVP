@@ -1,5 +1,5 @@
+import { createPrismaClient } from "../../lib/prisma-client";
 import { randomUUID } from "node:crypto";
-import { PrismaClient } from "@prisma/client";
 import { afterAll, describe, expect, it } from "vitest";
 import { POST } from "@/app/api/pluggy/webhook/route";
 import {
@@ -15,7 +15,7 @@ const webhookEnabled = Boolean(
   && process.env.CREDENTIAL_ENCRYPTION_ACTIVE_KEY
   && (process.env.AUTH_RATE_LIMIT_PEPPER || process.env.AUTH_SECRET),
 );
-const db = enabled ? new PrismaClient() : null;
+const db = enabled ? createPrismaClient() : null;
 const suite = enabled ? describe : describe.skip;
 
 suite("versões de solicitações de sincronização Pluggy", () => {

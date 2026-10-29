@@ -3,7 +3,7 @@ import type {
   InstrumentType,
   InvestmentClass,
   RateConvention,
-} from "@prisma/client";
+} from "@/generated/prisma/client";
 
 export type PluggyInvestmentForClassification = {
   id: string;

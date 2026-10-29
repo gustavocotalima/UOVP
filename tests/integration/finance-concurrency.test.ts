@@ -1,13 +1,14 @@
+import { createPrismaClient } from "../../lib/prisma-client";
 import { randomUUID } from "node:crypto";
-import { Prisma, PrismaClient } from "@prisma/client";
+import { Prisma } from "@/generated/prisma/client";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ userId: "", historicalFx: vi.fn(), afterSelection: vi.fn() }));
 vi.mock("@/lib/current-user", () => ({ requireUserId: async () => mocks.userId }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/prisma", async () => {
-  const { PrismaClient: Client } = await import("@prisma/client");
-  const client = new Client();
+  const { createPrismaClient: createClient } = await import("@/lib/prisma-client");
+  const client = createClient();
   return {
     prisma: client.$extends({
       query: {
@@ -38,7 +39,7 @@ import {
 } from "@/features/finance/actions";
 
 const enabled = Boolean(process.env.DATABASE_URL);
-const db = enabled ? new PrismaClient() : null;
+const db = enabled ? createPrismaClient() : null;
 const suite = enabled ? describe : describe.skip;
 const transactionDate = new Date("2026-10-21T12:00:00Z");
 const fx = { rateToBrl: new Prisma.Decimal(5), rateDate: transactionDate, source: "YAHOO" as const, fetchedAt: transactionDate };

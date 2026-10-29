@@ -1,7 +1,7 @@
+import { isPrismaTransactionConflict } from "@/lib/prisma-errors";
 import { NextResponse } from "next/server";
 import { requestPluggySync } from "@/features/open-finance/sync-requests";
 import { z } from "zod";
-import { Prisma } from "@prisma/client";
 import { markPluggyItemDisconnected } from "@/features/open-finance/disconnection";
 import {
   requirePluggyWebhookSecret,
@@ -186,7 +186,7 @@ async function claimEvent(userId: string, payload: z.infer<typeof webhookSchema>
           : null;
       }, { isolationLevel: "Serializable" });
     } catch (error) {
-      const retryable = error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034";
+      const retryable = isPrismaTransactionConflict(error);
       if (!retryable || attempt === 2) throw error;
     }
   }

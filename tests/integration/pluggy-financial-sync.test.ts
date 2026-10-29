@@ -1,9 +1,10 @@
+import { createPrismaClient } from "../../lib/prisma-client";
 import { randomUUID } from "node:crypto";
-import { PrismaClient, Prisma } from "@prisma/client";
+import { Prisma } from "@/generated/prisma/client";
 import { afterAll, describe, expect, it } from "vitest";
 import { financeTransactionOperation } from "@/features/open-finance/sync";
 
-const db = process.env.DATABASE_URL ? new PrismaClient() : null;
+const db = process.env.DATABASE_URL ? createPrismaClient() : null;
 const suite = db ? describe : describe.skip;
 
 suite("reimportação financeira e câmbio congelado", () => {

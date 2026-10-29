@@ -1,6 +1,6 @@
 "use server";
 
-import { Prisma, type PluggyInvestmentMetadataOverrideField } from "@prisma/client";
+import { Prisma, type PluggyInvestmentMetadataOverrideField } from "@/generated/prisma/client";
 import { projectAccountInvestment } from "@/features/finance/account-investments";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";

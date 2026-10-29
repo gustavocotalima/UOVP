@@ -1,4 +1,4 @@
-import { Prisma } from "@prisma/client";
+import { Prisma } from "@/generated/prisma/client";
 import { describe, expect, it } from "vitest";
 import { addInvestmentCost, investmentCostUpdate } from "@/features/portfolio/investment-cost";
 

@@ -1,4 +1,4 @@
-import type { Prisma } from "@prisma/client";
+import type { Prisma } from "@/generated/prisma/client";
 import { BUDGET_CATEGORIES, type BudgetCategoryKey } from "@/features/budget/constants";
 import { DEFAULT_TIME_ZONE, validTimeZone } from "@/lib/calendar";
 import {

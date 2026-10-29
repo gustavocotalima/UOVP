@@ -1,5 +1,6 @@
+import { createPrismaClient } from "../../lib/prisma-client";
+import { ALLOCATION_VERSIONS } from "@/features/portfolio/calculation/types";
 import { randomUUID } from "node:crypto";
-import { PrismaClient } from "@prisma/client";
 import { afterAll, describe, expect, it, vi } from "vitest";
 
 const currentUser = vi.hoisted(() => ({ id: "" }));
@@ -12,7 +13,7 @@ import { parsePortfolioImportRows } from "@/features/portfolio/portfolio-import"
 import { portfolioRows } from "@/features/portfolio/xlsx-export";
 
 const enabled = Boolean(process.env.DATABASE_URL);
-const db = enabled ? new PrismaClient() : null;
+const db = enabled ? createPrismaClient() : null;
 const suite = enabled ? describe : describe.skip;
 
 suite("preservação do custo histórico nas gravações e planilhas", () => {
@@ -147,7 +148,7 @@ suite("preservação do custo histórico nas gravações e planilhas", () => {
     });
     const simulation = await db!.contributionSimulation.create({
       data: {
-        userId: f.user.id, portfolioVersion: f.user.portfolio!.version, allocationMethod: "IMPROVED", calculationVersion: "3", inputAmount: 100, requestedAmount: 100, unallocatedAmount: 0,
+        userId: f.user.id, portfolioVersion: f.user.portfolio!.version, allocationMethod: "IMPROVED", calculationVersion: ALLOCATION_VERSIONS.IMPROVED, inputAmount: 100, requestedAmount: 100, unallocatedAmount: 0,
         suggestions: { create: { assetId: f.asset.id, quantity: 2, value: 100, suggestionPercentage: 100, totalAfterSuggestionPercentage: 100, nativeCurrency: "USD", nativeUnitPrice: 10, nativeValue: 20, fxRateToBrl: 5 } },
       },
       include: { suggestions: true },

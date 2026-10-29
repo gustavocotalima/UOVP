@@ -1,5 +1,5 @@
+import { createPrismaClient } from "./lib/prisma-client";
 import { defineConfig } from "cypress";
-import { PrismaClient } from "@prisma/client";
 import { createHash, randomBytes } from "node:crypto";
 import { createClient } from "redis";
 
@@ -27,7 +27,7 @@ async function clearCypressMarketMetadataCache(provider: "BRAPI" | "YAHOO", symb
 }
 
 async function cleanupCypressUsers() {
-  const prisma = new PrismaClient();
+  const prisma = createPrismaClient();
   try {
     await prisma.authRateLimit.deleteMany({
       where: {
@@ -55,6 +55,8 @@ async function cleanupCypressUsers() {
 }
 
 export default defineConfig({
+  defaultBrowser: "chrome",
+  expose: { captureContributionLayout: process.env.CYPRESS_CAPTURE_CONTRIBUTION_LAYOUT === "true" },
   e2e: {
     baseUrl: "http://localhost:3000",
     supportFile: "cypress/support/e2e.ts",
@@ -71,7 +73,7 @@ export default defineConfig({
       on("task", {
         async seedScopedBudgetPortfolio({ email }: { email: string }) {
           if (!/^cypress-[^@]+@example\.com$/.test(email)) throw new Error("Only Cypress users may be seeded");
-          const prisma = new PrismaClient();
+          const prisma = createPrismaClient();
           try {
             const user = await prisma.user.findUniqueOrThrow({ where: { email } });
             const portfolio = await prisma.portfolio.upsert({ where: { userId: user.id }, create: { userId: user.id }, update: {} });
@@ -94,7 +96,7 @@ export default defineConfig({
         },
         async seedBalancedAllocationPortfolio({ email }: { email: string }) {
           if (!/^cypress-[^@]+@example\.com$/.test(email)) throw new Error("Only Cypress users may be seeded");
-          const prisma = new PrismaClient();
+          const prisma = createPrismaClient();
           try {
             const user = await prisma.user.findUniqueOrThrow({ where: { email } });
             const portfolio = await prisma.portfolio.upsert({ where: { userId: user.id }, create: { userId: user.id }, update: {} });
@@ -111,7 +113,7 @@ export default defineConfig({
         },
         async seedBrapiPlanCredential({ email }: { email: string }) {
           if (!/^cypress-[^@]+@example\.com$/.test(email)) throw new Error("Only Cypress users may be seeded");
-          const prisma = new PrismaClient();
+          const prisma = createPrismaClient();
           try {
             const user = await prisma.user.findUniqueOrThrow({ where: { email } });
             // Deliberately invalid ciphertext: saving only the plan must never decrypt or validate this key.
@@ -129,7 +131,7 @@ export default defineConfig({
         },
         async getBrapiPlanCredentialState({ email }: { email: string }) {
           if (!/^cypress-[^@]+@example\.com$/.test(email)) throw new Error("Only Cypress users may be inspected");
-          const prisma = new PrismaClient();
+          const prisma = createPrismaClient();
           try {
             const user = await prisma.user.findUniqueOrThrow({ where: { email } });
             const preference = await prisma.userPreference.findUniqueOrThrow({
@@ -150,7 +152,7 @@ export default defineConfig({
         async setBinanceWalletFixture({ email, configured = true, quantity = "2" }: { email: string; configured?: boolean; quantity?: string }) {
           if (!/^cypress-[^@]+@example\.com$/.test(email)) throw new Error("Only Cypress users may be updated");
           if (!/^\d+(\.\d+)?$/.test(quantity)) throw new Error("Invalid fixture quantity");
-          const prisma = new PrismaClient();
+          const prisma = createPrismaClient();
           try {
             const user = await prisma.user.findUniqueOrThrow({ where: { email } });
             if (!configured) {
@@ -175,7 +177,7 @@ export default defineConfig({
         },
         async invalidateContributionSimulations({ email }: { email: string }) {
           if (!/^cypress-[^@]+@example\.com$/.test(email)) throw new Error("Only Cypress users may be updated");
-          const prisma = new PrismaClient();
+          const prisma = createPrismaClient();
           try {
             const user = await prisma.user.findUniqueOrThrow({ where: { email }, include: { portfolio: true } });
             if (!user.portfolio) throw new Error("Portfolio not found");
@@ -192,7 +194,7 @@ export default defineConfig({
           }
         },
         async createRegistrationInvite({ email }: { email: string }) {
-          const prisma = new PrismaClient();
+          const prisma = createPrismaClient();
           try {
             const admin = await prisma.user.upsert({
               where: { email: "cypress-invite-admin@example.com" },
@@ -215,7 +217,7 @@ export default defineConfig({
         },
         async seedDailyExpenses({ email }: { email: string }) {
           if (!/^cypress-[^@]+@example\.com$/.test(email)) throw new Error("Only Cypress users may be seeded");
-          const prisma = new PrismaClient();
+          const prisma = createPrismaClient();
           try {
             const user = await prisma.user.findUniqueOrThrow({ where: { email } });
             const account = await prisma.financialAccount.create({
@@ -246,7 +248,7 @@ export default defineConfig({
           }
         },
         async seedFinanceClassification({ email }: { email: string }) {
-          const prisma = new PrismaClient();
+          const prisma = createPrismaClient();
           try {
             const user = await prisma.user.findUniqueOrThrow({ where: { email } });
             const now = new Date();
@@ -366,7 +368,7 @@ export default defineConfig({
         async seedYahooMarketLogo({ email, quantity = 1 }: { email: string; quantity?: number }) {
           if (!/^cypress-[^@]+@example\.com$/.test(email)) throw new Error("Only Cypress users may be seeded");
           if (!Number.isFinite(quantity) || quantity <= 0) throw new Error("Invalid fixture quantity");
-          const prisma = new PrismaClient();
+          const prisma = createPrismaClient();
           try {
             const user = await prisma.user.findUniqueOrThrow({ where: { email } });
             const portfolio = await prisma.portfolio.upsert({ where: { userId: user.id }, update: {}, create: { userId: user.id } });
@@ -384,7 +386,7 @@ export default defineConfig({
           }
         },
         async seedBrokenMarketLogo({ email }: { email: string }) {
-          const prisma = new PrismaClient();
+          const prisma = createPrismaClient();
           try {
             const user = await prisma.user.findUniqueOrThrow({ where: { email } });
             const portfolio = await prisma.portfolio.upsert({
@@ -435,7 +437,7 @@ export default defineConfig({
           }
         },
         async seedBinanceWallet({ email }: { email: string }) {
-          const prisma = new PrismaClient();
+          const prisma = createPrismaClient();
           try {
             const user = await prisma.user.findUniqueOrThrow({ where: { email } });
             const portfolio = await prisma.portfolio.upsert({
@@ -510,7 +512,7 @@ export default defineConfig({
           }
         },
         async seedPluggyReservedBalance({ email }: { email: string }) {
-          const prisma = new PrismaClient();
+          const prisma = createPrismaClient();
           try {
             const user = await prisma.user.findUniqueOrThrow({ where: { email } });
             const suffix = `${Date.now()}-${Math.floor(Math.random() * 10_000)}`;
@@ -574,7 +576,7 @@ export default defineConfig({
         },
         async seedPluggyEditableInvestment({ email }: { email: string }) {
           if (!/^cypress-[^@]+@example\.com$/.test(email)) throw new Error("Only Cypress users may be seeded");
-          const prisma = new PrismaClient();
+          const prisma = createPrismaClient();
           try {
             const user = await prisma.user.findUniqueOrThrow({ where: { email } });
             const portfolio = await prisma.portfolio.upsert({
@@ -693,7 +695,7 @@ export default defineConfig({
         },
         async seedPluggyQuantityOverride({ email, activeQuantity = 0 }: { email: string; activeQuantity?: number }) {
           if (!/^cypress-[^@]+@example\.com$/.test(email)) throw new Error("Only Cypress users may be seeded");
-          const prisma = new PrismaClient();
+          const prisma = createPrismaClient();
           try {
             const user = await prisma.user.findUniqueOrThrow({ where: { email } });
             const portfolio = await prisma.portfolio.upsert({
@@ -794,7 +796,7 @@ export default defineConfig({
         },
         async getPluggyQuantityOverrideState({ email }: { email: string }) {
           if (!/^cypress-[^@]+@example\.com$/.test(email)) throw new Error("Only Cypress users may be inspected");
-          const prisma = new PrismaClient();
+          const prisma = createPrismaClient();
           try {
             const user = await prisma.user.findUniqueOrThrow({ where: { email } });
             const link = await prisma.pluggyInvestmentDiagramLink.findFirstOrThrow({
@@ -817,7 +819,7 @@ export default defineConfig({
         },
         async seedContributionQuantityConflict({ email, quantity }: { email: string; quantity: number }) {
           if (!/^cypress-[^@]+@example\.com$/.test(email)) throw new Error("Only Cypress users may be seeded");
-          const prisma = new PrismaClient();
+          const prisma = createPrismaClient();
           try {
             const link = await prisma.pluggyInvestmentDiagramLink.findFirstOrThrow({ where: { user: { email }, contributionBatches: { some: { state: "WAITING" } } }, include: { contributionBatches: { where: { state: "WAITING" } } } });
             await prisma.$transaction([
@@ -834,7 +836,7 @@ export default defineConfig({
           provider: "BRAPI" | "YAHOO";
           symbol: string;
         }) {
-          const prisma = new PrismaClient();
+          const prisma = createPrismaClient();
           try {
             return await prisma.marketAssetMetadata.findUnique({
               where: { provider_symbol: { provider, symbol } },

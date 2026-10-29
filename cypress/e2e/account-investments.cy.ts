@@ -54,7 +54,7 @@ describe("Saldo de conta como investimento", () => {
           cy.contains("Faça o depósito fora deste fluxo").should("be.visible");
           cy.contains("button", "Planejar aporte").click();
         });
-        cy.contains("Aporte planejado").should("be.visible");
+        cy.get('table[aria-label="Sugestões de investimento"]').contains("tr", "CONTA-PGTO-OUTRO").should("contain.text", "Aporte registrado");
       }
 
       cy.visit("/contas");

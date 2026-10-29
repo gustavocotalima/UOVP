@@ -1,5 +1,5 @@
+import { createPrismaClient } from "../../lib/prisma-client";
 import assert from "node:assert/strict";
-import { PrismaClient } from "@prisma/client";
 import { createClient } from "redis";
 
 assert.equal(process.env.GITHUB_ACTIONS, "true", "CI services must run on an isolated Actions runner.");
@@ -11,7 +11,7 @@ assert.equal(databaseUrl.hostname, "127.0.0.1");
 assert.equal(databaseUrl.pathname, "/uovp_ci");
 assert.equal(process.env.REDIS_URL, process.env.UOVP_TEST_REDIS_URL);
 assert.equal(new URL(process.env.REDIS_URL).hostname, "127.0.0.1");
-const database = new PrismaClient();
+const database = createPrismaClient();
 const redis = createClient({ url: process.env.REDIS_URL });
 redis.on("error", () => undefined);
 try {

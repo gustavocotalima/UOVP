@@ -1,10 +1,12 @@
 "use server";
 
+import { isPrismaTransactionConflict } from "@/lib/prisma-errors";
+
 import { hash } from "bcryptjs";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { AuthError } from "next-auth";
-import { Prisma } from "@prisma/client";
+import { Prisma } from "@/generated/prisma/client";
 import { z } from "zod";
 import { signIn, signOut } from "@/auth";
 import { prisma } from "@/lib/prisma";
@@ -106,8 +108,7 @@ export async function registerAction(_: AuthFormState, formData: FormData): Prom
         }, { isolationLevel: "Serializable" });
         break;
       } catch (error) {
-        const retryable = error instanceof Prisma.PrismaClientKnownRequestError
-          && error.code === "P2034";
+        const retryable = isPrismaTransactionConflict(error);
         if (!retryable || attempt === 2) throw error;
       }
     }

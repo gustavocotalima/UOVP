@@ -2,7 +2,7 @@
 
 [English](README.md) · [Diagrama do Cerrado](../diagrama-do-cerrado/README.pt-BR.md)
 
-Método padrão do UOVP, selecionável por usuário em Configurações e compartilhado entre a Carteira e o MCP. A versão 3 usa uma distribuição aproximada e determinística em TypeScript, com o `decimal.js` já existente. Não exige novos pacotes, WebAssembly, Python ou serviço externo.
+Método padrão do UOVP, selecionável por usuário em Configurações e compartilhado entre a Carteira e o MCP. A versão 4 usa uma distribuição aproximada e determinística em TypeScript, com o `decimal.js` já existente. Não exige novos pacotes, WebAssembly, Python ou serviço externo.
 
 ## Prioridades
 
@@ -21,7 +21,9 @@ O algoritmo só propõe compras. Posições acima das metas permanecem na cartei
 Os dois métodos oferecem “Usar todo o aporte” nos cálculos somente em BRL ou somente em USD, desmarcado por padrão. Alterar a opção descarta a prévia exibida e exige novo cálculo; não muda preferências da conta nem posições.
 
 - `TARGET_CAPPED`: preservar metas globais, com as margens conforme as cotas descritas abaixo. Posições fora do filtro de moeda continuam no patrimônio total. O planejamento encontra o teto contínuo de investimento usando o aporte efetivo, sem contar o saldo não investido como patrimônio.
-- `FULL_BUDGET`: permitir ultrapassar as metas globais. Distribuir os saldos finais das classes elegíveis proporcionalmente às metas positivas originais, usando posições existentes como limites mínimos imutáveis. Dentro de cada classe, fazer o mesmo com as notas positivas. Posições acima da proporção ou excluídas são mantidas; apenas posições elegíveis abaixo da proporção recebem compras até as demais alcançarem o equilíbrio.
+- `FULL_BUDGET`: executar primeiro o cálculo normal limitado às metas e preservar todas as compras sugeridas. Se um limite global deixar sobra de pelo menos um centavo, calcular apenas essa sobra entre as classes elegíveis, com suas metas positivas originais normalizadas para 100%. Os saldos iniciais da segunda etapa já incluem as compras da primeira. Preservar proporções das notas, incrementos de compra e posições acima da proporção ou excluídas. Somar quantidades e valores adicionais por ativo; nenhuma etapa pode desfazer compras da primeira.
+
+Até que um teto global de classe limite o aporte, as duas políticas produzem quantidades, valores e sobras idênticos. Arredondamento isolado não ativa a segunda etapa. A opção só flexibiliza limites globais das classes para a sobra; nunca muda as proporções das notas nem dispensa seus limites.
 
 Por exemplo, com somente USD e metas de 15% em ações internacionais e 2% em reserva de valor, o modo integral busca a relação 15:2 entre os saldos finais das classes elegíveis (88,24% / 11,76%), em vez de dividir apenas o dinheiro novo nessa proporção. As metas originais permanecem iguais e são registradas junto às metas de planejamento.
 
@@ -29,7 +31,7 @@ Por exemplo, com somente USD e metas de 15% em ações internacionais e 2% em re
 
 ## Distribuição e arredondamento
 
-1. Planejar uma distribuição proporcional limitada dos saldos completos das classes e, depois, dos ativos em cada classe, incluindo o patrimônio existente. No modo limitado, restringir o valor pelas metas globais e pela capacidade das notas; no modo integral, derivar participações de planejamento viáveis dos saldos finais proporcionais.
+1. Planejar a distribuição normal limitada dos saldos completos das classes e, depois, dos ativos em cada classe, incluindo o patrimônio existente. Os dois modos preservam a capacidade das notas. O modo integral pode então aplicar a mesma distribuição à sobra, mantendo as primeiras compras como saldos existentes e usando metas relativas somente às classes elegíveis.
 2. Converter o conjunto completo de compras para as quantidades permitidas. Considerar arredondamentos próximos do conjunto inteiro, em vez de tentar aumentar uma classe equilibrada ativo por ativo.
 3. Refinar compras isoladas, pares, substituições, conjuntos completos de classe e da carteira, nessa ordem: validade financeira, equilíbrio das metas, equilíbrio das notas e uso do orçamento.
 4. Recalcular com Decimal e retornar a melhor combinação válida e a sobra exata.
@@ -62,7 +64,7 @@ O modelo aceita até 256 grupos de ativos. Workers nativos do Node executam fora
 
 ## Histórico e verificação
 
-A versão 3 exige recalcular rascunhos de versões anteriores. A migração invalida rascunhos antigos ainda não registrados; histórico executado e aportes aguardando sincronização mantêm seus dados originais. O servidor também recusa executar um cálculo de versão incompatível.
+A versão 4 exige recalcular rascunhos de versões anteriores. A verificação de versão já existente no servidor recusa sua execução. Histórico executado e aportes aguardando sincronização mantêm seus dados originais; esta atualização não adiciona migração de banco.
 
 - Preparação e validação financeira: `features/portfolio/calculation/improved.ts`.
 - Planejamento do orçamento: `features/portfolio/calculation/budget-policy.ts`.
@@ -75,4 +77,4 @@ A versão 3 exige recalcular rascunhos de versões anteriores. A migração inva
 
 Capturas financeiras pessoais e seus replays ficam fora do Git. Taxas, mínimos de corretoras e execução de ordens não fazem parte desta distribuição.
 
-Regressões de políticas e compras coordenadas: `tests/unit/allocation-budget-policy.test.ts`; os dois filtros de moeda, métodos e políticas na interface/MCP: `tests/integration/allocation-methods.test.ts`.
+Regressões de políticas e compras coordenadas: `tests/unit/allocation-budget-policy.test.ts`; preservação das primeiras compras, totais das duas etapas e proporções finais: `tests/unit/allocation-two-stage.test.ts`; os dois filtros de moeda, métodos e políticas na interface/MCP: `tests/integration/allocation-methods.test.ts`.

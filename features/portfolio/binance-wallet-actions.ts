@@ -1,6 +1,6 @@
 "use server";
 
-import { Prisma } from "@prisma/client";
+import { Prisma } from "@/generated/prisma/client";
 import Decimal from "decimal.js";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";

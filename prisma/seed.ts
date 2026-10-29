@@ -1,9 +1,13 @@
-import { PrismaClient } from "@prisma/client";
+import { existsSync } from "node:fs";
+import { loadEnvFile } from "node:process";
+import { createPrismaClient } from "../lib/prisma-client";
 import { INVESTMENT_PRESETS } from "../features/portfolio/constants";
 import { backfillUserDiagramQuestions, synchronizeGlobalQuestionTemplates } from "../features/portfolio/question-provisioning";
 import { ASSET_CATALOG, CATALOG_FAMILY_BY_ID, FIXED_INCOME_FAMILIES } from "../features/portfolio/catalog";
 
-const prisma = new PrismaClient();
+if (!process.env.DATABASE_URL && existsSync(".env")) loadEnvFile(".env");
+
+const prisma = createPrismaClient();
 
 async function main() {
   for (const family of FIXED_INCOME_FAMILIES) {

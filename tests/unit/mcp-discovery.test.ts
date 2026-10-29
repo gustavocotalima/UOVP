@@ -1,4 +1,4 @@
-import { Prisma } from "@prisma/client";
+import { Prisma } from "@/generated/prisma/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { searchMcpDocuments, fetchMcpDocument } from "@/features/mcp/discovery";
 import type { McpContext } from "@/features/mcp/types";

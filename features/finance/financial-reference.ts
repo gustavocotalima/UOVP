@@ -1,4 +1,4 @@
-import { Prisma } from "@prisma/client";
+import { Prisma } from "@/generated/prisma/client";
 import { DEFAULT_TIME_ZONE, validTimeZone } from "@/lib/calendar";
 import type { UserOperationLeaseContext } from "@/lib/operation-security";
 

@@ -1,5 +1,5 @@
+import { createPrismaClient } from "../../lib/prisma-client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { PrismaClient } from "@prisma/client";
 import { reconcilePluggyInvestmentsForUser } from "@/features/open-finance/diagram-sync";
 import {
   classifyFinanceTransactionsForUser,
@@ -8,7 +8,7 @@ import {
 import { PLUGGY_DIAGRAM_EXCLUSION_REASON } from "@/features/open-finance/diagram-exclusion";
 
 const enabled = Boolean(process.env.DATABASE_URL);
-const db = enabled ? new PrismaClient() : null;
+const db = enabled ? createPrismaClient() : null;
 const suite = enabled ? describe : describe.skip;
 
 suite("isolamento entre usuários", () => {

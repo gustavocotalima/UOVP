@@ -1,5 +1,5 @@
+import { createPrismaClient } from "../../lib/prisma-client";
 import { randomUUID } from "node:crypto";
-import { PrismaClient } from "@prisma/client";
 import { afterAll, describe, expect, it, vi } from "vitest";
 
 const currentUser = vi.hoisted(() => ({ id: "" }));
@@ -10,7 +10,7 @@ import { saveInvestmentTargetsAction } from "@/features/portfolio/actions";
 import { DEFAULT_TARGETS, INVESTMENT_CLASSES, type InvestmentClassKey } from "@/features/portfolio/constants";
 import { investmentTargetsTotalCents, parseTargetDrafts, toTargetDrafts } from "@/features/portfolio/target-drafts";
 
-const db = process.env.DATABASE_URL ? new PrismaClient() : null;
+const db = process.env.DATABASE_URL ? createPrismaClient() : null;
 const suite = db ? describe : describe.skip;
 
 suite("precisão persistida das metas de investimento", () => {

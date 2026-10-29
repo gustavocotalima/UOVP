@@ -1,5 +1,6 @@
+import { createPrismaClient } from "../../lib/prisma-client";
 import { randomUUID } from "node:crypto";
-import { Prisma, PrismaClient } from "@prisma/client";
+import { Prisma } from "@/generated/prisma/client";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const observations = vi.hoisted(() => ({
@@ -8,9 +9,9 @@ const observations = vi.hoisted(() => ({
   reverseTags: false,
 }));
 vi.mock("@/lib/prisma", async () => {
-  const { PrismaClient: Client } = await import("@prisma/client");
+  const { createPrismaClient: createClient } = await import("@/lib/prisma-client");
   return {
-    prisma: new Client().$extends({
+    prisma: createClient().$extends({
       query: {
         financeTransaction: {
           async findMany({ args, query }) {
@@ -37,7 +38,7 @@ import { prisma } from "@/lib/prisma";
 import { classifyFinanceTransactionsForUser } from "@/features/finance/classification-service";
 
 const enabled = Boolean(process.env.DATABASE_URL);
-const db = enabled ? new PrismaClient() : null;
+const db = enabled ? createPrismaClient() : null;
 const suite = enabled ? describe : describe.skip;
 const transactionDate = new Date("2026-10-21T12:00:00Z");
 

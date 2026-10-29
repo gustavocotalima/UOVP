@@ -1,10 +1,10 @@
+import { createPrismaClient } from "../../lib/prisma-client";
 import { randomUUID } from "node:crypto";
-import { PrismaClient } from "@prisma/client";
 import { afterAll, describe, expect, it } from "vitest";
 import { pluggyAccountSchema } from "@/features/open-finance/pluggy";
 import { syncAccountInvestmentSnapshots } from "@/features/open-finance/sync";
 
-const db = process.env.DATABASE_URL ? new PrismaClient() : null;
+const db = process.env.DATABASE_URL ? createPrismaClient() : null;
 const suite = db ? describe : describe.skip;
 
 suite("preservação das reservas com identidade ambígua", () => {

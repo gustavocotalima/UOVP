@@ -1,5 +1,6 @@
+import { createPrismaClient } from "../../lib/prisma-client";
 import { randomUUID } from "node:crypto";
-import { PrismaClient, type Prisma } from "@prisma/client";
+import { type Prisma } from "@/generated/prisma/client";
 import { afterAll, describe, expect, it } from "vitest";
 import { financialReferenceForTimeZone } from "@/lib/calendar";
 import type { UserOperationLeaseContext } from "@/lib/operation-security";
@@ -12,7 +13,7 @@ import {
 } from "@/features/finance/financial-reference";
 
 const enabled = Boolean(process.env.DATABASE_URL);
-const db = enabled ? new PrismaClient() : null;
+const db = enabled ? createPrismaClient() : null;
 const suite = enabled ? describe : describe.skip;
 
 suite("referências financeiras no calendário local", () => {

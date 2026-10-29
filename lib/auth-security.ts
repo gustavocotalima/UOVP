@@ -1,4 +1,3 @@
-import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSecureSecret } from "@/lib/security-config";
 
@@ -43,13 +42,6 @@ export function clientIpFromHeaders(headers: Headers) {
   return value && value.length <= 64 ? value : null;
 }
 
-async function lockRateLimitBucket(tx: Prisma.TransactionClient, scope: string, key: string) {
-  await tx.$queryRaw`
-    SELECT 1::int AS "locked"
-    FROM pg_advisory_xact_lock(hashtextextended(${`${scope}:${key}`}, 0))
-  `;
-}
-
 export async function consumeAuthRateLimit({
   scope,
   identifier,
@@ -66,64 +58,56 @@ export async function consumeAuthRateLimit({
     });
   }
 
-  // Serialize only callers updating the same bucket. Serializable transactions
-  // across independent buckets can conflict during parallel registration checks.
-  return prisma.$transaction(async (tx) => {
-    await lockRateLimitBucket(tx, scope, key);
-    // The row lock also protects this read/update from expired-bucket cleanup.
-    const [current] = await tx.$queryRaw<Array<{
-      attempts: number; windowStartedAt: Date; blockedUntil: Date | null;
-    }>>`
-      SELECT "attempts", "windowStartedAt", "blockedUntil"
-      FROM "AuthRateLimit"
-      WHERE "scope" = ${scope} AND "key" = ${key}
-      FOR UPDATE
-    `;
+  const windowCutoff = new Date(now.getTime() - windowMs);
+  const nextBlockedUntil = new Date(now.getTime() + blockMs);
 
-    if (current?.blockedUntil && current.blockedUntil > now) {
-      return { allowed: false, retryAfterMs: current.blockedUntil.getTime() - now.getTime() };
-    }
+  // The unique bucket key serializes this single statement, without keeping a
+  // Prisma interactive transaction open while waiting for locks or the client.
+  const [bucket] = await prisma.$queryRaw<Array<{ blockedUntil: Date | null }>>`
+    INSERT INTO "AuthRateLimit" AS bucket (
+      "id", "scope", "key", "attempts", "windowStartedAt", "lastAttemptAt",
+      "blockedUntil", "createdAt", "updatedAt"
+    )
+    VALUES (${crypto.randomUUID()}, ${scope}, ${key}, 1, ${now}, ${now}, NULL, ${now}, ${now})
+    ON CONFLICT ("scope", "key") DO UPDATE
+    SET
+      "attempts" = CASE
+        WHEN bucket."blockedUntil" > EXCLUDED."lastAttemptAt" THEN bucket."attempts"
+        WHEN bucket."windowStartedAt" <= ${windowCutoff} THEN 1
+        ELSE bucket."attempts" + 1
+      END,
+      "windowStartedAt" = CASE
+        WHEN bucket."blockedUntil" > EXCLUDED."lastAttemptAt" THEN bucket."windowStartedAt"
+        WHEN bucket."windowStartedAt" <= ${windowCutoff} THEN EXCLUDED."windowStartedAt"
+        ELSE bucket."windowStartedAt"
+      END,
+      "lastAttemptAt" = CASE
+        WHEN bucket."blockedUntil" > EXCLUDED."lastAttemptAt" THEN bucket."lastAttemptAt"
+        ELSE EXCLUDED."lastAttemptAt"
+      END,
+      "blockedUntil" = CASE
+        WHEN bucket."blockedUntil" > EXCLUDED."lastAttemptAt" THEN bucket."blockedUntil"
+        WHEN bucket."windowStartedAt" <= ${windowCutoff} THEN NULL
+        WHEN bucket."attempts" + 1 > ${limit} THEN ${nextBlockedUntil}
+        ELSE NULL
+      END,
+      "updatedAt" = CASE
+        WHEN bucket."blockedUntil" > EXCLUDED."lastAttemptAt" THEN bucket."updatedAt"
+        ELSE EXCLUDED."updatedAt"
+      END
+    RETURNING "blockedUntil"
+  `;
 
-    const windowExpired = !current || now.getTime() - current.windowStartedAt.getTime() >= windowMs;
-    if (windowExpired) {
-      await tx.authRateLimit.upsert({
-        where: { scope_key: { scope, key } },
-        create: {
-          scope,
-          key,
-          attempts: 1,
-          windowStartedAt: now,
-          lastAttemptAt: now,
-        },
-        update: {
-          attempts: 1,
-          windowStartedAt: now,
-          lastAttemptAt: now,
-          blockedUntil: null,
-        },
-      });
-      return { allowed: true, retryAfterMs: 0 };
-    }
-
-    const attempts = current.attempts + 1;
-    const blockedUntil = attempts > limit ? new Date(now.getTime() + blockMs) : null;
-    await tx.authRateLimit.update({
-      where: { scope_key: { scope, key } },
-      data: { attempts, lastAttemptAt: now, blockedUntil },
-    });
-    return {
-      allowed: attempts <= limit,
-      retryAfterMs: blockedUntil ? blockedUntil.getTime() - now.getTime() : 0,
-    };
-  }, { isolationLevel: "ReadCommitted" });
+  if (!bucket) throw new Error("Não foi possível registrar a tentativa de autenticação.");
+  return {
+    allowed: bucket.blockedUntil === null,
+    retryAfterMs: bucket.blockedUntil ? bucket.blockedUntil.getTime() - now.getTime() : 0,
+  };
 }
 
 export async function clearAuthRateLimit(scope: string, identifier: string) {
   const key = await identifierHash(scope, identifier);
-  await prisma.$transaction(async (tx) => {
-    await lockRateLimitBucket(tx, scope, key);
-    await tx.authRateLimit.deleteMany({ where: { scope, key } });
-  }, { isolationLevel: "ReadCommitted" });
+  await prisma.authRateLimit.deleteMany({ where: { scope, key } });
 }
 
 export async function checkLoginRateLimit(email: string, headers: Headers) {

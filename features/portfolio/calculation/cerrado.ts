@@ -1,7 +1,7 @@
 import Decimal from "decimal.js";
 import { ALLOCATION_VERSIONS, finish, validateInput, type AllocationInput } from "./types";
 import { capScopedTargets } from "./scoped-targets";
-import { describeBudgetRemainder, prepareBudgetPolicy } from "./budget-policy";
+import { describeBudgetRemainder, prepareBudgetPolicy, prepareRemainderAllocation, combineBudgetStages } from "./budget-policy";
 
 const Cash = Decimal.clone({ precision: 40, rounding: Decimal.ROUND_HALF_UP });
 const sum = (values: Decimal[]) => values.reduce((a, b) => a.plus(b), new Cash(0));
@@ -71,8 +71,8 @@ export function allocateCerradoCore(input: AllocationInput) {
 }
 
 /** UOVP's budget policy adapter; the reconstructed core above stays intact. */
-export function allocateCerrado(input: AllocationInput) {
-  const plan = prepareBudgetPolicy(input, "CERRADO");
+function allocateCerradoStage(input: AllocationInput, capGlobalTargets = true) {
+  const plan = prepareBudgetPolicy(input, "CERRADO", capGlobalTargets);
   const raw = allocateCerradoCore({ ...input, contribution: plan.plannedAmount, targets: plan.targets,
     capEligibleClassesAtTarget: false,
     assets: input.assets.map((asset, i) => ({ ...asset, eligibleToReceive: plan.eligible[i] })),
@@ -80,5 +80,14 @@ export function allocateCerrado(input: AllocationInput) {
   const result = finish(input, new Map(raw.suggestions.map((s) => [s.assetId, { quantity: s.quantity, value: s.value }])), {
     ...raw.calculation, version: ALLOCATION_VERSIONS.CERRADO,
   });
-  return describeBudgetRemainder(plan.policy === "TARGET_CAPPED" ? capScopedTargets(input, result) : result, plan);
+  const capped = capGlobalTargets ? capScopedTargets(input, result) : result;
+  const trimmed = sum(result.suggestions.map((s) => s.value)).minus(sum(capped.suggestions.map((s) => s.value)));
+  return describeBudgetRemainder(capped, { ...plan, globalCapApplied: plan.globalCapApplied || trimmed.gt("0.00000001") });
+}
+
+export function allocateCerrado(input: AllocationInput) {
+  validateInput(input);
+  const capped = allocateCerradoStage({ ...input, budgetPolicy: "TARGET_CAPPED" });
+  const remainder = prepareRemainderAllocation(input, capped);
+  return combineBudgetStages(input, capped, remainder ? allocateCerradoStage(remainder, false) : undefined);
 }

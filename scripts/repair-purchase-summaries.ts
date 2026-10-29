@@ -6,7 +6,7 @@
  * each parent before reading its committed movements; concurrent trigger deltas
  * then run after the repair, without losing inserts, changes or deletions.
  */
-import { Prisma } from "@prisma/client";
+import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 
 type StoredSummary = {

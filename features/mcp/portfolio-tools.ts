@@ -1,5 +1,5 @@
 import "server-only";
-import { Prisma } from "@prisma/client";
+import { Prisma } from "@/generated/prisma/client";
 import Decimal from "decimal.js";
 import { z } from "zod";
 import { resolvePluggyInvestmentIssuer } from "@/features/open-finance/institution-logo";
