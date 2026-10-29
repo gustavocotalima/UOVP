@@ -2094,7 +2094,8 @@ export async function recordContributionAction(input: {
         if (parsed.expectedHoldingQuantity === undefined || !holding.quantity.eq(parsed.expectedHoldingQuantity)) {
           return { error: "A quantidade desta posição mudou. Confira a posição antes de registrar a compra." };
         }
-        await registerContributionQuantity(tx, { userId, assetId: asset.id, holdingId: holding.id, quantity, paidUnitPrice: nativePrice! });
+        const validation = await registerContributionQuantity(tx, { userId, assetId: asset.id, holdingId: holding.id, quantity, paidUnitPrice: nativePrice! });
+        if (validation) return validation;
         return { awaitingSync: true };
       }
       const destinations = fixed || parsed.holdingId ? [holding] : external;

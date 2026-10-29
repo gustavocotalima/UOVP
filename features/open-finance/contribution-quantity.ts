@@ -86,8 +86,8 @@ export async function registerContributionQuantity(tx: Prisma.TransactionClient,
     where: { userId: input.userId, assetHoldingId: input.holdingId }, include: linkInclude,
   });
   if (!link?.holding || link.holding.assetId !== input.assetId || link.investment.item.userId !== input.userId
-    || link.holding.asset.portfolio.userId !== input.userId
-    || !available(link)) throw new Error("Selecione uma posição Open Finance ativa deste ativo.");
+    || link.holding.asset.portfolio.userId !== input.userId) throw new Error("Selecione uma posição Open Finance ativa deste ativo.");
+  if (!available(link)) return { error: "Esta posição Open Finance não está ativa. Confira a conexão antes de registrar o aporte." };
   const raw = link.investment.quantity;
   if (!raw || !raw.isFinite() || raw.lt(0)) throw new Error("A instituição não informou uma quantidade válida para esta posição.");
   if (!input.quantity.isFinite() || !input.quantity.gt(0) || input.quantity.decimalPlaces() > 10) throw new Error("Informe uma quantidade positiva com até dez casas decimais.");

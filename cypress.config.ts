@@ -795,6 +795,14 @@ export default defineConfig({
             await prisma.$disconnect();
           }
         },
+        async seedDisconnectedContributionPosition({ email }: { email: string }) {
+          if (!/^cypress-[^@]+@example\.com$/.test(email)) throw new Error("Only Cypress users may be seeded");
+          const prisma = createPrismaClient();
+          try {
+            await prisma.pluggyItem.updateMany({ where: { user: { email } }, data: { status: "DELETED", disconnectedAt: new Date(), syncPending: false, disconnectionResolution: "KEEP_MANUAL" } });
+            return null;
+          } finally { await prisma.$disconnect(); }
+        },
         async seedSyncedContributionQuantity({ email, quantity }: { email: string; quantity: number }) {
           if (!/^cypress-[^@]+@example\.com$/.test(email)) throw new Error("Only Cypress users may be seeded");
           const prisma = createPrismaClient();

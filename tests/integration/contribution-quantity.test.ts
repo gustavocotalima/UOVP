@@ -118,6 +118,17 @@ suite("Open Finance contribution quantity reconciliation", () => {
     expect((await position(f)).quantity.toString()).toBe("100");
     expect(await db!.pendingContribution.count({ where: { assetId: f.asset.id } })).toBe(0);
   });
+  it.each(["DELETED", "DISCONNECTED", "UNAVAILABLE"])("returns validation without recording a purchase for a %s position", async (state) => {
+    const f = await fixture();
+    if (state === "UNAVAILABLE") await db!.pluggyInvestment.update({ where: { id: f.investment.id }, data: { providerAvailable: false } });
+    else await db!.pluggyItem.update({ where: { id: f.item.id }, data: state === "DELETED" ? { status: "DELETED" } : { disconnectedAt: new Date() } });
+    await expect(recordContributionAction({ assetId: f.asset.id, holdingId: f.holding.id,
+      quantity: 10, paidUnitPrice: 12, expectedHoldingQuantity: "100",
+    })).resolves.toMatchObject({ error: expect.stringContaining("Esta posição Open Finance não está ativa") });
+    expect(await position(f)).toMatchObject({ quantity: f.holding.quantity, investedValue: f.holding.investedValue });
+    expect(await db!.pendingContribution.count({ where: { assetId: f.asset.id } })).toBe(0);
+    expect(await db!.pluggyContributionBatch.count({ where: { linkId: f.link.id } })).toBe(0);
+  });
   it("accepts the displayed quantity after quote, FX and timestamp changes", async () => {
     const f = await fixture("STOCK", "INTERNATIONAL_STOCKS", "USD");
     await db!.assetHolding.update({ where: { id: f.holding.id }, data: { unitPrice: 11, fxRateToBrl: 6, priceUpdatedAt: new Date() } });
@@ -291,6 +302,14 @@ suite("Open Finance contribution quantity reconciliation", () => {
     await resolvePluggyItemDisconnection(f.user.id, f.item.id, "KEEP_MANUAL");
     const holding = await position(f); expect(holding.positionSource).toBe("MANUAL"); expect(holding.quantity.toString()).toBe("110");
     expect(await db!.pendingContribution.findUnique({ where: { id: s.id } })).toBeNull();
+    await expect(recordContributionAction({ assetId: f.asset.id, holdingId: f.holding.id,
+      quantity: 2, paidUnitPrice: 12, expectedHoldingQuantity: "110",
+    })).resolves.toMatchObject({ awaitingSync: false });
+    const updated = await position(f);
+    expect(updated.quantity.toString()).toBe("112");
+    expect(updated.investedValue?.toString()).toBe("1144");
+    expect(await db!.pendingContribution.count({ where: { assetId: f.asset.id } })).toBe(0);
+    expect((await db!.pluggyInvestment.findUniqueOrThrow({ where: { id: f.investment.id } })).quantity?.toString()).toBe("100");
   });
   it("keeps fractional units at ten decimals and freezes paid FX without freezing market FX", async () => {
     const f = await fixture("STOCK", "INTERNATIONAL_STOCKS", "USD"); const s = await buy(f, 0.1234567891, 12);
