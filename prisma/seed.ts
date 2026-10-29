@@ -1,7 +1,11 @@
+import { existsSync } from "node:fs";
+import { loadEnvFile } from "node:process";
 import { createPrismaClient } from "../lib/prisma-client";
 import { INVESTMENT_PRESETS } from "../features/portfolio/constants";
 import { backfillUserDiagramQuestions, synchronizeGlobalQuestionTemplates } from "../features/portfolio/question-provisioning";
 import { ASSET_CATALOG, CATALOG_FAMILY_BY_ID, FIXED_INCOME_FAMILIES } from "../features/portfolio/catalog";
+
+if (!process.env.DATABASE_URL && existsSync(".env")) loadEnvFile(".env");
 
 const prisma = createPrismaClient();
 
