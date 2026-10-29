@@ -22,10 +22,12 @@ overrides:
   "valibot@<=1.4.1": "^1.4.2"
   "vite@>=7.0.0 <=7.3.6": "^7.3.7"
 
-onlyBuiltDependencies:
-  - "@prisma/engines"
-  - "cypress"
-  - "prisma"
+allowBuilds:
+  "@prisma/engines@7.3.0": true
+  "cypress@16.2.1": true
+  "esbuild@0.28.1": true
+  "prisma@7.3.0": true
+  "unrs-resolver@1.12.2": true
 
 minimumReleaseAgeExclude:
   - cypress@16.2.1
