@@ -20,14 +20,14 @@ import {
   type FinancialAccountCurrency,
 } from "./account-currency";
 
-export type ResolvedFinancialFx = {
+type ResolvedFinancialFx = {
   rateToBrl: Prisma.Decimal;
   rateDate: Date;
   source: "NATIVE" | "YAHOO" | "MANUAL";
   fetchedAt: Date;
 };
 
-export type FinancialFxRequiredResult = {
+type FinancialFxRequiredResult = {
   ok: false;
   code: "FX_RATE_REQUIRED";
   currencyCode: "USD";
@@ -35,7 +35,7 @@ export type FinancialFxRequiredResult = {
   message: string;
 };
 
-export type FinancialMutationSuccess = { ok: true };
+type FinancialMutationSuccess = { ok: true };
 export type FinancialMutationResult = FinancialMutationSuccess | FinancialFxRequiredResult;
 
 export function financialFxRequired(rateDate: Date): FinancialFxRequiredResult {

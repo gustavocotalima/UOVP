@@ -7,7 +7,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DonutChart } from "@/components/charts/donut-chart";
 import { formatPercent } from "@/lib/money";
 import { saveInvestmentTargetsAction } from "./actions";
-import { notifyPortfolioSimulationInvalidated } from "./client-events";
 import { INVESTMENT_CLASSES, INVESTMENT_CLASS_META, INVESTMENT_PRESETS, type InvestmentClassKey } from "./constants";
 import { investmentTargetsTotalCents, parseTargetDraft, parseTargetDrafts, toTargetDrafts } from "./target-drafts";
 
@@ -48,7 +47,7 @@ export function TargetsPanel({ initialTargets }: { initialTargets: Record<Invest
     startTransition(async () => {
       try {
         await saveInvestmentTargetsAction(values);
-        notifyPortfolioSimulationInvalidated();
+
         setMessage("Metas salvas.");
       } catch (error) {
         setMessage(error instanceof Error ? error.message : "Não foi possível salvar.");

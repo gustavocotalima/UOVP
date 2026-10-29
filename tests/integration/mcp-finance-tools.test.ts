@@ -120,7 +120,7 @@ suite("MCP financial queries and database read-only enforcement", () => {
     const counts = await Promise.all([
       prisma.financeProfile.count({ where: { userId } }), prisma.financeGoal.count({ where: { userId } }),
       prisma.financeTag.count({ where: { userId } }), prisma.portfolio.count({ where: { userId } }),
-      prisma.contributionSimulation.count({ where: { userId } }),
+      prisma.pendingContribution.count({ where: { userId } }),
     ]);
     expect(counts).toEqual([0, 0, 0, 0, 0]);
   });

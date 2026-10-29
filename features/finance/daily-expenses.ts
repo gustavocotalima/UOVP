@@ -4,7 +4,7 @@ import type { FinanceTransactionDto } from "./types";
 
 export type DailyExpenseEntry = { transaction: FinanceTransactionDto; grossCents: number };
 
-export type DailyExpenseDay = {
+type DailyExpenseDay = {
   day: number;
   date: string;
   totalCents: number;

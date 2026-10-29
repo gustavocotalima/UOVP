@@ -105,7 +105,7 @@ suite("MCP portfolio database read-only queries", () => {
     expect(preview).toMatchObject({ status: "PREVIEW", saved: false, executed: false });
     const after = await prisma.assetHolding.findUniqueOrThrow({ where: { id: holdingId }, select: { quantity: true, unitPrice: true, updatedAt: true } });
     expect(after).toEqual(before);
-    expect(await prisma.contributionSimulation.count({ where: { userId } })).toBe(0);
+    expect(await prisma.pendingContribution.count({ where: { userId } })).toBe(0);
     const emptyContext = { ...context, userId: emptyUserId };
     expect(await execute("get_portfolio_summary", {}, emptyContext)).toMatchObject({ portfolioId: null, totalValueBrl: "0" });
     expect(await prisma.portfolio.count({ where: { userId: emptyUserId } })).toBe(0);

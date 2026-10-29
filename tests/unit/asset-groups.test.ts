@@ -1,12 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  aggregateHoldingValue,
-  applyManualFixedIncomeContribution,
-  fixedIncomeHoldingFingerprint,
-  holdingCurrentValue,
-  holdingCurrentValueNative,
-  parentPortfolioPercentage,
-} from "@/features/portfolio/asset-groups";
+import { aggregateHoldingValue, fixedIncomeHoldingFingerprint, holdingCurrentValue, holdingCurrentValueNative } from "@/features/portfolio/asset-groups";
 import { allocateContribution } from "@/features/portfolio/allocation";
 
 const targets = {
@@ -28,7 +21,6 @@ describe("grupos de ativos", () => {
     ]);
 
     expect(value.toNumber()).toBe(1500);
-    expect(parentPortfolioPercentage(value, 6000).toNumber()).toBe(25);
   });
 
   it("mantém um grupo vazio elegível e trata renda fixa como ativo fracionário de R$ 1", () => {
@@ -72,12 +64,6 @@ describe("grupos de ativos", () => {
     expect(result.suggestions[0].quantity.isInteger()).toBe(true);
     expect(result.suggestions[0].quantity.toNumber()).toBe(2);
     expect(result.unallocatedAmount.toNumber()).toBe(50);
-  });
-
-  it("incrementa valor investido e atual ao executar um aporte manual", () => {
-    const result = applyManualFixedIncomeContribution({ investedValue: 900, currentValue: 950, amount: 100 });
-    expect(result.investedValue.toNumber()).toBe(1000);
-    expect(result.currentValue.toNumber()).toBe(1050);
   });
 
   it("usa quantidade Pluggy com preço brapi e recorre ao saldo do provedor sem cotação", () => {

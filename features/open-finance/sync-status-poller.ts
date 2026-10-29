@@ -1,8 +1,8 @@
 export type PluggySyncStatus = { active: boolean; automatic: boolean };
 
-export const SYNC_ACTIVE_POLL_MS = 2_000;
-export const SYNC_IDLE_POLL_MS = 30_000;
-export const SYNC_MAX_RETRY_MS = 60_000;
+const SYNC_ACTIVE_POLL_MS = 2_000;
+const SYNC_IDLE_POLL_MS = 30_000;
+const SYNC_MAX_RETRY_MS = 60_000;
 
 type Options = {
   fetchStatus: (signal: AbortSignal) => Promise<PluggySyncStatus>;

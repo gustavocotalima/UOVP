@@ -1,27 +1,9 @@
-import { Prisma } from "@/generated/prisma/client";
 import { projectAccountInvestment } from "@/features/finance/account-investments";
 import { OperationLeaseLostError, type UserOperationLeaseContext, withUserOperationLease } from "@/lib/operation-security";
 import { prisma } from "@/lib/prisma";
 import { PLUGGY_DIAGRAM_EXCLUSION_REASON } from "./diagram-exclusion";
 import { hasPluggyQuantityOverride } from "./investment-quantity-override";
 import { resolveContributionQuantity } from "./contribution-quantity";
-
-async function invalidatePortfolioAfterDisconnection(
-  tx: Prisma.TransactionClient,
-  userId: string,
-  portfolioId: string | null,
-) {
-  if (portfolioId) {
-    await tx.portfolio.update({
-      where: { id: portfolioId },
-      data: { version: { increment: 1 } },
-    });
-  }
-  await tx.contributionSimulation.updateMany({
-    where: { userId, status: "DRAFT" },
-    data: { status: "STALE" },
-  });
-}
 
 async function markPluggyItemDisconnectedUnlocked(
   pluggyItemId: string,
@@ -157,7 +139,6 @@ async function resolvePluggyItemDisconnectionUnlocked(
         }]
       : [],
   );
-  const portfolioId = linked[0]?.holding.asset.portfolioId ?? null;
   const now = new Date();
 
   await lease.runFencedTransaction(async (tx) => {
@@ -281,7 +262,6 @@ async function resolvePluggyItemDisconnectionUnlocked(
       where: { id: item.id },
       data: { disconnectionResolution: resolution },
     });
-    await invalidatePortfolioAfterDisconnection(tx, userId, portfolioId);
   });
 }
 

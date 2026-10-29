@@ -64,7 +64,7 @@ Models accept at most 256 asset groups. Native Node workers execute outside the 
 
 ## History and verification
 
-Version 4 requires recalculating drafts from older versions. The existing server version check rejects their execution. Executed history and contributions awaiting synchronization retain their original data; this update adds no database migration.
+Calculations are returned to the browser without saving simulations or suggestions. The displayed result stays fixed until Calculate is clicked again, including while recording its purchases. Manual purchases update position quantity and cost without a local operation history. Only provider-sync pending contributions are stored, and confirmation removes them.
 
 - Financial preparation and validation: `features/portfolio/calculation/improved.ts`.
 - Budget planner: `features/portfolio/calculation/budget-policy.ts`.
@@ -72,7 +72,7 @@ Version 4 requires recalculating drafts from older versions. The existing server
 - Service and admission: `features/portfolio/calculation/server.ts` and `admission.ts`.
 - Proportions, existing positions, remainders and whole purchases: `tests/unit/allocation-balance.test.ts`.
 - Independent small-case comparisons: `tests/unit/allocation-methods.test.ts`.
-- Preferences, history and UI/MCP: `tests/integration/allocation-methods.test.ts`.
+- Preferences, pending contributions and UI/MCP: `tests/integration/allocation-methods.test.ts`.
 - Browser: `cypress/e2e/allocation-methods.cy.ts` and `allocation-budget-policy.cy.ts`.
 
 Personal financial captures and replays stay outside Git. Fees, broker-specific minimums and order execution are outside this apportionment.

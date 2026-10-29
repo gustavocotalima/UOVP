@@ -1,6 +1,6 @@
 import { Prisma } from "@/generated/prisma/client";
 
-export type InvestmentCostInput = {
+type InvestmentCostInput = {
   investedValue?: number | null;
   investedValueCurrency?: string | null;
 };

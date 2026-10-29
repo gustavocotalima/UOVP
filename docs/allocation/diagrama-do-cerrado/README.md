@@ -20,7 +20,7 @@ Both policies produce identical purchases until a global class ceiling actually 
 
 The adapter feeds its planned amount and effective class targets into the original two-pass core. The core still applies its own score gaps, reservation walk and rounding. A final safeguard rounds purchases down and rechecks class targets when the denominator falls, with at most 32 passes and a conservative fallback. Only the additional remainder stage skips the global cap; it may still leave money unallocated because of the core's rules. Neither mode exceeds the requested budget or sells existing holdings.
 
-Original and planning targets, policy, planned amount and remainder reasons are recorded in calculation diagnostics. Two-stage results also record the first-stage investment, its remaining budget and the additional investment. The returned quantities and values combine both stages by asset, without changing first-stage purchases. Displayed final percentages always use original total wealth plus actual investment. Unexecuted older drafts require recalculation; recorded and awaiting-sync history is preserved. Raw-core parity tests remain separate from adapter tests.
+Original and planning targets, policy, planned amount and remainder reasons are recorded in calculation diagnostics. Two-stage results also record the first-stage investment, its remaining budget and the additional investment. The returned quantities and values combine both stages by asset, without changing first-stage purchases. Displayed final percentages always use original total wealth plus actual investment. Calculations are not stored; only active synchronization pending entries are retained. Raw-core parity tests remain separate from adapter tests.
 
 ## Steps
 
@@ -40,9 +40,9 @@ The previous approximations that completed a unit at 94% or retained 99.48% of f
 
 Nonpositive scores, zero targets, invalid prices and currency exclusions prevent purchases. The omission rule can increase the remainder and change the distribution; this is intentionally preserved for compatibility.
 
-Results identify their method and version. UOVP's final percentages use all initial wealth plus actual investment, excluding the remainder. Persistence rounds fractional quantities and values down to ten decimal places to respect database precision and the budget. This subcent presentation difference is not a new allocation rule.
+Results identify their method and version. UOVP's final percentages use all initial wealth plus actual investment, excluding the remainder. Returned fractional quantities and values use ten decimal places. This subcent presentation difference is not a new allocation rule.
 
-Changing methods invalidates drafts and requires recalculation. Executed history and contributions awaiting synchronization are preserved. MCP returns previews only; calculation never places market orders.
+Calculations stay in the browser until Calculate is clicked again, including when settings change or purchases are recorded. Manual purchases update positions directly; only provider-sync pending contributions are stored and are removed after confirmation. MCP returns previews only; calculation never places market orders.
 
 Both methods share the per-account limit of one outstanding calculation and six starts per sliding minute per server process, counting UI and MCP clients together. See [execution limits](../melhorado/README.md#precision-and-execution).
 

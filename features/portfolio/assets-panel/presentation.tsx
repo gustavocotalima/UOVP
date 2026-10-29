@@ -20,7 +20,7 @@ export function ProviderQuantity({ metadata }: {
     Instituição: {metadata.providerMetadata.quantity === null ? "não informada" : <PrivateValue>{Number(metadata.providerMetadata.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 10 })}</PrivateValue>}
   </span>);
 }
-export function formatRateValue(value: string) {
+function formatRateValue(value: string) {
   return Number(value).toLocaleString("pt-BR", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,

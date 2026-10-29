@@ -13,7 +13,7 @@ import {
 
 export { mapFinanceTransaction } from "./read-models";
 
-export type FinanceTransactionPageMode = "MONTH" | "UNCLASSIFIED" | "DELETIONS";
+type FinanceTransactionPageMode = "MONTH" | "UNCLASSIFIED" | "DELETIONS";
 
 export type FinanceTransactionPageInput = {
   year: number;

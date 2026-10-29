@@ -1,4 +1,4 @@
-export type FinanceTransactionDirection = "INCOME" | "EXPENSE";
+type FinanceTransactionDirection = "INCOME" | "EXPENSE";
 
 export function resolvePluggyTransactionDirection(
   providerType: string | null | undefined,

@@ -28,13 +28,6 @@ export function selectPluggyItemsForAutomaticSync<T extends PluggyRefreshState>(
   return items.filter((item) => item.syncPending || isAutomaticRefreshStale(item.lastSyncAt, now));
 }
 
-export function shouldSyncPluggyItems(
-  items: readonly PluggyRefreshState[],
-  now = new Date(),
-) {
-  return selectPluggyItemsForAutomaticSync(items, now).length > 0;
-}
-
 export function shouldSyncBinanceConnection(
   connection: { syncPending: boolean; lastSyncAt: Date | string | null } | null | undefined,
   now = new Date(),

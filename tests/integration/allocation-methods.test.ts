@@ -1,13 +1,12 @@
 import { createPrismaClient } from "../../lib/prisma-client";
 import { randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
 import { afterAll, describe, expect, it, vi } from "vitest";
 
 const caller = vi.hoisted(() => ({ id: "" }));
 vi.mock("@/lib/current-user", () => ({ requireUserId: async () => caller.id }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 import { saveAllocationMethodAction } from "@/features/settings/actions";
-import { simulateContributionAction, executeContributionAction } from "@/features/portfolio/actions";
+import { calculateContributionAction, recordContributionAction } from "@/features/portfolio/actions";
 vi.mock("@/features/portfolio/yahoo-finance", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/features/portfolio/yahoo-finance")>(),
   fetchYahooFxRates: vi.fn(async () => [{ currency: "USD", rateToBrl: 1, asOf: new Date() }]),
@@ -34,70 +33,81 @@ suite("per-user allocation methods", () => {
     if (!db) return;
     await db.user.deleteMany({ where: { id: { in: users } } }); await db.$disconnect();
   });
-  it("defaults to Improved and records exact method/version without changing holdings", async () => {
+  it("returns the Improved method/version without saving calculations or changing holdings", async () => {
     const user = await fixture();
     expect(user.preference!.allocationMethod).toBe("IMPROVED");
     const before = await db!.assetHolding.findMany({ where: { asset: { portfolioId: user.portfolio!.id } } });
-    const result = await simulateContributionAction(100, "BRL", "BRL_ONLY");
+    const result = await calculateContributionAction(100, "BRL", "BRL_ONLY");
     expect(result.allocationMethod).toBe("IMPROVED");
     expect(result.calculation.algorithm).toBe("IMPROVED");
-    const saved = await db!.contributionSimulation.findUniqueOrThrow({ where: { id: result.id }, include: { suggestions: true } });
-    expect(saved.calculationVersion).toBe(ALLOCATION_VERSIONS.IMPROVED);
-    expect(saved.suggestions.reduce((a, s) => a.add(s.value), saved.unallocatedAmount).eq(saved.requestedAmount)).toBe(true);
+    expect(result.calculation.version).toBe(ALLOCATION_VERSIONS.IMPROVED);
+    expect(result.suggestions.reduce((sum, item) => sum + Number(item.value), Number(result.unallocatedAmount))).toBeCloseTo(Number(result.requestedAmount));
+    expect(await db!.pendingContribution.count({ where: { userId: user.id } })).toBe(0);
+    expect(await db!.pendingContribution.count({ where: { asset: { portfolioId: user.portfolio!.id } } })).toBe(0);
     expect(await db!.assetHolding.findMany({ where: { asset: { portfolioId: user.portfolio!.id } } })).toEqual(before);
   });
   it("rejects subcent input before storing a differently rounded native amount", async () => {
     const user = await fixture();
     for (const currency of ["BRL", "USD"] as const) {
-      await expect(simulateContributionAction(1.001, currency, "ALL_ASSETS")).rejects.toThrow("duas casas decimais");
+      await expect(calculateContributionAction(1.001, currency, "ALL_ASSETS")).rejects.toThrow("duas casas decimais");
     }
-    expect(await db!.contributionSimulation.count({ where: { userId: user.id } })).toBe(0);
+    expect(await db!.pendingContribution.count({ where: { userId: user.id } })).toBe(0);
   });
-  it("requires recalculation of an old Improved draft instead of executing v1 quantities", async () => {
+  it("records successive purchases from one calculation without saving its unused suggestions", async () => {
     const user = await fixture();
-    const result = await simulateContributionAction(100);
-    await db!.contributionSimulation.update({ where: { id: result.id }, data: { calculationVersion: "1" } });
-    const before = await db!.assetHolding.findMany({ where: { asset: { portfolioId: user.portfolio!.id } } });
-    expect(await executeContributionAction(result.id)).toEqual({ status: "INVALIDATED" });
-    expect(await db!.assetHolding.findMany({ where: { asset: { portfolioId: user.portfolio!.id } } })).toEqual(before);
+    await db!.asset.create({ data: {
+      portfolioId: user.portfolio!.id, ticker: "SECOND3", name: "Second", score: 10,
+      investmentClass: "BRAZILIAN_STOCKS", instrumentType: "STOCK",
+      holdings: { create: { issuer: "Synthetic", productName: "Second", quantity: 10, unitPrice: 25,
+        currency: "BRL", pricingSource: "MANUAL", positionSource: "MANUAL" } },
+    } });
+    const preview = await calculateContributionAction(1000);
+    expect(preview.suggestions).toHaveLength(2);
+    expect(await db!.pendingContribution.count({ where: { userId: user.id } })).toBe(0);
+    for (const suggestion of preview.suggestions) {
+      const request = { assetId: suggestion.assetId, quantity: Number(suggestion.quantity),
+        paidUnitPrice: 25, fxRateToBrl: null };
+      await expect(recordContributionAction(request)).resolves.toMatchObject({ awaitingSync: false });
+      const holding = await db!.assetHolding.findFirstOrThrow({ where: { assetId: suggestion.assetId } });
+      expect(holding.quantity.toNumber()).toBe(10 + Number(suggestion.quantity));
+      expect(await db!.pendingContribution.count({ where: { userId: user.id } })).toBe(0);
+
+    }
   });
-  it("isolates preferences, rejects invalid methods and invalidates only the caller's drafts", async () => {
-    const a = await fixture(); const b = await fixture();
-    caller.id = a.id; const draft = await simulateContributionAction(100);
-    caller.id = b.id; const other = await simulateContributionAction(100);
-    caller.id = a.id;
-    await expect(saveAllocationMethodAction("LEGACY")).rejects.toThrow();
+  it("keeps a displayed purchase usable after changes to quotes, targets and calculation method", async () => {
+    const user = await fixture();
+    const preview = await calculateContributionAction(100);
+    const suggestion = preview.suggestions[0];
     await saveAllocationMethodAction("CERRADO");
-    expect((await db!.userPreference.findUniqueOrThrow({ where: { userId: a.id } })).allocationMethod).toBe("CERRADO");
-    expect((await db!.userPreference.findUniqueOrThrow({ where: { userId: b.id } })).allocationMethod).toBe("IMPROVED");
-    expect((await db!.contributionSimulation.findUniqueOrThrow({ where: { id: draft.id } })).status).toBe("STALE");
-    expect((await db!.contributionSimulation.findUniqueOrThrow({ where: { id: other.id } })).status).toBe("DRAFT");
-    expect(await executeContributionAction(draft.id)).toEqual({ status: "INVALIDATED" });
-    expect((await simulateContributionAction(100)).allocationMethod).toBe("CERRADO");
+    await db!.investmentTarget.updateMany({ where: { userId: user.id }, data: { percentage: 0 } });
+    await db!.assetHolding.updateMany({ where: { assetId: suggestion.assetId }, data: { unitPrice: 30 } });
+    await expect(recordContributionAction({ assetId: suggestion.assetId,
+      quantity: 4, paidUnitPrice: 25, fxRateToBrl: null,
+    })).resolves.toMatchObject({ awaitingSync: false });
+    expect((await db!.assetHolding.findFirstOrThrow({ where: { assetId: suggestion.assetId } })).quantity.toString()).toBe("14");
+    expect(suggestion.quantity).toBe("4");
   });
-  it("keeps historical executions and awaiting-sync entries when the setting changes", async () => {
-    const user = await fixture(); const draft = await simulateContributionAction(100);
-    const completed = await db!.contributionSimulation.update({ where: { id: draft.id }, data: { status: "EXECUTED", calculationVersion: "1" } });
-    const suggestion = await db!.contributionSuggestion.findFirstOrThrow({ where: { simulationId: draft.id } });
-    await db!.contributionSuggestion.update({ where: { id: suggestion.id }, data: { executionStatus: "AWAITING_SYNC", awaitingSyncAt: new Date() } });
-    await saveAllocationMethodAction("CERRADO");
-    expect(await db!.contributionSimulation.findUniqueOrThrow({ where: { id: draft.id } })).toEqual(completed);
-    expect((await db!.contributionSuggestion.findUniqueOrThrow({ where: { id: suggestion.id } })).executionStatus).toBe("AWAITING_SYNC");
-    const v = (await db!.portfolio.findUniqueOrThrow({ where: { userId: user.id } })).version;
-    await saveAllocationMethodAction("CERRADO");
-    expect((await db!.portfolio.findUniqueOrThrow({ where: { userId: user.id } })).version).toBe(v);
+  it("rejects another user's asset without recording a purchase", async () => {
+    const user = await fixture(); const other = await fixture();
+    const asset = await db!.asset.findFirstOrThrow({ where: { portfolioId: other.portfolio!.id } });
+    caller.id = user.id;
+    await expect(recordContributionAction({ assetId: asset.id, quantity: 4,
+      paidUnitPrice: 25, fxRateToBrl: null,
+    })).rejects.toThrow("não está mais disponível");
+    expect(await db!.pendingContribution.count({ where: { userId: user.id } })).toBe(0);
+    expect((await db!.assetHolding.findFirstOrThrow({ where: { assetId: asset.id } })).quantity.toString()).toBe("10");
   });
   it("uses the saved method in MCP without saving or provisioning domain records", async () => {
     const user = await fixture(); await saveAllocationMethodAction("CERRADO");
-    const before = await db!.contributionSimulation.count({ where: { userId: user.id } });
+    const before = await db!.pendingContribution.count({ where: { userId: user.id } });
     const preview = await portfolioTools.find((t) => t.name === "preview_contribution")!.execute({
       userId: user.id, scopes: ["portfolio:read"], clientId: "test", grantId: "test", timeZone: "America/Sao_Paulo",
     }, { amount: "100", currency: "BRL", allocationScope: "BRL_ONLY" });
     expect(preview).toMatchObject({ status: "PREVIEW", saved: false, allocationMethod: "CERRADO" });
-    const ui = await simulateContributionAction(100, "BRL", "BRL_ONLY");
+    const ui = await calculateContributionAction(100, "BRL", "BRL_ONLY");
     expect((preview.suggestions as Array<{ assetId: string; valueBrl: string }>).map((s: { assetId: string; valueBrl: string }) => [s.assetId, s.valueBrl]))
       .toEqual(ui.suggestions.map((s) => [s.assetId, s.value]));
-    expect(await db!.contributionSimulation.count({ where: { userId: user.id } })).toBe(before + 1);
+    expect(await db!.pendingContribution.count({ where: { userId: user.id } })).toBe(before);
   });
   it("passes the same currency-scope target cap through UI and MCP Cerrado calculations", async () => {
     const user = await fixture();
@@ -113,14 +123,14 @@ suite("per-user allocation methods", () => {
     const preview = await portfolioTools.find((t) => t.name === "preview_contribution")!.execute({
       userId: user.id, scopes: ["portfolio:read"], clientId: "test", grantId: "test", timeZone: "America/Sao_Paulo",
     }, { amount: "1000", currency: "BRL", allocationScope: "BRL_ONLY" });
-    const ui = await simulateContributionAction(1000, "BRL", "BRL_ONLY");
+    const ui = await calculateContributionAction(1000, "BRL", "BRL_ONLY");
     expect(ui.suggestions).toHaveLength(1);
     expect(ui.suggestions[0].value).toBe("411");
     expect((preview.suggestions as Array<{ assetId: string; valueBrl: string }>).map((s) => [s.assetId, s.valueBrl]))
       .toEqual(ui.suggestions.map((s) => [s.assetId, s.value]));
   });
   for (const method of ["IMPROVED", "CERRADO"] as const) for (const currency of ["BRL", "USD"] as const) {
-    it(`${method} persists and shares both ${currency}-only budget policies with MCP`, async () => {
+    it(`${method} returns and shares both ${currency}-only budget policies with MCP`, async () => {
       const user = await fixture();
       const selected = currency === "BRL" ? "BRAZILIAN_STOCKS" : "INTERNATIONAL_STOCKS";
       const other = currency === "BRL" ? "INTERNATIONAL_STOCKS" : "BRAZILIAN_STOCKS";
@@ -144,13 +154,12 @@ suite("per-user allocation methods", () => {
       let remainderBudget = "";
       for (const budgetPolicy of ["TARGET_CAPPED", "FULL_BUDGET"] as const) {
         const scope = currency === "USD" ? "USD_ONLY" : "BRL_ONLY";
-        const ui = await simulateContributionAction(1000, currency, scope, budgetPolicy);
+        const ui = await calculateContributionAction(1000, currency, scope, budgetPolicy);
         const preview = await portfolioTools.find((t) => t.name === "preview_contribution")!.execute({
           userId: user.id, scopes: ["portfolio:read"], clientId: "test", grantId: "test", timeZone: "America/Sao_Paulo",
         }, { amount: "1000", currency, allocationScope: scope, budgetPolicy });
-        const saved = await db!.contributionSimulation.findUniqueOrThrow({ where: { id: ui.id } });
         expect(ui.budgetPolicy).toBe(budgetPolicy);
-        expect(saved.calculationDetails).toMatchObject({ budgetPolicy, originalTargets: { [selected]: "15" } });
+        expect(ui.calculation).toMatchObject({ budgetPolicy, originalTargets: { [selected]: "15" } });
         expect(ui.suggestions).toHaveLength(1);
         const spent = Number(ui.suggestions[0].value);
         expect(spent).toBeLessThanOrEqual(1000);
@@ -160,7 +169,7 @@ suite("per-user allocation methods", () => {
           cappedAmount = ui.suggestions[0].value;
           remainderBudget = ui.unallocatedAmount;
         } else {
-          expect(saved.calculationDetails).toMatchObject({ budgetStages: { cappedAmount, remainderBudget } });
+          expect(ui.calculation).toMatchObject({ budgetStages: { cappedAmount, remainderBudget } });
           expect(ui.calculation.budgetStages).toEqual((preview.calculation as typeof ui.calculation).budgetStages);
           expect(spent).toBeGreaterThanOrEqual(Number(cappedAmount));
         }
@@ -173,46 +182,13 @@ suite("per-user allocation methods", () => {
   }
   it("defaults the policy to capped and rejects unknown policies before persisting", async () => {
     const user = await fixture();
-    const result = await simulateContributionAction(100);
+    const result = await calculateContributionAction(100);
     expect(result.budgetPolicy).toBe("TARGET_CAPPED");
-    await expect(simulateContributionAction(100, "BRL", "BRL_ONLY", "INVALID" as never)).rejects.toThrow();
+    await expect(calculateContributionAction(100, "BRL", "BRL_ONLY", "INVALID" as never)).rejects.toThrow();
     await expect(portfolioTools.find((t) => t.name === "preview_contribution")!.execute({
       userId: user.id, scopes: ["portfolio:read"], clientId: "test", grantId: "test", timeZone: "America/Sao_Paulo",
     }, { amount: "100", budgetPolicy: "INVALID" })).rejects.toThrow();
-    expect(await db!.contributionSimulation.count({ where: { userId: user.id } })).toBe(1);
-  });
-  it.each(["IMPROVED", "CERRADO"] as const)("%s rejects drafts from before the budget-policy update", async (method) => {
-    await fixture(); await saveAllocationMethodAction(method);
-    const result = await simulateContributionAction(100);
-    await db!.contributionSimulation.update({ where: { id: result.id }, data: { calculationVersion: method === "IMPROVED" ? "3" : "2" } });
-    expect(await executeContributionAction(result.id)).toEqual({ status: "INVALIDATED" });
-  });
-
-  it("the data migration invalidates only incompatible unrecorded drafts", async () => {
-    const cases = [
-      { method: "IMPROVED", version: "2", recorded: null, expected: "STALE" },
-      { method: "CERRADO", version: "1", recorded: null, expected: "STALE" },
-      { method: "IMPROVED", version: "3", recorded: null, expected: "DRAFT" },
-      { method: "CERRADO", version: "2", recorded: null, expected: "DRAFT" },
-      { method: "IMPROVED", version: "2", recorded: "AWAITING_SYNC", expected: "DRAFT" },
-      { method: "CERRADO", version: "1", recorded: "EXECUTED", expected: "DRAFT" },
-    ] as const;
-    const ids: string[] = [];
-    for (const item of cases) {
-      await fixture(); await saveAllocationMethodAction(item.method);
-      const result = await simulateContributionAction(100);
-      ids.push(result.id);
-      await db!.contributionSimulation.update({ where: { id: result.id }, data: { calculationVersion: item.version } });
-      if (item.recorded) await db!.contributionSuggestion.updateMany({ where: { simulationId: result.id }, data: { executionStatus: item.recorded } });
-    }
-    const sql = readFileSync(new URL("../../prisma/migrations/20261028200000_allocation_budget_policies/migration.sql", import.meta.url), "utf8");
-    await db!.$executeRawUnsafe(sql);
-    for (const [i, item] of cases.entries()) {
-      const saved = await db!.contributionSimulation.findUniqueOrThrow({ where: { id: ids[i] }, include: { suggestions: true } });
-      expect(saved.status).toBe(item.expected);
-      expect(saved.calculationVersion).toBe(item.version);
-      if (item.recorded) expect(saved.suggestions[0].executionStatus).toBe(item.recorded);
-    }
+    expect(await db!.pendingContribution.count({ where: { userId: user.id } })).toBe(0);
   });
 
 });

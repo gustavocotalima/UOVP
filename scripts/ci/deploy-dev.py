@@ -76,11 +76,14 @@ def validate_databases(api, application):
     return resources
 
 
-def sleep_dev(api, sha, resources):
+def sleep_dev(api, sha, resources, application):
     deployments = api("/deployments/applications/" + DEV_APPLICATION)["deployments"]
     if any(item.get("status") in {"queued", "pending", "in_progress"} for item in deployments):
         print("Skipped sleep: a dev deployment is still active.")
         return
+    server_uuid = ((application.get("destination") or {}).get("server") or {}).get("uuid")
+    if not isinstance(server_uuid, str) or not re.fullmatch(r"[a-z0-9]+", server_uuid):
+        raise RuntimeError("Cannot verify volume retention for the dev server.")
     targets = [("/applications/" + DEV_APPLICATION, ("stop", DEV_APPLICATION))]
     targets.extend(("/databases/" + resource["uuid"], ("database", "stop", resource["uuid"])) for resource in reversed(resources))
     for path, command in targets:
@@ -90,6 +93,9 @@ def sleep_dev(api, sha, resources):
         if not state or not state["equal"]:
             print("Skipped remaining stops: the branch state changed.")
             return
+        policy = api("/servers/" + server_uuid + "/docker-cleanup")
+        if policy.get("delete_unused_volumes") is not False:
+            raise RuntimeError("Refusing to sleep dev while unused-volume deletion is enabled or unknown.")
         if not stopped(api(path)):
             run_deploy_tool(*command)
             wait_resource(api, path, asleep=True)
@@ -157,7 +163,7 @@ def main():
         raise RuntimeError("The target is not the expected dev application.")
     resources = validate_databases(api, application)
     if state["equal"] and mode == "auto":
-        sleep_dev(api, sha, resources)
+        sleep_dev(api, sha, resources, application)
         return
     if not wake_databases(api, sha, resources):
         return
@@ -166,7 +172,7 @@ def main():
         print("Skipped deployment: a newer dev commit exists.")
         return
     if latest["equal"] and mode == "auto":
-        sleep_dev(api, sha, resources)
+        sleep_dev(api, sha, resources, application)
         return
     # Coolify's restart API resolves HEAD unless the app is explicitly pinned.
     # Pin before queueing: later pushes cannot cause untested code to be deployed.

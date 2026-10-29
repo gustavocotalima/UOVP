@@ -24,7 +24,7 @@ const pageSchema = {
 const nullableText = z.string().nullable();
 const recordSchema = z.record(z.string(), z.unknown());
 const summaryOutput = {
-  portfolioId: nullableText, portfolioVersion: z.number().nullable(), currency: z.literal("BRL"),
+  portfolioId: nullableText, currency: z.literal("BRL"),
   totalValueBrl: nullableText, knownSubtotalBrl: z.string(), complete: z.boolean(),
   valuationIssues: z.array(z.object({ holdingId: z.string(), assetId: z.string(), issue: z.string() })),
   truncated: z.boolean(), pendingPluggyReview: z.number(), pendingAccountBalanceReview: z.number(), unselectedBinanceAssets: z.number(),
@@ -62,7 +62,7 @@ const holdingSelect = {
   pluggyDiagramLink: { select: {
     id: true, status: true, metadataOverrideFields: true, metadataOverrideUpdatedAt: true,
     overrideQuantity: true,
-    contributionBatches: { where: { state: { in: ["WAITING", "CONFLICT"] } }, select: { id: true, state: true, expectedQuantity: true, suggestions: { where: { executionStatus: "AWAITING_SYNC" }, select: { id: true } } } },
+    contributionBatches: { where: { state: { in: ["WAITING", "CONFLICT"] } }, select: { id: true, state: true, expectedQuantity: true, contributions: { select: { id: true } } } },
     investment: { select: providerSelect },
   } },
   binanceWalletAsset: { select: {
@@ -221,7 +221,7 @@ function holdingDto(holding: Holding) {
       source: link.contributionBatches?.length ? "CONTRIBUTION" : "USER_OVERRIDE",
       restoresAutomatically: Boolean(link.contributionBatches?.length),
       reconciliationState: link.contributionBatches?.[0]?.state ?? null,
-      pendingContributions: link.contributionBatches?.[0]?.suggestions.length ?? 0,
+      pendingContributions: link.contributionBatches?.[0]?.contributions.length ?? 0,
     } : null,
     metadataOverrideUpdatedAt: iso(link?.metadataOverrideUpdatedAt),
     importedOperationCount: provider?._count.transactions ?? 0,
@@ -254,7 +254,7 @@ async function validateHoldingCursor(db: Prisma.TransactionClient, context: McpC
 
 async function loadPortfolio(db: Prisma.TransactionClient, context: McpContext) {
   const [portfolio, assetRows, holdings, targets, reviewCounts, binanceCounts, accountReviewCounts] = await Promise.all([
-    db.portfolio.findUnique({ where: { userId: context.userId }, select: { id: true, version: true, updatedAt: true } }),
+    db.portfolio.findUnique({ where: { userId: context.userId }, select: { id: true, updatedAt: true } }),
     db.asset.findMany({
       where: { portfolio: { userId: context.userId } }, orderBy: { id: "asc" },
       take: MAX_ANALYSIS_HOLDINGS + 1,
@@ -304,7 +304,6 @@ function summarizePortfolio(data: Awaited<ReturnType<typeof loadPortfolio>>) {
   const complete = !data.truncated && !issues.length;
   return {
     portfolioId: data.portfolio?.id ?? null,
-    portfolioVersion: data.portfolio?.version ?? null,
     currency: "BRL",
     totalValueBrl: complete ? knownTotal.toString() : null,
     knownSubtotalBrl: knownTotal.toString(),
@@ -315,7 +314,7 @@ function summarizePortfolio(data: Awaited<ReturnType<typeof loadPortfolio>>) {
     pendingAccountBalanceReview: data.accountReviewCounts,
     unselectedBinanceAssets: data.binanceCounts,
     pendingPositionsIncludedInTotals: false,
-    projectedContributionCount: data.assets.reduce((total, asset) => total + asset.holdings.reduce((count, holding) => count + (holding.pluggyDiagramLink?.contributionBatches?.[0]?.suggestions.length ?? 0), 0), 0),
+    projectedContributionCount: data.assets.reduce((total, asset) => total + asset.holdings.reduce((count, holding) => count + (holding.pluggyDiagramLink?.contributionBatches?.[0]?.contributions.length ?? 0), 0), 0),
     allocation: INVESTMENT_CLASSES.map((key) => {
       const group = classes.get(key)!;
       const actual = complete && knownTotal.gt(0) ? group.known.div(knownTotal).mul(100) : null;
@@ -458,7 +457,7 @@ export const portfolioTools: McpToolDefinition[] = [
   },
   {
     name: "list_investment_operations", title: "Investment operations",
-    description: "Read imported operations OR locally recorded aportes for an owned asset (at most 12 months/page). The two sources are distinct; available history is not guaranteed complete.",
+    description: "Read imported operations OR contributions awaiting synchronization for an owned asset (at most 12 months/page). LOCAL excludes completed purchases; imported history is not guaranteed complete.",
     scope: "portfolio:read",
     inputSchema: {
       ...pageSchema, assetId: z.string().min(1).max(200),
@@ -498,32 +497,25 @@ export const portfolioTools: McpToolDefinition[] = [
           warnings: ["Imported operations can be incomplete. Caixinhas and Binance balances do not expose individual imported operations; foreign operations do not have a frozen BRL reporting amount in this model."],
         };
       }
-      const where: Prisma.ContributionSuggestionWhereInput = {
-        assetId: input.assetId, asset: { portfolio: { userId: context.userId } },
-        executionStatus: { in: ["AWAITING_SYNC", "EXECUTED"] },
-        simulation: { userId: context.userId, createdAt: { gte: range.startAt, lt: range.endExclusive } },
+      const where: Prisma.PendingContributionWhereInput = {
+        userId: context.userId, assetId: input.assetId, asset: { portfolio: { userId: context.userId } },
+        awaitingSyncAt: { gte: range.startAt, lt: range.endExclusive },
       };
-      if (input.cursor && !await db.contributionSuggestion.findFirst({ where: { ...where, id: input.cursor }, select: { id: true } })) throw new McpError("NOT_FOUND", "Operation cursor is unavailable.", 404);
-      const rows = await db.contributionSuggestion.findMany({
-        where, orderBy: { id: "desc" }, take: input.limit + 1,
+      if (input.cursor && !await db.pendingContribution.findFirst({ where: { ...where, id: input.cursor }, select: { id: true } })) throw new McpError("NOT_FOUND", "Operation cursor is unavailable.", 404);
+      const rows = await db.pendingContribution.findMany({ where, orderBy: { id: "desc" }, take: input.limit + 1,
         ...(input.cursor ? { cursor: { id: input.cursor }, skip: 1 } : {}),
-        select: { id: true, quantity: true, value: true, nativeCurrency: true, nativeValue: true, paidUnitPrice: true, paidUnitPriceNative: true, executionFxRateToBrl: true, executionStatus: true, awaitingSyncAt: true, usesQuantityProjection: true, syncResolution: true,
-          simulation: { select: { createdAt: true, executedAt: true } } },
+        select: { id: true, quantity: true, value: true, nativeCurrency: true, nativeValue: true, paidUnitPrice: true,
+          paidUnitPriceNative: true, executionFxRateToBrl: true, awaitingSyncAt: true, contributionBatchId: true, needsReview: true },
       });
       const result = page(rows, input.limit);
-      return {
-        source: "LOCAL", asset: assetDto(asset), period: { startDate: range.startDate, endDate: range.endDate },
-        operations: result.rows.map((row) => ({
-          id: row.id, kind: "RECORDED_APORTE", status: row.executionStatus,
-          quantityProjected: row.usesQuantityProjection, syncResolution: row.syncResolution,
-          recordedAt: iso(row.simulation.createdAt), executedAt: iso(row.simulation.executedAt), awaitingSyncAt: iso(row.awaitingSyncAt),
-          quantity: row.quantity.toString(), plannedValueBrl: row.value.toString(),
-          nativeCurrency: row.nativeCurrency, plannedNativeValue: row.nativeValue?.toString() ?? null,
-          paidUnitPriceBrl: row.paidUnitPrice?.toString() ?? null,
-          paidUnitPriceNative: row.paidUnitPriceNative?.toString() ?? null,
-          executionFxRateToBrl: row.executionFxRateToBrl?.toString() ?? null,
+      return { source: "LOCAL", asset: assetDto(asset), period: { startDate: range.startDate, endDate: range.endDate },
+        operations: result.rows.map((row) => ({ id: row.id, kind: "PENDING_APORTE", status: "AWAITING_SYNC",
+          quantityProjected: Boolean(row.contributionBatchId), needsReview: row.needsReview, awaitingSyncAt: iso(row.awaitingSyncAt),
+          quantity: row.quantity.toString(), valueBrl: row.value.toString(), nativeCurrency: row.nativeCurrency,
+          nativeValue: row.nativeValue?.toString() ?? null, paidUnitPriceBrl: row.paidUnitPrice?.toString() ?? null,
+          paidUnitPriceNative: row.paidUnitPriceNative?.toString() ?? null, executionFxRateToBrl: row.executionFxRateToBrl?.toString() ?? null,
         })), nextCursor: result.nextCursor,
-        warnings: ["These are aportes recorded in UOVP, not a complete bank/broker operation history. Awaiting-sync entries are not confirmed provider operations."],
+        warnings: ["LOCAL contains only contributions awaiting synchronization; completed manual purchases have no local operation history."],
       };
     }),
   },
@@ -568,7 +560,7 @@ export const portfolioTools: McpToolDefinition[] = [
     outputSchema: {
       status: z.enum(["UNAVAILABLE", "PREVIEW"]), saved: z.literal(false), executed: z.literal(false).optional(),
       reason: z.string().optional(), summary: z.object(summaryOutput).optional(),
-      portfolioVersion: z.number().nullable().optional(), inputAmount: z.string().optional(),
+      inputAmount: z.string().optional(),
       inputCurrency: z.enum(["BRL", "USD"]).optional(), allocationScope: z.enum(["ALL_ASSETS", "BRL_ONLY", "USD_ONLY"]).optional(), budgetPolicy: z.enum(BUDGET_POLICIES).optional(),
       requestedAmountBrl: z.string().optional(), unallocatedAmountBrl: z.string().optional(), unallocatedInputAmount: z.string().optional(),
       calculation: recordSchema.optional(), allocationMethod: z.enum(["IMPROVED", "CERRADO"]).optional(),
@@ -627,7 +619,7 @@ export const portfolioTools: McpToolDefinition[] = [
       const byId = new Map(assets.map((asset) => [asset.id, asset]));
       return {
         calculation: result.calculation, allocationMethod, budgetPolicy: input.budgetPolicy,
-        status: "PREVIEW", saved: false, executed: false, portfolioVersion: data.portfolio?.version ?? null,
+        status: "PREVIEW", saved: false, executed: false,
         inputAmount: amount.toString(), inputCurrency: input.currency, allocationScope,
         requestedAmountBrl: amount.mul(fx).toString(), unallocatedAmountBrl: result.unallocatedAmount.toString(),
         unallocatedInputAmount: result.unallocatedAmount.div(fx).toString(),
@@ -649,7 +641,7 @@ export const portfolioTools: McpToolDefinition[] = [
             providerControlled: asset.holdings.some((holding) => holding.positionSource !== "MANUAL"),
           };
         }),
-        warnings: [...result.calculation.warnings, "This simulation is hypothetical and was not saved or executed. Provider-controlled quantities would wait for provider reconciliation.", ...(input.currency === "USD" && stale(fxUpdatedAt) ? ["Stored USD/BRL is stale; refresh in UOVP for a current simulation."] : [])],
+        warnings: ["This simulation is hypothetical and was not saved or executed. Provider-controlled quantities would wait for provider reconciliation.", ...(input.currency === "USD" && stale(fxUpdatedAt) ? ["Stored USD/BRL is stale; refresh in UOVP for a current simulation."] : [])],
       };
     },
   },

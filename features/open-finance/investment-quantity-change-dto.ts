@@ -12,7 +12,7 @@ export function pluggyQuantityChangeDto({ link, investment, holding }: {
     overrideQuantity: Prisma.Decimal | null;
     overrideQuantityProviderQuantity: Prisma.Decimal | null;
     overrideQuantityAcknowledgedAt: Date | null;
-    contributionBatches?: { id: string; state: string; revision: number; expectedQuantity: Prisma.Decimal; acknowledgedQuantity: Prisma.Decimal; suggestions: { executionStatus: string }[] }[];
+    contributionBatches?: { id: string; state: string; revision: number; expectedQuantity: Prisma.Decimal; acknowledgedQuantity: Prisma.Decimal; contributions: { id: string }[] }[];
   } | null;
   investment: {
     source: string;
@@ -43,7 +43,7 @@ export function pluggyQuantityChangeDto({ link, investment, holding }: {
       institution: investment.item.displayName?.trim() || resolvePluggyInstitutionName(investment.item.institutionName, investment.item.connectorName, []),
       previousProviderQuantity: batch.acknowledgedQuantity.toString(), providerQuantity: investment.quantity?.toString() ?? null,
       manualQuantity: batch.expectedQuantity.toString(), contributionBatchId: batch.id, expectedRevision: batch.revision,
-      pendingContributions: batch.suggestions.filter((s) => s.executionStatus === "AWAITING_SYNC").length,
+      pendingContributions: batch.contributions.length,
     };
   }
   if (!canEditPluggyInvestmentQuantity({ link, investment, holding })) return null;

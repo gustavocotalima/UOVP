@@ -82,6 +82,7 @@ Não há campo de API key ou bearer token fixo para usuários. O cookie de login
 - Custos de posições informam `investedValue` e `investedValueCurrency` separadamente da moeda da cotação. `investedValueNative` só é preenchido quando a moeda do custo corresponde à moeda nativa da posição; custos legados ambíguos têm moeda `null` e `costBasisIssue: "UNKNOWN_COST_CURRENCY"`. O câmbio atual não reconstrói custos históricos desconhecidos.
 - Resumos e metas usam a compensação líquida existente, por meta e mês. O calendário mantém o valor integral dos lançamentos; tags representam entradas e saídas reais.
 - Exclusões dos relatórios, transferências internas, câmbio ausente, disponibilidade do provedor e estados de revisão/acompanhamento seguem as regras do app.
+- As operações de investimento mantêm o histórico importado dos provedores. `source: "LOCAL"` retorna somente aportes aguardando sincronização; compras manuais concluídas não geram histórico local.
 - Informações efetivas do investimento ficam separadas do último valor original do provedor. Histórico incompleto não permite presumir rentabilidade completa.
 - Respostas informam momento da consulta, datas relevantes de sincronização/cotação/câmbio e limites de cobertura. Valores desconhecidos não viram zero silenciosamente.
 - Consultas MCP não chamam Pluggy, sincronização Binance ou atualização de mercado. Se os dados estiverem antigos, atualize pelo UOVP e pergunte novamente. O app autenticado continua com seu coordenador automático existente.

@@ -133,7 +133,7 @@ export type BrapiTickerSearchResult = {
   logoUrl: string | null;
 };
 
-export type CachedBrapiQuote = {
+type CachedBrapiQuote = {
   quote: BrapiQuote;
   cachedAt: Date;
 };
@@ -156,19 +156,6 @@ export async function readCachedBrapiQuotes(tickers: string[]) {
       ? [[symbol, { quote: hit.value, cachedAt: new Date(hit.cachedAt) }] as const]
       : [];
   }));
-}
-
-export function preferredBrapiLogoUrl({
-  metadataLogoUrl,
-  existingLogoUrl,
-}: {
-  metadataLogoUrl: string | null | undefined;
-  quoteLogoUrl: string | null | undefined;
-  existingLogoUrl: string | null | undefined;
-}) {
-  return usableBrapiLogoUrl(metadataLogoUrl)
-    ?? usableBrapiLogoUrl(existingLogoUrl)
-    ?? null;
 }
 
 export class BrapiApiError extends Error {
@@ -263,54 +250,6 @@ export async function searchBrapiTickers({
     operation: load,
     readAfterWait: (lockStartedAt) => readCached(cacheMode === "REFRESH" ? lockStartedAt : 0),
   });
-}
-
-export async function fetchBrapiTickerMetadata({
-  tickers,
-  fetcher = fetch,
-  signal,
-  cacheMode = "USE_CACHE",
-}: {
-  tickers: string[];
-  fetcher?: typeof fetch;
-  signal?: AbortSignal;
-  cacheMode?: MarketCacheMode;
-}): Promise<BrapiTickerSearchResult[]> {
-  const symbols = [...new Set(tickers.map(normalizeBrapiSymbol).filter(Boolean))];
-  const useSharedCache = fetcher === fetch && isSharedCacheConfigured();
-  const keysBySymbol = new Map(symbols.map((symbol) => [
-    symbol,
-    sharedCacheKey("brapi:metadata", symbol),
-  ]));
-  const cached = useSharedCache && cacheMode === "USE_CACHE"
-    ? await getSharedCacheMany(
-        [...keysBySymbol.values()],
-        (value) => {
-          const parsed = cachedTickerSchema.safeParse(value);
-          return parsed.success ? parsed.data : null;
-        },
-      )
-    : new Map();
-  const results = new Map(symbols.flatMap((symbol) => {
-    const hit = cached.get(keysBySymbol.get(symbol)!);
-    return hit ? [[symbol, hit.value] as const] : [];
-  }));
-  const missing = symbols.filter((symbol) => !results.has(symbol));
-  const settled = await Promise.allSettled(missing.map(async (symbol) => {
-    const matches = await searchBrapiTickers({ query: symbol, fetcher, signal, cacheMode });
-    return matches.find((candidate) => candidate.symbol === symbol) ?? null;
-  }));
-  const fetched = settled.flatMap((result) =>
-    result.status === "fulfilled" && result.value ? [result.value] : []
-  );
-  for (const item of fetched) results.set(item.symbol, item);
-  if (useSharedCache) {
-    await setSharedCacheMany(fetched.map((item) => ({
-      key: keysBySymbol.get(item.symbol)!,
-      value: item,
-    })));
-  }
-  return symbols.flatMap((symbol) => results.get(symbol) ?? []);
 }
 
 export async function searchBrapiEtfTickers({

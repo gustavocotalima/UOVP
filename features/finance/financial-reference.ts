@@ -127,7 +127,7 @@ export async function writeFinancialReferenceBatches(
   }
 }
 
-export type FinancialReferenceChange = {
+type FinancialReferenceChange = {
   id: string;
   date: Date;
   referenceYear: number;

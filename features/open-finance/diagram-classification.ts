@@ -5,7 +5,7 @@ import type {
   RateConvention,
 } from "@/generated/prisma/client";
 
-export type PluggyInvestmentForClassification = {
+type PluggyInvestmentForClassification = {
   id: string;
   pluggyInvestmentId: string;
   source?: string;
@@ -62,7 +62,7 @@ export function normalizePluggyTicker(value: string | null | undefined) {
   return normalizedText(value).replace(/\.SA$/, "");
 }
 
-export function normalizeFundDocument(value: string | null | undefined) {
+function normalizeFundDocument(value: string | null | undefined) {
   const digits = (value ?? "").replace(/\D/g, "");
   return digits.length === 14 ? digits : null;
 }
@@ -71,16 +71,12 @@ export function isPluggyPositionActive(position: { status: string | null; provid
   return position.providerAvailable && position.status === "ACTIVE";
 }
 
-export function isPluggyPositionSold(position: { status: string | null }) {
-  return position.status === "TOTAL_WITHDRAWAL";
-}
-
 export function fundAssetCode(investment: Pick<PluggyInvestmentForClassification, "code" | "pluggyInvestmentId">) {
   const document = normalizeFundDocument(investment.code);
   return document ? `FND-${document}` : `FND-${investment.pluggyInvestmentId.replace(/-/g, "").slice(0, 12).toUpperCase()}`;
 }
 
-export function inferFixedIncomeIndexation(
+function inferFixedIncomeIndexation(
   investment: Pick<PluggyInvestmentForClassification, "name" | "type" | "rateType" | "fixedAnnualRate" | "rate">,
 ) {
   const rateType = normalizedText(investment.rateType);
@@ -96,7 +92,7 @@ export function inferFixedIncomeIndexation(
   return null;
 }
 
-export function inferRateDetails(
+function inferRateDetails(
   investment: Pick<PluggyInvestmentForClassification, "rateType" | "fixedAnnualRate" | "rate">,
 ) {
   const benchmark = normalizedText(investment.rateType) || null;

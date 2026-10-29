@@ -297,7 +297,7 @@ describe("modais da carteira", () => {
     cy.get('[role="dialog"]').should("contain", "Nota do ETF (manual)").and("not.contain", "ROE historicamente");
   });
 
-  it("recalcula um aporte invalidado e permite registrar a nova sugestão", () => {
+  it("preserva o cálculo e registra a compra mesmo após mudanças na carteira", () => {
     cy.get<string>("@testUserEmail").then((email) => cy.task("seedYahooMarketLogo", { email, quantity: 32 }));
     cy.reload();
     cy.waitForHydration();
@@ -325,18 +325,11 @@ describe("modais da carteira", () => {
     cy.get('[role="dialog"]').contains(/Valor informado:\s*US\$\s*300,00\s*·\s*R\$\s*[\d.]+,\d{2}/);
 
     cy.get<string>("@testUserEmail").then((email) => {
-      cy.task("invalidateContributionSimulations", { email });
+      cy.task("changeContributionPosition", { email });
     });
     cy.get('[role="dialog"]').contains("button", "Aportar").click();
-    cy.contains("A carteira mudou. Revise a nova sugestão antes de registrar o aporte.").should("be.visible");
+    cy.contains("A carteira mudou").should("not.exist");
     cy.get('[role="dialog"]').should("not.exist");
-    cy.get('table[aria-label="Sugestões de investimento"]')
-      .contains("tr", "AAPL")
-      .contains("button", "Aportar")
-      .click();
-    cy.get("#contribution-quantity").type("{selectall}1");
-    cy.get("#contribution-unit-price").type("{selectall}100");
-    cy.get('[role="dialog"]').contains("button", "Aportar").click();
     cy.get('table[aria-label="Sugestões de investimento"]').should("contain.text", "Aporte registrado");
   });
 });

@@ -39,7 +39,6 @@ describe("replacement allocation engines", () => {
     expect(r.calculation.algorithm).toBe("IMPROVED");
     expect(r.suggestions.map((s) => s.quantity.toNumber())).toEqual([25, 25]);
     expect(r.unallocatedAmount.toNumber()).toBe(25);
-    expect(r.calculation.warnings).toEqual([]);
     expect(r.calculation.heuristic?.priorities).toEqual(["class_balance", "score_balance", "budget_use"]);
   });
   it("keeps large whole-unit allocations close to budget", () => {

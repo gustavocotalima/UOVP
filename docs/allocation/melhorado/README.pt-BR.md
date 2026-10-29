@@ -64,7 +64,7 @@ O modelo aceita até 256 grupos de ativos. Workers nativos do Node executam fora
 
 ## Histórico e verificação
 
-A versão 4 exige recalcular rascunhos de versões anteriores. A verificação de versão já existente no servidor recusa sua execução. Histórico executado e aportes aguardando sincronização mantêm seus dados originais; esta atualização não adiciona migração de banco.
+Os cálculos são retornados ao navegador sem salvar simulações ou sugestões. O resultado permanece fixo até clicar em Calcular novamente, inclusive durante o registro das compras. Compras manuais atualizam quantidade e custo da posição, sem histórico local de operações. Apenas pendências de sincronização são gravadas e são removidas após a confirmação.
 
 - Preparação e validação financeira: `features/portfolio/calculation/improved.ts`.
 - Planejamento do orçamento: `features/portfolio/calculation/budget-policy.ts`.
@@ -72,7 +72,7 @@ A versão 4 exige recalcular rascunhos de versões anteriores. A verificação d
 - Serviço e admissão: `features/portfolio/calculation/server.ts` e `admission.ts`.
 - Proporções, posições existentes, sobras e compras inteiras: `tests/unit/allocation-balance.test.ts`.
 - Comparações pequenas independentes: `tests/unit/allocation-methods.test.ts`.
-- Preferências, histórico e interface/MCP: `tests/integration/allocation-methods.test.ts`.
+- Preferências, pendências e interface/MCP: `tests/integration/allocation-methods.test.ts`.
 - Navegador: `cypress/e2e/allocation-methods.cy.ts` e `allocation-budget-policy.cy.ts`.
 
 Capturas financeiras pessoais e seus replays ficam fora do Git. Taxas, mínimos de corretoras e execução de ordens não fazem parte desta distribuição.

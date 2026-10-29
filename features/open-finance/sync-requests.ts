@@ -4,7 +4,7 @@ import { Prisma } from "@/generated/prisma/client";
 
 type SyncRequestTransaction = Pick<Prisma.TransactionClient, "$executeRaw" | "$queryRaw">;
 
-export type PluggySyncRequestState = {
+type PluggySyncRequestState = {
   syncRequestedVersion: number;
   syncProcessedVersion: number;
   syncPending: boolean;

@@ -42,7 +42,7 @@ export type MarketTickerOption = (BrapiTickerSearchResult & {
 }) | (BinanceAssetSearchResult & {
   provider: "BINANCE";
 });
-export type MarketTickerSearch = {
+type MarketTickerSearch = {
   provider: "BRAPI";
   kind: InvestmentClassKey | "ETF";
 } | {

@@ -48,9 +48,6 @@ vi.mock("@/features/portfolio/data", () => ({
   getPortfolioData: vi.fn(),
 }));
 
-vi.mock("@/features/portfolio/invalidation", () => ({
-  bumpPortfolioAndInvalidateDrafts: mocks.bumpPortfolioAndInvalidateDrafts,
-}));
 
 import { saveFixedIncomeGroupAction } from "@/features/portfolio/actions";
 

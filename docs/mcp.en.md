@@ -82,6 +82,7 @@ There is no API-key or fixed bearer-token input for users, and a browser login c
 - Position costs expose `investedValue` and `investedValueCurrency` separately from the quote currency. `investedValueNative` is populated only when the cost currency matches the holding's native currency; ambiguous legacy costs have a `null` currency and `costBasisIssue: "UNKNOWN_COST_CURRENCY"`. Current FX does not reconstruct unknown historical costs.
 - Summaries and goal progress use UOVP's existing same-goal, same-month net compensation. Calendar transactions retain full reporting amounts; tag flows represent actual entries and exits.
 - Report exclusions, internal transfers, missing FX, provider availability, and review/tracking states retain the application's rules.
+- Investment operations keep their imported provider history. `source: "LOCAL"` returns only contributions awaiting synchronization; completed manual purchases do not create local history.
 - Effective investment metadata is distinguished from the latest original provider metadata. Missing history does not imply a complete return calculation.
 - Responses identify their retrieval time, relevant stored sync/price/FX timestamps, and missing or incomplete coverage. Unknown amounts are not silently treated as zero.
 - MCP reads do not call Pluggy, Binance wallet sync, or market refresh. If data is stale, update it in UOVP and ask the agent again. The normal authenticated app still has its existing automatic update coordinator.

@@ -20,7 +20,7 @@ type SharedCacheEnvelope = {
   value: unknown;
 };
 
-export type SharedCacheHit<T> = {
+type SharedCacheHit<T> = {
   cachedAt: number;
   ageMs: number;
   value: T;

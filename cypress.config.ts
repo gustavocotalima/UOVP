@@ -175,19 +175,20 @@ export default defineConfig({
             await prisma.$disconnect();
           }
         },
-        async invalidateContributionSimulations({ email }: { email: string }) {
+        async getPendingContributionCount({ email }: { email: string }) {
+          if (!/^cypress-[^@]+@example\.com$/.test(email)) throw new Error("Only Cypress users may be inspected");
+          const prisma = createPrismaClient();
+          try { const user = await prisma.user.findUniqueOrThrow({ where: { email } });
+            return prisma.pendingContribution.count({ where: { userId: user.id } });
+          } finally { await prisma.$disconnect(); }
+        },
+        async changeContributionPosition({ email }: { email: string }) {
           if (!/^cypress-[^@]+@example\.com$/.test(email)) throw new Error("Only Cypress users may be updated");
           const prisma = createPrismaClient();
           try {
             const user = await prisma.user.findUniqueOrThrow({ where: { email }, include: { portfolio: true } });
             if (!user.portfolio) throw new Error("Portfolio not found");
-            await prisma.$transaction(async (tx) => {
-              await tx.portfolio.update({ where: { id: user.portfolio!.id }, data: { version: { increment: 1 } } });
-              await tx.contributionSimulation.updateMany({
-                where: { userId: user.id, status: "DRAFT" },
-                data: { status: "STALE" },
-              });
-            });
+            await prisma.assetHolding.updateMany({ where: { asset: { portfolioId: user.portfolio.id } }, data: { unitPrice: { increment: 1 } } });
             return true;
           } finally {
             await prisma.$disconnect();
@@ -793,6 +794,26 @@ export default defineConfig({
           } finally {
             await prisma.$disconnect();
           }
+        },
+        async seedDisconnectedContributionPosition({ email }: { email: string }) {
+          if (!/^cypress-[^@]+@example\.com$/.test(email)) throw new Error("Only Cypress users may be seeded");
+          const prisma = createPrismaClient();
+          try {
+            await prisma.pluggyItem.updateMany({ where: { user: { email } }, data: { status: "DELETED", disconnectedAt: new Date(), syncPending: false, disconnectionResolution: "KEEP_MANUAL" } });
+            return null;
+          } finally { await prisma.$disconnect(); }
+        },
+        async seedSyncedContributionQuantity({ email, quantity }: { email: string; quantity: number }) {
+          if (!/^cypress-[^@]+@example\.com$/.test(email)) throw new Error("Only Cypress users may be seeded");
+          const prisma = createPrismaClient();
+          try {
+            const link = await prisma.pluggyInvestmentDiagramLink.findFirstOrThrow({ where: { user: { email }, investment: { code: "ITUB3" } } });
+            await prisma.$transaction([
+              prisma.pluggyInvestment.update({ where: { id: link.pluggyInvestmentDbId }, data: { quantity, balance: quantity * 50, providerUpdatedAt: new Date() } }),
+              prisma.assetHolding.update({ where: { id: link.assetHoldingId! }, data: { quantity, providerCurrentValue: quantity * 50 } }),
+            ]);
+            return null;
+          } finally { await prisma.$disconnect(); }
         },
         async getPluggyQuantityOverrideState({ email }: { email: string }) {
           if (!/^cypress-[^@]+@example\.com$/.test(email)) throw new Error("Only Cypress users may be inspected");

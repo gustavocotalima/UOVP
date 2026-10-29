@@ -18,7 +18,7 @@ export const AUVP_FINANCE_TAGS = Object.entries(DEFAULT_FINANCE_TAGS).map(
   ([systemKey, tag]) => ({ systemKey, ...tag }),
 );
 
-export type FinanceSetupRepairPlan = {
+type FinanceSetupRepairPlan = {
   createProfile: boolean;
   createGoals: Array<{ category: BudgetCategoryKey; percentage: number }>;
   createTags: Array<{ systemKey: string; name: string; color: string }>;

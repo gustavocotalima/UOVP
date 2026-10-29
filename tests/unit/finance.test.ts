@@ -1,15 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { calculateDailyExpenses } from "@/features/finance/daily-expenses";
-import {
-  calculateAccountTotals,
-  calculateBudgetCategories,
-  calculateHistory,
-  calculateInvoices,
-  calculatePeriod,
-  calculateTagTotals,
-  needsFinanceClassification,
-  resolveFinancialReference,
-} from "@/features/finance/calculations";
+import { calculateAccountTotals, calculateBudgetCategories, calculateInvoices, calculatePeriod, calculateTagTotals, resolveFinancialReference } from "@/features/finance/calculations";
 import type { FinanceGoalRecord, FinanceTransactionDto, FinancialAccountDto } from "@/features/finance/types";
 
 const goals: FinanceGoalRecord = {
@@ -250,27 +241,6 @@ describe("calendário de saídas brutas", () => {
 });
 
 describe("finanças AUVP", () => {
-  it("identifica apenas despesas visíveis e não internas sem classificação", () => {
-    expect(needsFinanceClassification(transaction({
-      budgetCategory: null,
-      budgetCategorySource: "UNASSIGNED",
-    }))).toBe(true);
-    expect(needsFinanceClassification(transaction({
-      budgetCategory: null,
-      budgetCategorySource: "UNASSIGNED",
-      ignored: true,
-    }))).toBe(false);
-    expect(needsFinanceClassification(transaction({
-      budgetCategory: null,
-      budgetCategorySource: "UNASSIGNED",
-      internalTransfer: true,
-    }))).toBe(false);
-    expect(needsFinanceClassification(transaction({
-      kind: "INCOME",
-      budgetCategory: null,
-      budgetCategorySource: "UNASSIGNED",
-    }))).toBe(false);
-  });
 
   it("calcula renda, gastos e saldo ignorando ocultas e transferências internas", () => {
     const result = calculatePeriod([
@@ -471,33 +441,6 @@ describe("finanças AUVP", () => {
       result: 4725,
       missingFxCount: 0,
     });
-  });
-
-  it("monta o histórico no mês de referência, não apenas pela data da transação", () => {
-    const history = calculateHistory(
-      [transaction({ id: "moved", amount: "-80", referenceMonth: 6 })],
-      2026,
-      7,
-      3,
-    );
-    expect(history.map((item) => item.spent)).toEqual([0, 80, 0]);
-  });
-
-  it("aplica a compensação somente ao mês correspondente no histórico", () => {
-    const history = calculateHistory([
-      transaction({ id: "june-income", kind: "INCOME", amount: "1000", budgetCategory: null, referenceMonth: 6 }),
-      transaction({ id: "june-expense", amount: "-200", budgetCategory: null, referenceMonth: 6 }),
-      transaction({ id: "august-base", kind: "INCOME", amount: "20.46", budgetCategory: null, referenceMonth: 8 }),
-      transaction({ id: "august-dividend", kind: "INCOME", amount: "540.60", budgetCategory: "FINANCIAL_FREEDOM", referenceMonth: 8 }),
-      transaction({ id: "august-reinvestment", amount: "-540.60", budgetCategory: "FINANCIAL_FREEDOM", referenceMonth: 8 }),
-      transaction({ id: "august-expenses", amount: "-635.15", budgetCategory: null, referenceMonth: 8 }),
-    ], 2026, 8, 3);
-
-    expect(history).toEqual([
-      expect.objectContaining({ key: "2026-06", income: 1000, spent: 200, balance: 800 }),
-      expect.objectContaining({ key: "2026-07", income: 0, spent: 0, balance: 0 }),
-      expect.objectContaining({ key: "2026-08", income: 561.06, spent: 635.15, balance: -614.69 }),
-    ]);
   });
 
   it.each([

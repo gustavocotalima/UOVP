@@ -2,12 +2,12 @@ import Decimal from "decimal.js";
 
 type DecimalValue = Decimal.Value | null | undefined;
 
-export const PURCHASE_SUMMARY_VERSION = 1;
+const PURCHASE_SUMMARY_VERSION = 1;
 // Accumulate raw database-scale totals without rounding each BUY at the default
 // 20 significant digits. Final prices still use the existing Decimal precision.
 const PurchaseDecimal = Decimal.clone({ precision: 65 });
 
-export type PurchaseSummary = {
+type PurchaseSummary = {
   version: number;
   quantity: DecimalValue;
   cost: DecimalValue;
@@ -21,7 +21,7 @@ export type AveragePriceTransaction = {
   netAmount: DecimalValue;
 };
 
-export type HoldingAveragePriceInput = {
+type HoldingAveragePriceInput = {
   positionSource: "MANUAL" | "PLUGGY" | "BINANCE" | "ACCOUNT_BALANCE";
   quantity: Decimal.Value;
   investedValue: DecimalValue;
@@ -32,7 +32,7 @@ export type HoldingAveragePriceInput = {
   transactions?: AveragePriceTransaction[];
 };
 
-export type AveragePriceResult = {
+type AveragePriceResult = {
   price: Decimal | null;
   coverage: number;
   currency: string | null;

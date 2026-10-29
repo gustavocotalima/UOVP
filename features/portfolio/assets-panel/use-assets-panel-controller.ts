@@ -3,7 +3,6 @@ import { usePrivacy } from "@/components/layout/privacy-provider";
 import { useHoldingTransactions } from "../use-holding-transactions";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type FormEvent, type KeyboardEvent } from "react";
 import { deleteAssetAction, deleteAssetClassAction, deleteAssetHoldingAction, importPortfolioRowsAction, refreshMarketPricesAction, saveAssetAction, saveAssetAnswersAction, saveAssetHoldingAction, saveFixedIncomeGroupAction, saveAwaitingContributionPriceAction, searchBinanceAssetsAction, searchBrapiTickersAction, searchYahooTickersAction } from "../actions";
-import { notifyPortfolioSimulationInvalidated } from "../client-events";
 import { parseXlsxFile } from "../xlsx-parser";
 import { parsePortfolioImportRows } from "../portfolio-import";
 import type { YahooSearchKind } from "../yahoo-finance";
@@ -386,7 +385,7 @@ export function useAssetsPanelController({ assets, fixedIncomeFamilies, catalog,
         });
         if (form.id && formQuestionType)
           await saveAssetAnswersAction(form.id, formAnswers);
-        notifyPortfolioSimulationInvalidated();
+
         setForm(null);
         setMessage(form.id ? "Ativo atualizado." : "Ativo adicionado.");
       }
@@ -403,7 +402,7 @@ export function useAssetsPanelController({ assets, fixedIncomeFamilies, catalog,
     startTransition(async () => {
       try {
         await saveFixedIncomeGroupAction(fixedGroupForm);
-        notifyPortfolioSimulationInvalidated();
+
         setFixedGroupForm(null);
         setMessage(fixedGroupForm.id ? "Grupo de renda fixa atualizado." : "Grupo de renda fixa adicionado.");
       }
@@ -428,7 +427,7 @@ export function useAssetsPanelController({ assets, fixedIncomeFamilies, catalog,
           purchaseDate: holdingForm.purchaseDate || null,
           maturityDate: holdingForm.maturityDate || null,
         });
-        notifyPortfolioSimulationInvalidated();
+
         setExpandedAssets((current) => new Set([...current, holdingForm.assetId]));
         setHoldingForm(null);
         setMessage(holdingForm.id ? "Aplicação atualizada." : "Aplicação adicionada.");
@@ -449,7 +448,7 @@ export function useAssetsPanelController({ assets, fixedIncomeFamilies, catalog,
           await deleteAssetHoldingAction(deleteTarget.id);
         else
           await deleteAssetClassAction(deleteTarget.investmentClass);
-        notifyPortfolioSimulationInvalidated();
+
         setForm(null);
         setDeleteTarget(undefined);
         setMessage("Remoção concluída.");
@@ -490,7 +489,7 @@ export function useAssetsPanelController({ assets, fixedIncomeFamilies, catalog,
           parts.push(`Sem conversão Binance para BRL: ${result.binance.missingConversion.join(", ")}`);
         }
         if (result.brapi.updated + result.yahoo.updated + result.binance.updated > 0) {
-          notifyPortfolioSimulationInvalidated();
+
         }
         setMessage(parts.length ? `${parts.join(" · ")}.` : "Não há cotações para atualizar.");
       }
@@ -589,7 +588,7 @@ export function useAssetsPanelController({ assets, fixedIncomeFamilies, catalog,
             indexation: review.indexation || null,
             score: review.score,
           });
-        notifyPortfolioSimulationInvalidated();
+
         setReviewForm(null);
         setMessage("Investimento integrado ao diagrama.");
       }
@@ -607,7 +606,7 @@ export function useAssetsPanelController({ assets, fixedIncomeFamilies, catalog,
           await excludeAccountInvestmentAction(reviewForm.id);
         else
           await excludePluggyDiagramLinkAction(reviewForm.id);
-        notifyPortfolioSimulationInvalidated();
+
         setReviewForm(null);
         setMessage(reviewForm.source === "ACCOUNT_BALANCE" ? "Saldo removido da Carteira e mantido em Contas." : "Investimento mantido apenas no Open Finance.");
       }
@@ -667,7 +666,7 @@ export function useAssetsPanelController({ assets, fixedIncomeFamilies, catalog,
     startTransition(async () => {
       try {
         await excludeAccountInvestmentAction(linkId);
-        notifyPortfolioSimulationInvalidated();
+
       }
       catch (error) {
         setMessage(error instanceof Error ? error.message : "Não foi possível remover.");

@@ -8,7 +8,7 @@ export function normalizeInviteEmail(email: string) {
   return email.trim().toLowerCase();
 }
 
-export function registrationInviteHash(token: string) {
+function registrationInviteHash(token: string) {
   return createHash("sha256").update(token).digest("base64url");
 }
 

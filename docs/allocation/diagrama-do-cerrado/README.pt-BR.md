@@ -20,7 +20,7 @@ As duas políticas produzem compras idênticas até que um teto global de classe
 
 O adaptador fornece o valor planejado e as metas efetivas de classe ao núcleo original de duas passadas. O núcleo continua aplicando suas lacunas pelas notas, reservas e arredondamentos. Uma proteção final arredonda compras para baixo e verifica novamente as metas quando o denominador diminui, com até 32 passadas e uma saída conservadora. Somente a etapa adicional da sobra dispensa o teto global; ainda pode deixar sobra pelas regras do núcleo. Nenhum modo ultrapassa o orçamento solicitado ou vende posições existentes.
 
-Metas originais e de planejamento, política, valor planejado e motivos da sobra ficam nos diagnósticos. Resultados em duas etapas também registram o investimento inicial, seu orçamento restante e o investimento adicional. As quantidades e os valores retornados somam as duas etapas por ativo, sem alterar as primeiras compras. Percentuais finais exibidos sempre usam o patrimônio total original mais o investimento efetivo. Rascunhos antigos não registrados exigem novo cálculo; histórico registrado e aguardando sincronização é preservado. Testes de paridade do núcleo ficam separados dos testes do adaptador.
+Metas originais e de planejamento, política, valor planejado e motivos da sobra ficam nos diagnósticos. Resultados em duas etapas também registram o investimento inicial, seu orçamento restante e o investimento adicional. As quantidades e os valores retornados somam as duas etapas por ativo, sem alterar as primeiras compras. Percentuais finais exibidos sempre usam o patrimônio total original mais o investimento efetivo. Os cálculos não são gravados; somente pendências ativas de sincronização são mantidas. Testes de paridade do núcleo ficam separados dos testes do adaptador.
 
 ## Etapas
 
@@ -40,9 +40,9 @@ As antigas aproximações de completar uma cota a partir de 94% e reter 99,48% d
 
 Ativos com nota não positiva, meta zero, preço inválido ou fora do filtro não recebem compras. As regras de omissão podem deixar uma sobra maior e alterar a distribuição. Isso é preservado para compatibilidade.
 
-O resultado identifica método e versão. Os percentuais finais exibidos pelo UOVP usam todo o patrimônio inicial mais o investimento efetivo, sem contar a sobra. A persistência arredonda quantidades e valores fracionários para baixo em dez casas para respeitar a precisão do banco e o orçamento. A diferença subcentavo dessa apresentação não é uma nova regra de distribuição.
+O resultado identifica método e versão. Os percentuais finais exibidos pelo UOVP usam todo o patrimônio inicial mais o investimento efetivo, sem contar a sobra. As quantidades e os valores fracionários retornados usam dez casas decimais. A diferença subcentavo dessa apresentação não é uma nova regra de distribuição.
 
-Trocar de método invalida rascunhos e exige novo cálculo. Histórico executado e aportes aguardando sincronização são preservados. O MCP só retorna uma prévia; calcular nunca envia ordens ao mercado.
+Os cálculos ficam no navegador até clicar em Calcular novamente, inclusive ao mudar configurações ou registrar compras. Compras manuais atualizam a posição diretamente; apenas pendências de sincronização são gravadas e são removidas após a confirmação. O MCP só retorna uma prévia; calcular nunca envia ordens ao mercado.
 
 Os dois métodos compartilham o limite por conta de um cálculo em andamento e seis inícios por minuto móvel em cada processo do servidor, somando interface e clientes MCP. Veja os [limites de execução](../melhorado/README.pt-BR.md#precisão-e-execução).
 

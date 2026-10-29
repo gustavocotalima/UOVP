@@ -11,7 +11,7 @@ import { activeContributionBatchInclude } from "./contribution-quantity";
 import { sumAmountsByCurrency } from "./currency-totals";
 export { sumAmountsByCurrency } from "./currency-totals";
 
-export type OpenFinanceInvestmentTransaction = {
+type OpenFinanceInvestmentTransaction = {
   id: string;
   description: string | null;
   type: string;

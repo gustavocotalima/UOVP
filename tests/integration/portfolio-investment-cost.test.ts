@@ -1,5 +1,4 @@
 import { createPrismaClient } from "../../lib/prisma-client";
-import { ALLOCATION_VERSIONS } from "@/features/portfolio/calculation/types";
 import { randomUUID } from "node:crypto";
 import { afterAll, describe, expect, it, vi } from "vitest";
 
@@ -7,7 +6,7 @@ const currentUser = vi.hoisted(() => ({ id: "" }));
 vi.mock("@/lib/current-user", () => ({ requireUserId: async () => currentUser.id }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
-import { executeContributionAction, importPortfolioRowsAction, saveAssetAction, saveAssetHoldingAction } from "@/features/portfolio/actions";
+import { recordContributionAction, importPortfolioRowsAction, saveAssetAction, saveAssetHoldingAction } from "@/features/portfolio/actions";
 import { getPortfolioData } from "@/features/portfolio/data";
 import { parsePortfolioImportRows } from "@/features/portfolio/portfolio-import";
 import { portfolioRows } from "@/features/portfolio/xlsx-export";
@@ -146,14 +145,7 @@ suite("preservação do custo histórico nas gravações e planilhas", () => {
       where: { id: f.holding.id },
       data: { currency: "USD", investedValueCurrency: currency },
     });
-    const simulation = await db!.contributionSimulation.create({
-      data: {
-        userId: f.user.id, portfolioVersion: f.user.portfolio!.version, allocationMethod: "IMPROVED", calculationVersion: ALLOCATION_VERSIONS.IMPROVED, inputAmount: 100, requestedAmount: 100, unallocatedAmount: 0,
-        suggestions: { create: { assetId: f.asset.id, quantity: 2, value: 100, suggestionPercentage: 100, totalAfterSuggestionPercentage: 100, nativeCurrency: "USD", nativeUnitPrice: 10, nativeValue: 20, fxRateToBrl: 5 } },
-      },
-      include: { suggestions: true },
-    });
-    await expect(executeContributionAction(simulation.id, simulation.suggestions[0].id, 2, 10)).resolves.toMatchObject({ status: "EXECUTED", awaitingSync: false });
+    await expect(recordContributionAction({ assetId: f.asset.id, quantity: 2, paidUnitPrice: 10, fxRateToBrl: 5 })).resolves.toMatchObject({ awaitingSync: false });
     const holding = await db!.assetHolding.findUniqueOrThrow({ where: { id: f.holding.id } });
     expect(holding.quantity.toString()).toBe("22");
     expect(holding.investedValue?.toString()).toBe(expected);

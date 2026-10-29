@@ -191,7 +191,6 @@ export type PortfolioDto = {
   allocationMethod?: import("./calculation/types").AllocationMethod;
   quantityChanges: PluggyQuantityChangeDto[];
   id: string;
-  version: number;
   timeZone: string;
   targets: Record<InvestmentClassKey, number>;
   assets: AssetDto[];
@@ -278,11 +277,10 @@ export type DiagramQuestionDto = {
   sortOrder: number;
 };
 
-export type SimulationDto = {
+export type ContributionPreview = {
   budgetPolicy?: import("./calculation/types").BudgetPolicy;
   allocationMethod?: import("./calculation/types").AllocationMethod;
   calculation?: import("./calculation/types").CalculationDiagnostics;
-  id: string;
   inputAmount: string;
   inputCurrency: "BRL" | "USD";
   allocationScope: "ALL_ASSETS" | "BRL_ONLY" | "USD_ONLY";
@@ -293,7 +291,6 @@ export type SimulationDto = {
   fxUpdatedAt: string | null;
   fxSource: "NATIVE" | "YAHOO";
   suggestions: Array<{
-    id: string;
     assetId: string;
     ticker: string;
     name: string;
@@ -308,7 +305,5 @@ export type SimulationDto = {
     paidUnitPriceNative: string | null;
     suggestionPercentage: string;
     totalAfterSuggestionPercentage: string;
-      executed: boolean;
-      executionStatus: "PENDING" | "AWAITING_SYNC" | "EXECUTED";
   }>;
 };

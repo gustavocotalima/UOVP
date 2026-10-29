@@ -1,6 +1,7 @@
 "use server";
 
-import { isPrismaTransactionConflict } from "@/lib/prisma-errors";
+import { serializeContributionBaselines } from "./pending-contributions";
+
 
 import { revalidatePath } from "next/cache";
 import { Prisma, type DiagramType, type FixedIncomeIndexation, type InstrumentType, type InvestmentClass, type MarketRegion, type RateConvention } from "@/generated/prisma/client";
@@ -24,11 +25,10 @@ import {
 } from "@/features/open-finance/diagram-exclusion";
 import { questionChangeAffectsAllocation } from "./allocation";
 import { calculateContribution } from "./calculation/server";
-import { ALLOCATION_VERSIONS, BUDGET_POLICIES, type BudgetPolicy } from "./calculation/types";
-import { CONTRIBUTION_UNIT_TYPES, resolveContributionQuantity, registerContributionQuantity, reviewLegacyContribution, refreshContributionQuantityCost } from "@/features/open-finance/contribution-quantity";
+import { BUDGET_POLICIES, type BudgetPolicy } from "./calculation/types";
+import { CONTRIBUTION_UNIT_TYPES, resolveContributionQuantity, registerContributionQuantity, reviewPendingContribution, refreshContributionQuantityCost } from "@/features/open-finance/contribution-quantity";
 import { fixedIncomeHoldingFingerprint, holdingCurrentValue } from "./asset-groups";
 import { addInvestmentCost, investmentCostUpdate } from "./investment-cost";
-import { bumpPortfolioAndInvalidateDrafts } from "./invalidation";
 import { investmentTargetsTotalCents, targetPercentageCents } from "./target-drafts";
 import {
   applyAssetQuantityEdits, assetQuantityEditSchema, prepareAssetQuantityEdits,
@@ -51,7 +51,7 @@ import { clearBrapiApiKey, requireBrapiApiKey, requireBrapiCredentials, storeBra
 import { BRAPI_PLANS, type BrapiPlan } from "./brapi-plans";
 import { ensurePortfolio, getPortfolioData } from "./data";
 import { FIXED_INCOME_INDEXATIONS, INSTRUMENT_TYPES, INVESTMENT_CLASSES, RATE_CONVENTIONS, FIXED_INCOME_INDEXATION_META, type InvestmentClassKey } from "./constants";
-import { DEFAULT_QUESTIONS, defaultQuestionTemplateKey } from "./questions";
+import { DEFAULT_QUESTIONS, defaultQuestionTemplateKey, calculateDiagramScore } from "./questions";
 import { allowsFractionalUnits } from "./fractional-assets";
 import { sortContributionSuggestions } from "./contribution-order";
 import {
@@ -519,7 +519,6 @@ export async function saveAssetAction(input: AssetInput) {
       }
     }
     if (prepared && quantityLinks) await applyAssetQuantityEdits(tx, prepared, quantityLinks);
-    await bumpPortfolioAndInvalidateDrafts(tx, portfolio.id, userId);
   };
   if (parsed.quantityEdits?.length) {
     await withUserOperationLease({
@@ -641,7 +640,6 @@ export async function saveFixedIncomeGroupAction(input: FixedIncomeGroupInput, i
       });
     }
     if (holding) await tx.assetHolding.create({ data: { ...fixedIncomeHoldingData(holding), assetId: parent.id } });
-    await bumpPortfolioAndInvalidateDrafts(tx, portfolio.id, userId);
   });
   revalidatePath("/carteira");
   revalidatePath("/home");
@@ -668,7 +666,6 @@ export async function saveAssetHoldingAction(assetId: string, input: FixedIncome
       await tx.assetHolding.create({ data: { ...data, assetId } });
     }
     await tx.asset.update({ where: { id: assetId }, data: { updatedAt: new Date() } });
-    await bumpPortfolioAndInvalidateDrafts(tx, asset.portfolioId, userId);
   });
   revalidatePath("/carteira");
   revalidatePath("/home");
@@ -684,7 +681,6 @@ export async function deleteAssetHoldingAction(holdingId: string) {
   await prisma.$transaction(async (tx) => {
     await tx.assetHolding.delete({ where: { id: holding.id } });
     await tx.asset.update({ where: { id: holding.assetId }, data: { updatedAt: new Date() } });
-    await bumpPortfolioAndInvalidateDrafts(tx, holding.asset.portfolioId, userId);
   });
   revalidatePath("/carteira");
   revalidatePath("/home");
@@ -1160,7 +1156,6 @@ export async function importPortfolioRowsAction(input: {
       }
     }
 
-    await bumpPortfolioAndInvalidateDrafts(tx, portfolio.id, userId);
       }, { timeout: 120_000 });
       revalidatePath("/carteira");
       revalidatePath("/home");
@@ -1190,9 +1185,8 @@ export async function deleteAssetAction(assetId: string) {
       where: { holding: { assetId: asset.id } },
       data: { holdingId: null, status: "AVAILABLE" },
     });
-    await tx.contributionSuggestion.deleteMany({ where: { assetId: asset.id } });
+    await tx.pendingContribution.deleteMany({ where: { assetId: asset.id } });
     await tx.asset.delete({ where: { id: asset.id } });
-    await bumpPortfolioAndInvalidateDrafts(tx, asset.portfolioId, userId);
   }) });
   revalidatePath("/carteira");
   revalidatePath("/home");
@@ -1234,9 +1228,8 @@ export async function deleteAssetClassAction(investmentClass: InvestmentClassKey
       where: { holding: { assetId: { in: assets.map((asset) => asset.id) } } },
       data: { holdingId: null, status: "AVAILABLE" },
     });
-    await tx.contributionSuggestion.deleteMany({ where: { assetId: { in: assets.map((asset) => asset.id) } } });
+    await tx.pendingContribution.deleteMany({ where: { assetId: { in: assets.map((asset) => asset.id) } } });
     await tx.asset.deleteMany({ where: { portfolioId: portfolio.id, investmentClass: parsedClass } });
-    await bumpPortfolioAndInvalidateDrafts(tx, portfolio.id, userId);
   }) });
   revalidatePath("/carteira");
   revalidatePath("/home");
@@ -1462,13 +1455,11 @@ function newestDate(left: Date | null, right: Date | null) {
 
 async function applyFreshSharedMarketCache({
   userId,
-  portfolioId,
   holdings,
   lease,
   now,
 }: {
   userId: string;
-  portfolioId: string;
   holdings: MarketHolding[];
   lease: UserOperationLeaseContext;
   now: Date;
@@ -1629,7 +1620,6 @@ async function applyFreshSharedMarketCache({
           },
         });
       }
-      await bumpPortfolioAndInvalidateDrafts(tx, portfolioId, userId);
     }, { timeout: 120_000 });
   }
 
@@ -1799,7 +1789,6 @@ async function refreshMarketPricesForUser(
           },
         });
       }
-      await bumpPortfolioAndInvalidateDrafts(tx, portfolio.id, userId);
     };
     if (lease) await lease.runFencedTransaction(updateQuotes, { timeout: 120_000 });
     else await prisma.$transaction(updateQuotes, { timeout: 120_000 });
@@ -1911,7 +1900,6 @@ export async function refreshStaleMarketPricesAction(): Promise<AutomaticMarketR
       }
       const cache = await applyFreshSharedMarketCache({
         userId,
-        portfolioId: portfolio.id,
         holdings,
         lease,
         now: new Date(),
@@ -1956,7 +1944,6 @@ export async function saveInvestmentTargetsAction(values: Record<InvestmentClass
     "As metas precisam usar no máximo duas casas decimais.",
   )).parse(values);
   if (investmentTargetsTotalCents(parsed) !== 10_000) throw new Error("As metas precisam totalizar 100%.");
-  const portfolio = await ensurePortfolio(userId);
   await prisma.$transaction(async (tx) => {
     for (const investmentClass of INVESTMENT_CLASSES) {
       await tx.investmentTarget.upsert({
@@ -1965,12 +1952,11 @@ export async function saveInvestmentTargetsAction(values: Record<InvestmentClass
         create: { userId, investmentClass: investmentClass as InvestmentClass, percentage: parsed[investmentClass] ?? 0 },
       });
     }
-    await bumpPortfolioAndInvalidateDrafts(tx, portfolio.id, userId);
   });
   revalidatePath("/carteira");
 }
 
-export async function simulateContributionAction(
+export async function calculateContributionAction(
   value: number,
   currency: "BRL" | "USD" = "BRL",
   scope: ContributionScopeKey = "ALL_ASSETS",
@@ -2030,470 +2016,148 @@ export async function simulateContributionAction(
 
   const assetsById = new Map(portfolio.assets.map((asset) => [asset.id, asset]));
 
-  const simulation = await prisma.$transaction(async (tx) => {
-    const locked = await tx.portfolio.updateMany({ where: { id: portfolio.id, userId, version: portfolio.version }, data: { version: { increment: 0 } } });
-    const preference = await tx.userPreference.findUnique({ where: { userId }, select: { allocationMethod: true } });
-    if (locked.count !== 1 || (preference?.allocationMethod ?? "IMPROVED") !== portfolio.allocationMethod) {
-      throw new Error("A carteira ou o sistema de cálculo mudou. Calcule o aporte novamente.");
-    }
-    return tx.contributionSimulation.create({
-    data: {
-      userId,
-      portfolioVersion: portfolio.version,
-      allocationMethod: portfolio.allocationMethod,
-      calculationVersion: result.calculation.version,
-      calculationDetails: { ...result.calculation },
-      inputAmount: new Prisma.Decimal(inputAmount.toString()),
-      inputCurrency,
-      allocationScope,
-      requestedAmount: contribution,
-      unallocatedAmount: result.unallocatedAmount.toString(),
-      fxRateToBrl,
-      fxUpdatedAt,
-      fxSource,
-      suggestions: {
-        create: result.suggestions.map((suggestion) => {
-          const asset = assetsById.get(suggestion.assetId);
-          const nativeCurrency = asset?.nativeCurrency ?? null;
-          const nativeUnitPrice = nativeCurrency && asset?.nativeUnitPrice
-            ? new Prisma.Decimal(asset.nativeUnitPrice)
-            : null;
-          const assetFxRate = nativeCurrency && asset?.fxRateToBrl
-            ? new Prisma.Decimal(asset.fxRateToBrl)
-            : null;
-          return {
-            assetId: suggestion.assetId,
-            quantity: suggestion.quantity.toString(),
-            value: suggestion.value.toString(),
-            nativeCurrency,
-            nativeUnitPrice,
-            nativeValue: asset?.instrumentType === "FIXED_INCOME" && nativeCurrency && assetFxRate?.gt(0)
-              ? suggestion.value.div(assetFxRate)
-              : nativeUnitPrice ? suggestion.quantity.mul(nativeUnitPrice) : null,
-            fxRateToBrl: assetFxRate,
-            suggestionPercentage: suggestion.suggestionPercentage.toString(),
-            totalAfterSuggestionPercentage: suggestion.totalAfterSuggestionPercentage.toString(),
-          };
-        }),
-      },
-    },
-    include: { suggestions: { include: { asset: true } } },
-    });
+  const suggestions = result.suggestions.map((suggestion) => {
+    const asset = assetsById.get(suggestion.assetId)!;
+    const nativeCurrency = asset.nativeCurrency ?? null;
+    const nativeUnitPrice = asset.nativeUnitPrice ? new Prisma.Decimal(asset.nativeUnitPrice) : null;
+    const assetFxRate = asset.fxRateToBrl ? new Prisma.Decimal(asset.fxRateToBrl) : null;
+    return {
+      assetId: asset.id, ticker: asset.ticker, name: asset.name,
+      investmentClass: asset.investmentClass as InvestmentClassKey, instrumentType: asset.instrumentType,
+      quantity: suggestion.quantity.toDecimalPlaces(10).toString(),
+      value: suggestion.value.toDecimalPlaces(10).toString(),
+      nativeCurrency, nativeUnitPrice: nativeUnitPrice?.toString() ?? null,
+      nativeValue: asset.instrumentType === "FIXED_INCOME" && nativeCurrency && assetFxRate?.gt(0)
+        ? suggestion.value.div(assetFxRate.toString()).toDecimalPlaces(10).toString()
+        : nativeCurrency && nativeUnitPrice ? suggestion.quantity.mul(nativeUnitPrice.toString()).toDecimalPlaces(10).toString() : null,
+      fxRateToBrl: assetFxRate?.toString() ?? null, paidUnitPriceNative: null,
+      suggestionPercentage: suggestion.suggestionPercentage.toString(),
+      totalAfterSuggestionPercentage: suggestion.totalAfterSuggestionPercentage.toString(),
+    };
   });
 
-  const suggestions = simulation.suggestions.map((suggestion) => ({
-    id: suggestion.id,
-    assetId: suggestion.assetId,
-    ticker: suggestion.asset.ticker,
-    name: suggestion.asset.name,
-    investmentClass: suggestion.asset.investmentClass as InvestmentClassKey,
-    instrumentType: suggestion.asset.instrumentType,
-    quantity: suggestion.quantity.toString(),
-    value: suggestion.value.toString(),
-    nativeCurrency: suggestion.nativeCurrency,
-    nativeUnitPrice: suggestion.nativeUnitPrice?.toString() ?? null,
-    nativeValue: suggestion.nativeValue?.toString() ?? null,
-    fxRateToBrl: suggestion.fxRateToBrl?.toString() ?? null,
-    paidUnitPriceNative: suggestion.paidUnitPriceNative?.toString() ?? null,
-    suggestionPercentage: suggestion.suggestionPercentage.toString(),
-    totalAfterSuggestionPercentage: suggestion.totalAfterSuggestionPercentage.toString(),
-    executed: suggestion.executed,
-    executionStatus: suggestion.executionStatus,
-  }));
-
   return {
-    id: simulation.id,
     allocationMethod: portfolio.allocationMethod,
-    calculation: result.calculation,
-    budgetPolicy: policy,
-    inputAmount: simulation.inputAmount.toString(),
-    inputCurrency: simulation.inputCurrency,
-    allocationScope: simulation.allocationScope,
-    requestedAmount: simulation.requestedAmount.toString(),
-    unallocatedAmount: simulation.unallocatedAmount.toString(),
-    unallocatedInputAmount: simulation.unallocatedAmount.div(simulation.fxRateToBrl ?? 1).toString(),
-    fxRateToBrl: (simulation.fxRateToBrl ?? 1).toString(),
-    fxUpdatedAt: simulation.fxUpdatedAt?.toISOString() ?? null,
-    fxSource: simulation.fxSource === "YAHOO" ? "YAHOO" as const : "NATIVE" as const,
+    assetSnapshot: result.suggestions.map((suggestion) => assetsById.get(suggestion.assetId)!),
+    calculation: result.calculation, budgetPolicy: policy,
+    inputAmount: inputAmount.toString(), inputCurrency, allocationScope,
+    requestedAmount: contribution.toString(), unallocatedAmount: result.unallocatedAmount.toString(),
+    unallocatedInputAmount: result.unallocatedAmount.div(fxRateToBrl.toString()).toString(),
+    fxRateToBrl: fxRateToBrl.toString(), fxUpdatedAt: fxUpdatedAt?.toISOString() ?? null, fxSource,
     suggestions: sortContributionSuggestions(suggestions),
   };
 }
 
-export async function executeContributionAction(
-  simulationId: string,
-  suggestionId?: string,
-  customQuantity?: number,
-  paidUnitPrice?: number,
-  destination?: { holdingId?: string; expectedUpdatedAt?: string; newHolding?: FixedIncomeHoldingInput },
-) {
+export async function recordContributionAction(input: {
+  assetId: string; quantity: number; paidUnitPrice?: number; holdingId?: string;
+  newHolding?: FixedIncomeHoldingInput; fxRateToBrl?: number | null; expectedHoldingQuantity?: string;
+}) {
   const userId = await requireUserId();
-  const parsedSimulationId = z.string().cuid().parse(simulationId);
-  const parsedSuggestionId = suggestionId ? z.string().cuid().parse(suggestionId) : undefined;
-  const parsedQuantity = customQuantity == null
-    ? undefined
-    : z.number().positive().max(1_000_000_000).parse(customQuantity);
-  const parsedPaidUnitPrice = paidUnitPrice == null
-    ? undefined
-    : z.number().positive().max(1_000_000_000).parse(paidUnitPrice);
-  if (parsedQuantity !== undefined && !parsedSuggestionId) throw new Error("Selecione um ativo para informar a quantidade.");
-  try {
-    const execution = await withUserOperationLease({ userId, operation: "pluggy-sync", leaseMs: 60_000, action: (lease) => lease.runFencedTransaction(async (tx) => {
-      const simulation = await tx.contributionSimulation.findFirst({
-        where: { id: parsedSimulationId, userId },
-        include: { user: { include: { portfolio: true } }, suggestions: { include: { asset: { include: { holdings: true } } } } },
-      });
-      const portfolio = simulation?.user.portfolio;
-      if (!simulation || !portfolio || simulation.status !== "DRAFT" || simulation.portfolioVersion !== portfolio.version
-        || !simulation.allocationMethod || simulation.calculationVersion !== ALLOCATION_VERSIONS[simulation.allocationMethod]) {
-        return "INVALIDATED" as const;
+  const parsed = z.object({
+    assetId: z.string().cuid(), holdingId: z.string().cuid().optional(),
+    quantity: z.number().finite().positive().max(1e9).refine((value) => new Prisma.Decimal(value.toString()).decimalPlaces() <= 10, "Informe até dez casas decimais."),
+    paidUnitPrice: z.number().finite().positive().max(1e9).optional(),
+    fxRateToBrl: z.number().finite().positive().max(1e9).nullable().optional(),
+    expectedHoldingQuantity: z.string().max(64).refine((value) => {
+      try {
+        const quantity = new Prisma.Decimal(value);
+        return quantity.isFinite() && quantity.gte(0) && quantity.decimalPlaces() <= 10;
+      } catch { return false; }
+    }, "Informe uma quantidade válida para a posição exibida.").optional(),
+    newHolding: fixedIncomeHoldingSchema.optional(),
+  }).parse(input);
+  const result = await withUserOperationLease({ userId, operation: "pluggy-sync", leaseMs: 60_000, action: (lease) => lease.runFencedTransaction(async (tx) => {
+    const asset = await tx.asset.findFirst({ where: { id: parsed.assetId, portfolio: { userId } }, include: { holdings: true } });
+    if (!asset) throw new Error("O ativo não está mais disponível nesta carteira.");
+    const fixed = asset.instrumentType === "FIXED_INCOME";
+    if (!fixed && parsed.paidUnitPrice === undefined) throw new Error("Informe o preço unitário pago para registrar o aporte.");
+    let holding = parsed.holdingId ? asset.holdings.find((row) => row.id === parsed.holdingId) : undefined;
+    if (parsed.holdingId && !holding) throw new Error("Selecione a posição e a instituição deste ativo.");
+    if (!holding && parsed.newHolding && fixed) {
+      const catalog = parsed.newHolding.catalogItemId ? await tx.assetCatalogItem.findUnique({ where: { id: parsed.newHolding.catalogItemId } }) : null;
+      if (parsed.newHolding.catalogItemId && catalog?.familyCode !== asset.fixedIncomeFamilyCode) throw new Error("O tipo selecionado não pertence a esta família de renda fixa.");
+      holding = await tx.assetHolding.create({ data: { ...fixedIncomeHoldingData(parsed.newHolding), assetId: asset.id } });
+    }
+    const external = asset.holdings.filter((row) => row.includedInTotals && row.positionSource !== "MANUAL");
+    if (!holding && !fixed) {
+      if (external.some((row) => row.positionSource === "PLUGGY") && external.length > 1) throw new Error("Selecione a posição e a instituição que receberam o aporte.");
+      holding = external[0] ?? asset.holdings.find((row) => row.includedInTotals && row.positionSource === "MANUAL");
+    }
+    if (!holding) throw new Error("Selecione ou crie uma aplicação para registrar o aporte.");
+    const quantity = new Prisma.Decimal(parsed.quantity.toString());
+    const nativePrice = parsed.paidUnitPrice === undefined ? null : new Prisma.Decimal(parsed.paidUnitPrice.toString());
+    const fx = holding.currency === "BRL" ? new Prisma.Decimal(1) : new Prisma.Decimal(parsed.fxRateToBrl ?? holding.fxRateToBrl ?? 0);
+    if (!fx.gt(0)) throw new Error("A posição não possui câmbio válido para registrar o aporte.");
+    const value = fixed ? quantity : quantity.mul(nativePrice!).mul(fx);
+    if (holding.positionSource !== "MANUAL") {
+      if (!fixed && holding.positionSource === "PLUGGY" && CONTRIBUTION_UNIT_TYPES.includes(asset.instrumentType)) {
+        if (parsed.expectedHoldingQuantity === undefined || !holding.quantity.eq(parsed.expectedHoldingQuantity)) {
+          return { error: "A quantidade desta posição mudou. Confira a posição antes de registrar a compra." };
+        }
+        const validation = await registerContributionQuantity(tx, { userId, assetId: asset.id, holdingId: holding.id, quantity, paidUnitPrice: nativePrice! });
+        if (validation) return validation;
+        return { awaitingSync: true };
       }
-      const selected = simulation.suggestions.filter(
-        (suggestion) => suggestion.executionStatus === "PENDING"
-          && (!parsedSuggestionId || suggestion.id === parsedSuggestionId),
-      );
-      if (!selected.length) return "INVALIDATED" as const;
-      const calculationPreference = await tx.userPreference.findUnique({ where: { userId }, select: { allocationMethod: true } });
-      if (simulation.allocationMethod !== (calculationPreference?.allocationMethod ?? "IMPROVED")) return "INVALIDATED" as const;
-      if (selected.some((suggestion) => suggestion.asset.instrumentType !== "FIXED_INCOME") && parsedPaidUnitPrice === undefined) {
-        throw new Error("Informe o preço unitário pago para registrar o aporte.");
-      }
-
-      const externalSuggestion = selected.find((suggestion) => {
-        if (suggestion.asset.instrumentType !== "FIXED_INCOME") {
-          return suggestion.asset.holdings.some((holding) => holding.positionSource !== "MANUAL");
-        }
-        return destination?.holdingId
-          ? suggestion.asset.holdings.some((holding) =>
-              holding.id === destination.holdingId && holding.positionSource !== "MANUAL",
-            )
-          : false;
+      const destinations = fixed || parsed.holdingId ? [holding] : external;
+      const links = await tx.pluggyInvestmentDiagramLink.findMany({ where: { userId, assetHoldingId: { in: destinations.map((row) => row.id) } },
+        include: { investment: { include: { transactions: { orderBy: { date: "desc" }, take: 1 } } } } });
+      const baselines = destinations.map((row) => {
+        const investment = links.find((link) => link.assetHoldingId === row.id)?.investment;
+        return { holdingId: row.id, quantity: row.positionSource === "PLUGGY" ? investment?.quantity ?? new Prisma.Decimal(0) : row.quantity,
+          providerValue: row.providerCurrentValue ?? row.currentValue, currency: row.currency,
+          fxRateToBrl: row.currency === "BRL" ? new Prisma.Decimal(1) : row.fxRateToBrl,
+          providerLatestTransactionAt: investment?.transactions[0]?.date ?? null };
       });
-      if (externalSuggestion) {
-        if (selected.length !== 1) throw new Error("Planeje aportes de posições controladas por provedor individualmente.");
-        const unitHoldings = externalSuggestion.asset.holdings.filter((holding) => holding.includedInTotals && holding.positionSource === "PLUGGY");
-        if (CONTRIBUTION_UNIT_TYPES.includes(externalSuggestion.asset.instrumentType) && unitHoldings.length) {
-          const holding = destination?.holdingId
-            ? unitHoldings.find((item) => item.id === destination.holdingId)
-            : unitHoldings.length === 1 ? unitHoldings[0] : undefined;
-          if (!holding) throw new Error("Selecione a posição e a instituição que receberam o aporte.");
-          if (destination?.expectedUpdatedAt && holding.updatedAt.toISOString() !== destination.expectedUpdatedAt) {
-            throw new Error("A posição mudou. Reabra o aporte e confira a quantidade.");
-          }
-          await registerContributionQuantity(tx, {
-            userId, assetId: externalSuggestion.assetId, suggestionId: externalSuggestion.id, holdingId: holding.id,
-            quantity: parsedQuantity === undefined ? externalSuggestion.quantity : new Prisma.Decimal(parsedQuantity.toString()),
-            paidUnitPrice: new Prisma.Decimal(parsedPaidUnitPrice!.toString()),
-          });
-          await bumpPortfolioAndInvalidateDrafts(tx, portfolio.id, userId);
-          return "EXECUTED" as const;
-        }
-        const externalHoldings = externalSuggestion.asset.holdings.filter((holding) =>
-          holding.positionSource !== "MANUAL" && holding.includedInTotals
-          && (externalSuggestion.asset.instrumentType !== "FIXED_INCOME" || holding.id === destination?.holdingId));
-        const existingAwaiting = await tx.contributionSuggestion.count({
-          where: {
-            assetId: externalSuggestion.assetId,
-            executionStatus: "AWAITING_SYNC",
-            id: { not: externalSuggestion.id },
-          },
-        });
-        if (existingAwaiting) {
-          throw new Error("Este ativo já possui um aporte aguardando confirmação do provedor.");
-        }
-        const quantity = parsedQuantity === undefined
-          ? externalSuggestion.quantity
-          : new Prisma.Decimal(parsedQuantity.toString());
-        const executionFxRate = externalSuggestion.nativeCurrency
-          ? externalSuggestion.fxRateToBrl
-          : null;
-        if (externalSuggestion.nativeCurrency && !executionFxRate?.gt(0)) {
-          throw new Error(`A simulação não possui câmbio válido para ${externalSuggestion.nativeCurrency}. Calcule novamente.`);
-        }
-        const paidUnitPriceBrl = parsedPaidUnitPrice === undefined
-          ? null
-          : new Prisma.Decimal(parsedPaidUnitPrice.toString()).mul(executionFxRate ?? 1);
-        const value = externalSuggestion.asset.instrumentType === "FIXED_INCOME"
-          ? parsedQuantity === undefined ? externalSuggestion.value : quantity
-          : quantity.mul(paidUnitPriceBrl!);
-        const baselineValue = externalSuggestion.asset.holdings
-          .filter((holding) => holding.positionSource !== "MANUAL" && holding.includedInTotals)
-          .reduce(
-            (total, holding) => total.add(
-              holding.providerCurrentValue
-              ?? holding.currentValue
-              ?? holding.quantity.mul(holding.unitPrice),
-            ),
-            new Prisma.Decimal(0),
-          );
-        const linkedHoldings = await tx.pluggyInvestmentDiagramLink.findMany({
-          where: {
-            assetHoldingId: {
-              in: externalSuggestion.asset.holdings
-                .filter((holding) => holding.positionSource !== "MANUAL")
-                .map((holding) => holding.id),
-            },
-          },
-          select: {
-            assetHoldingId: true,
-            investment: {
-              select: {
-                quantity: true,
-                transactions: {
-                  orderBy: { date: "desc" },
-                  take: 1,
-                  select: { date: true },
-                },
-              },
-            },
-          },
-        });
-        const latestMovementByHolding = new Map(
-          linkedHoldings.flatMap((link) =>
-            link.assetHoldingId
-              ? [[link.assetHoldingId, link.investment.transactions[0]?.date ?? null] as const]
-              : [],
-          ),
-        );
-        const providerQuantityByHolding = new Map(
-          linkedHoldings.flatMap((link) => link.assetHoldingId
-            ? [[link.assetHoldingId, link.investment.quantity ?? new Prisma.Decimal(0)] as const]
-            : []),
-        );
-        // A temporary display quantity is not evidence of a provider-side purchase.
-        const observedQuantity = (holding: (typeof externalSuggestion.asset.holdings)[number]) =>
-          holding.positionSource === "PLUGGY"
-            ? providerQuantityByHolding.get(holding.id) ?? new Prisma.Decimal(0)
-            : holding.quantity;
-        const baselineQuantity = externalSuggestion.asset.holdings
-          .filter((holding) => holding.positionSource !== "MANUAL" && holding.includedInTotals)
-          .reduce((total, holding) => total.add(observedQuantity(holding)), new Prisma.Decimal(0));
-        await tx.contributionSuggestion.update({
-          where: { id: externalSuggestion.id },
-          data: {
-            quantity,
-            value,
-            paidUnitPrice: paidUnitPriceBrl,
-            paidUnitPriceNative: externalSuggestion.nativeCurrency && parsedPaidUnitPrice !== undefined
-              ? new Prisma.Decimal(parsedPaidUnitPrice.toString())
-              : null,
-            executionFxRateToBrl: executionFxRate,
-            executionStatus: "AWAITING_SYNC",
-            awaitingSyncAt: new Date(),
-            baselineQuantity,
-            baselineValue,
-            externalBaselines: {
-              deleteMany: {},
-              create: externalHoldings
-                .map((holding) => ({
-                  holdingId: holding.id,
-                  quantity: observedQuantity(holding),
-                  providerValue: holding.providerCurrentValue ?? holding.currentValue,
-                  currency: holding.currency,
-                  fxRateToBrl: holding.currency === "BRL"
-                    ? new Prisma.Decimal(1)
-                    : holding.fxRateToBrl,
-                  providerLatestTransactionAt: latestMovementByHolding.get(holding.id) ?? null,
-                })),
-            },
-          },
-        });
-        return "EXECUTED" as const;
-      }
-
-      const versionClaim = await tx.portfolio.updateMany({
-        where: { id: portfolio.id, version: portfolio.version },
-        data: { version: { increment: 1 } },
-      });
-      if (versionClaim.count !== 1) return "INVALIDATED" as const;
-      const newVersion = portfolio.version + 1;
-
-      for (const suggestion of selected) {
-        const suggestionClaim = await tx.contributionSuggestion.updateMany({
-          where: { id: suggestion.id, simulationId: simulation.id, executed: false },
-          data: { executed: true, executionStatus: "EXECUTED" },
-        });
-        if (suggestionClaim.count !== 1) {
-          throw new Error("Esta sugestão já foi executada.");
-        }
-
-        let quantity: Prisma.Decimal;
-        let value: Prisma.Decimal;
-        if (suggestion.asset.instrumentType === "FIXED_INCOME") {
-          if (!parsedSuggestionId) throw new Error("Registre aportes de renda fixa individualmente.");
-          value = parsedQuantity === undefined ? suggestion.value : new Prisma.Decimal(parsedQuantity.toString());
-          quantity = value;
-          let holding = destination?.holdingId
-            ? suggestion.asset.holdings.find((candidate) => candidate.id === destination.holdingId)
-            : undefined;
-          if (!holding && destination?.newHolding) {
-            const parsedHolding = fixedIncomeHoldingSchema.parse(destination.newHolding);
-            if (!suggestion.asset.fixedIncomeFamilyCode) throw new Error("Grupo de renda fixa inválido.");
-            const catalogItem = parsedHolding.catalogItemId
-              ? await tx.assetCatalogItem.findUnique({ where: { id: parsedHolding.catalogItemId }, select: { familyCode: true } })
-              : null;
-            if (parsedHolding.catalogItemId && catalogItem?.familyCode !== suggestion.asset.fixedIncomeFamilyCode) {
-              throw new Error("O tipo selecionado não pertence a esta família de renda fixa.");
-            }
-            holding = await tx.assetHolding.create({ data: { ...fixedIncomeHoldingData(parsedHolding), assetId: suggestion.assetId } });
-          }
-          if (!holding) throw new Error("Selecione ou crie uma aplicação para registrar o aporte.");
-          const costData = addInvestmentCost({
-            investedValue: holding.investedValue,
-            investedValueCurrency: holding.investedValueCurrency,
-            hasPriorPosition: (holding.currentValue ?? holding.quantity.mul(holding.unitPrice)).gt(0),
-            additions: new Map([["BRL", value]]),
-          });
-          await tx.assetHolding.update({
-            where: { id: holding.id },
-            data: {
-              ...costData,
-              currentValue: (holding.currentValue ?? holding.quantity.mul(holding.unitPrice)).add(value),
-            },
-          });
-        } else {
-          const holding = suggestion.asset.holdings.find((candidate) =>
-            candidate.includedInTotals && candidate.positionSource === "MANUAL",
-          ) ?? suggestion.asset.holdings.find((candidate) => candidate.includedInTotals);
-          if (!holding) throw new Error("A posição de mercado não foi encontrada.");
-          quantity = parsedQuantity === undefined ? suggestion.quantity : new Prisma.Decimal(parsedQuantity.toString());
-          const executionFxRate = suggestion.nativeCurrency ? suggestion.fxRateToBrl : null;
-          if (suggestion.nativeCurrency && !executionFxRate?.gt(0)) {
-            throw new Error(`A simulação não possui câmbio válido para ${suggestion.nativeCurrency}. Calcule novamente.`);
-          }
-          const paidUnitPriceBrl = new Prisma.Decimal(parsedPaidUnitPrice!.toString()).mul(executionFxRate ?? 1);
-          value = quantity.mul(paidUnitPriceBrl);
-          const additions = new Map([["BRL", value]]);
-          if (suggestion.nativeCurrency) {
-            additions.set(suggestion.nativeCurrency, quantity.mul(new Prisma.Decimal(parsedPaidUnitPrice!.toString())));
-          }
-          const costData = addInvestmentCost({
-            investedValue: holding.investedValue,
-            investedValueCurrency: holding.investedValueCurrency,
-            hasPriorPosition: holding.quantity.gt(0),
-            additions,
-          });
-          await tx.assetHolding.update({
-            where: { id: holding.id },
-            data: {
-              quantity: { increment: quantity },
-              ...costData,
-              ...(holding.currentValue != null ? { currentValue: holding.currentValue.add(value) } : {}),
-            },
-          });
-        }
-        await tx.asset.update({ where: { id: suggestion.assetId }, data: { updatedAt: new Date() } });
-        await tx.contributionSuggestion.update({
-          where: { id: suggestion.id },
-          data: {
-            quantity,
-            value,
-            paidUnitPrice: suggestion.asset.instrumentType === "FIXED_INCOME"
-              ? null
-              : new Prisma.Decimal(parsedPaidUnitPrice!.toString()).mul(suggestion.fxRateToBrl ?? 1),
-            paidUnitPriceNative: suggestion.asset.instrumentType !== "FIXED_INCOME" && suggestion.nativeCurrency
-              ? new Prisma.Decimal(parsedPaidUnitPrice!.toString())
-              : null,
-            executionFxRateToBrl: suggestion.asset.instrumentType !== "FIXED_INCOME" && suggestion.nativeCurrency
-              ? suggestion.fxRateToBrl
-              : null,
-          },
-        });
-      }
-      const remainingCount = await tx.contributionSuggestion.count({
-        where: { simulationId: simulation.id, executed: false },
-      });
-      await tx.contributionSimulation.update({
-        where: { id: simulation.id },
-        data: {
-          portfolioVersion: newVersion,
-          status: remainingCount === 0 ? "EXECUTED" : "DRAFT",
-          executedAt: remainingCount === 0 ? new Date() : null,
-        },
-      });
-      return "EXECUTED" as const;
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }) });
-    if (execution === "INVALIDATED") return { status: "INVALIDATED" as const };
-  } catch (error) {
-    if (isPrismaTransactionConflict(error)) {
-      return { status: "INVALIDATED" as const };
+      if (await tx.pendingContribution.count({ where: { assetId: asset.id } })) throw new Error("Este ativo já possui um aporte aguardando confirmação do provedor.");
+      await tx.pendingContribution.create({ data: {
+        userId, assetId: asset.id, holdingId: destinations.length === 1 ? holding.id : null,
+        quantity, value, paidUnitPrice: nativePrice?.mul(fx), paidUnitPriceNative: nativePrice,
+        nativeCurrency: holding.currency === "BRL" ? null : holding.currency,
+        nativeValue: holding.currency === "BRL" ? null : fixed ? quantity.div(fx) : quantity.mul(nativePrice!),
+        fxRateToBrl: fx, executionFxRateToBrl: fx,
+        baselineQuantity: baselines.reduce((total, row) => total.add(row.quantity), new Prisma.Decimal(0)),
+        baselineValue: baselines.reduce((total, row) => total.add(row.providerValue ?? 0), new Prisma.Decimal(0)),
+        baselines: serializeContributionBaselines(baselines),
+      } });
+      return { awaitingSync: true };
     }
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-      throw new Error("Este ativo já possui um aporte aguardando confirmação do provedor.");
-    }
-    throw error;
-  }
-  revalidatePath("/carteira");
-  revalidatePath("/home");
-  revalidatePath("/open-finance");
-  const registered = parsedSuggestionId ? await prisma.contributionSuggestion.findFirst({
-    where: {
-      id: parsedSuggestionId,
-      simulation: { userId },
-    },
-    select: { executionStatus: true, usesQuantityProjection: true },
-  }) : null;
-  return { status: "EXECUTED" as const, awaitingSync: registered?.executionStatus === "AWAITING_SYNC", quantityProjected: registered?.usesQuantityProjection ?? false };
-}
-export async function saveAwaitingContributionPriceAction(suggestionId: string, paidUnitPrice: number) {
-  const userId = await requireUserId();
-  const parsedSuggestionId = z.string().cuid().parse(suggestionId);
-  const parsedPaidUnitPrice = z.number().positive().max(1_000_000_000).parse(paidUnitPrice);
-
-  await withUserOperationLease({ userId, operation: "pluggy-sync", leaseMs: 60_000, action: (lease) => lease.runFencedTransaction(async (tx) => {
-    const suggestion = await tx.contributionSuggestion.findFirst({
-      where: {
-        id: parsedSuggestionId,
-        executionStatus: "AWAITING_SYNC",
-        simulation: { userId },
-      },
-      select: {
-        id: true,
-        quantity: true,
-        nativeCurrency: true,
-        fxRateToBrl: true,
-      },
-    });
-    if (!suggestion) {
-      throw new Error("Este aporte não está mais aguardando sincronização.");
-    }
-
-    if (suggestion.nativeCurrency && !suggestion.fxRateToBrl?.gt(0)) {
-      throw new Error(`O aporte não possui câmbio válido para ${suggestion.nativeCurrency}. Calcule novamente.`);
-    }
-    const paidUnitPriceBrl = new Prisma.Decimal(parsedPaidUnitPrice.toString()).mul(
-      suggestion.fxRateToBrl ?? 1,
-    );
-    const updated = await tx.contributionSuggestion.updateMany({
-      where: {
-        id: suggestion.id,
-        executionStatus: "AWAITING_SYNC",
-      },
-      data: {
-        paidUnitPrice: paidUnitPriceBrl,
-        paidUnitPriceNative: suggestion.nativeCurrency
-          ? new Prisma.Decimal(parsedPaidUnitPrice.toString())
-          : null,
-        executionFxRateToBrl: suggestion.nativeCurrency ? suggestion.fxRateToBrl : null,
-        value: suggestion.quantity.mul(paidUnitPriceBrl),
-        nativeValue: suggestion.nativeCurrency ? suggestion.quantity.mul(parsedPaidUnitPrice.toString()) : null,
-      },
-    });
-    if (updated.count !== 1) {
-      throw new Error("O aporte mudou durante a edição. Recarregue e tente novamente.");
-    }
-    await refreshContributionQuantityCost(tx, suggestion.id);
+    const additions = new Map([["BRL", value]]);
+    if (holding.currency !== "BRL") additions.set(holding.currency, fixed ? quantity.div(fx) : quantity.mul(nativePrice!));
+    const cost = addInvestmentCost({ investedValue: holding.investedValue, investedValueCurrency: holding.investedValueCurrency,
+      hasPriorPosition: (fixed ? holding.currentValue ?? holding.quantity.mul(holding.unitPrice) : holding.quantity).gt(0), additions });
+    await tx.assetHolding.update({ where: { id: holding.id }, data: { ...cost,
+      ...(fixed ? { currentValue: (holding.currentValue ?? holding.quantity.mul(holding.unitPrice)).add(value) }
+        : { quantity: { increment: quantity }, ...(holding.currentValue !== null ? { currentValue: holding.currentValue.add(value) } : {}) }),
+    } });
+    await tx.asset.update({ where: { id: asset.id }, data: { updatedAt: new Date() } });
+    return { awaitingSync: false };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }) });
-
+  if ("error" in result) return result;
+  revalidatePath("/carteira"); revalidatePath("/home"); revalidatePath("/open-finance");
+  return result;
+}
+export async function saveAwaitingContributionPriceAction(pendingId: string, paidUnitPrice: number) {
+  const userId = await requireUserId();
+  const id = z.string().cuid().parse(pendingId);
+  const price = new Prisma.Decimal(z.number().finite().positive().max(1e9).parse(paidUnitPrice).toString());
+  await withUserOperationLease({ userId, operation: "pluggy-sync", leaseMs: 60_000, action: (lease) => lease.runFencedTransaction(async (tx) => {
+    const pending = await tx.pendingContribution.findFirst({ where: { id, userId } });
+    if (!pending) throw new Error("Este aporte não está mais aguardando sincronização.");
+    const fx = pending.nativeCurrency ? pending.executionFxRateToBrl ?? pending.fxRateToBrl : new Prisma.Decimal(1);
+    if (!fx?.gt(0)) throw new Error("O aporte não possui câmbio válido.");
+    await tx.pendingContribution.update({ where: { id }, data: { paidUnitPrice: price.mul(fx), paidUnitPriceNative: pending.nativeCurrency ? price : null,
+      value: pending.quantity.mul(price).mul(fx), nativeValue: pending.nativeCurrency ? pending.quantity.mul(price) : null } });
+    await refreshContributionQuantityCost(tx, id);
+  }) });
   revalidatePath("/carteira");
 }
 
-export async function reviewAwaitingContributionAction(input: { suggestionId: string; decision: "PROVIDER" | "PROJECT"; holdingId?: string; expectedQuantity?: number }) {
+export async function reviewAwaitingContributionAction(input: { pendingId: string; decision: "PROVIDER" | "PROJECT"; holdingId?: string; expectedQuantity?: number }) {
   const userId = await requireUserId();
-  const parsed = z.object({ suggestionId: z.string().cuid(), decision: z.enum(["PROVIDER", "PROJECT"]), holdingId: z.string().cuid().optional(), expectedQuantity: z.number().finite().min(0).max(1e15).optional() }).parse(input);
+  const parsed = z.object({ pendingId: z.string().cuid(), decision: z.enum(["PROVIDER", "PROJECT"]), holdingId: z.string().cuid().optional(), expectedQuantity: z.number().finite().min(0).max(1e15).optional() }).parse(input);
   await withUserOperationLease({ userId, operation: "pluggy-sync", leaseMs: 60_000, action: (lease) => lease.runFencedTransaction(async (tx) => {
-    await reviewLegacyContribution(tx, { ...parsed, userId, expectedQuantity: parsed.expectedQuantity === undefined ? undefined : new Prisma.Decimal(parsed.expectedQuantity.toString()) });
-    const portfolio = await tx.portfolio.findUniqueOrThrow({ where: { userId } });
-    await bumpPortfolioAndInvalidateDrafts(tx, portfolio.id, userId);
+    await reviewPendingContribution(tx, { ...parsed, userId, expectedQuantity: parsed.expectedQuantity === undefined ? undefined : new Prisma.Decimal(parsed.expectedQuantity.toString()) });
+
   }) });
   revalidatePath("/carteira"); revalidatePath("/open-finance"); revalidatePath("/home");
 }
@@ -2538,13 +2202,9 @@ async function recomputeScoresForQuestionType(
     },
   });
   for (const asset of assets) {
-    const score = asset.answers.reduce(
-      (total, answer) => total + (answer.answer ? 1 : -1),
-      0,
-    );
+    const score = calculateDiagramScore(asset.answers.map((answer) => answer.answer));
     await tx.asset.update({ where: { id: asset.id }, data: { score } });
   }
-  await bumpPortfolioAndInvalidateDrafts(tx, portfolio.id, userId);
 }
 
 export async function createQuestionAction(input: { type: DiagramType; criterion: string; text: string }) {
@@ -2643,7 +2303,7 @@ export async function saveAssetAnswersAction(assetId: string, answers: Record<st
   });
   const validIds = new Set(questions.map((question) => question.id));
   const validAnswers = Object.entries(answers).filter(([questionId]) => validIds.has(questionId));
-  const score = validAnswers.reduce((total, [, answer]) => total + (answer ? 1 : -1), 0);
+  const score = calculateDiagramScore(validAnswers.map(([, answer]) => answer));
   await prisma.$transaction(async (tx) => {
     for (const [questionId, answer] of validAnswers) {
       await tx.assetQuestionAnswer.upsert({
@@ -2653,7 +2313,6 @@ export async function saveAssetAnswersAction(assetId: string, answers: Record<st
       });
     }
     await tx.asset.update({ where: { id: asset.id }, data: { score } });
-    await bumpPortfolioAndInvalidateDrafts(tx, asset.portfolioId, userId);
   });
   revalidatePath("/carteira");
 }

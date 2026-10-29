@@ -9,7 +9,6 @@ export const ALLOCATION_LABELS: Record<AllocationMethod, string> = {
 export const ALLOCATION_VERSIONS = { IMPROVED: "4", CERRADO: "3" } as const;
 export const BUDGET_POLICIES = ["TARGET_CAPPED", "FULL_BUDGET"] as const;
 export type BudgetPolicy = (typeof BUDGET_POLICIES)[number];
-export const BUDGET_POLICY_LABELS: Record<BudgetPolicy, string> = { TARGET_CAPPED: "Limitar às metas", FULL_BUDGET: "Usar todo o aporte" };
 export const Money = Decimal.clone({ precision: 60, rounding: Decimal.ROUND_HALF_UP });
 export type AllocationAsset = {
   id: string; ticker: string; name: string; investmentClass: InvestmentClassKey;
@@ -30,10 +29,8 @@ export type AllocationSuggestion = {
   quantity: Decimal; value: Decimal; suggestionPercentage: Decimal;
   totalAfterSuggestionPercentage: Decimal;
 };
-export type CalculationStage = { name: string; optimal: boolean; nodes: number };
 export type CalculationDiagnostics = {
   algorithm: AllocationMethod; version: string;
-  stages: CalculationStage[]; warnings: string[];
   classTolerancesBrl: Partial<Record<InvestmentClassKey, string>>;
   reservedAmount: string;
   budgetPolicy?: BudgetPolicy;

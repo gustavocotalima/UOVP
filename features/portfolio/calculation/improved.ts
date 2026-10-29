@@ -3,7 +3,7 @@ import { ALLOCATION_VERSIONS, Money, sum, finish, validateInput, type Allocation
 import { balancePurchases, type BalanceModel, type BalanceSolution } from "./balanced-search";
 import { prepareBudgetPolicy, describeBudgetRemainder, prepareRemainderAllocation, combineBudgetStages } from "./budget-policy";
 
-export const IMPROVED_VERSION = ALLOCATION_VERSIONS.IMPROVED;
+const IMPROVED_VERSION = ALLOCATION_VERSIONS.IMPROVED;
 
 /** Class targets -> score proportions -> budget use. Financial amounts stay
  * in Decimal; only bounded numeric apportionment runs in the native worker. */
@@ -92,7 +92,7 @@ function* improvedStage(input: AllocationInput, capGlobalTargets = true): Genera
     }
   }
   return describeBudgetRemainder(finish(input, values, {
-    algorithm: "IMPROVED", version: IMPROVED_VERSION, stages: [], warnings: [],
+    algorithm: "IMPROVED", version: IMPROVED_VERSION,
     classTolerancesBrl: Object.fromEntries([...tolerances].map(([cls, value]) => [cls, value.toString()])), reservedAmount: reserved.toString(),
     heuristic: { priorities: ["class_balance", "score_balance", "budget_use"], iterations: solution.iterations, evaluations: solution.evaluations, stopReason: solution.stopReason },
   }), plan);
