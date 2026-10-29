@@ -8,7 +8,7 @@ Reviewed on 2026-10-28. The upgrade was validated locally before publication.
 - pnpm lifecycle scripts use explicit, version-pinned `allowBuilds` entries. The removed `onlyBuiltDependencies` setting is no longer used; unreviewed dependency builds still fail installation.
 - The `tsc` command uses TypeScript 7.0.2. The `typescript` package name points to the official TypeScript 6 compatibility API for Next.js and ESLint tooling; `@typescript/native` provides the native TypeScript 7 compiler, following Microsoft's supported side-by-side configuration.
 - Prisma CLI, client and PostgreSQL adapter are pinned together at 7.3.0. Version 7.10.1 reproduced upstream migration regression [#30640](https://github.com/prisma/orm/issues/30640): historical PostgreSQL temporary tables using `ON COMMIT DROP` disappear between statements. The complete unchanged migration history and seed pass on 7.3.0. Prisma 8 release candidates were excluded. Configuration and seeding moved to `prisma.config.ts`; the generated client uses `generated/prisma`, which is ignored by Git. Existing migration SQL and database models are unchanged.
-- PostgreSQL serialization/deadlock handling recognizes both the legacy Prisma error format and the driver adapter's nested SQLSTATE fields. Existing retry bounds and transaction isolation are unchanged.
+- PostgreSQL serialization/deadlock handling recognizes the legacy Prisma error format, the driver adapter's nested SQLSTATE fields, and direct adapter errors raised at transaction commit. Existing retry bounds and transaction isolation are unchanged.
 - Database clients share a factory that preserves explicit connection limits, timeout parameters and schema from `DATABASE_URL`. Defaults use a bounded pool and a finite connection timeout.
 - Cypress 16.2.1 uses installed Google Chrome. The public screenshot flag uses `Cypress.expose()`; no credentials are exposed through it.
 - Node types stay on the Node 24 line. NextAuth stays on the existing v5 channel (5.0.0-beta.32); replacing it with the registry's v4 tag would be a downgrade.
@@ -73,7 +73,7 @@ The PostgreSQL 8 driver can still emit its queued-query deprecation warning thro
 
 The final dependency set passed:
 
-- Unit tests: 1,535 tests across 98 files.
+- Unit tests: 1,543 tests across 98 files.
 - Integration tests: 290 tests across 39 files, with no skipped tests, using disposable PostgreSQL 18.4 and Redis 7.2.15 services.
 - Browser tests: 73 tests across 24 specs, using Cypress 16.2.1 and headless Chrome.
 - CI automation tests: 43 Python tests.
@@ -81,7 +81,7 @@ The final dependency set passed:
 - All existing database migrations and seed on a fresh disposable database; no migration SQL was changed.
 - Dependency audit: zero advisories across all severities.
 
-Calculator source, contribution UI and historical migration fingerprints remained unchanged during the dependency upgrade. Validation logs are kept locally in `work/dependency-upgrade-*.log`.
+Calculator source, contribution UI and historical migration fingerprints remained unchanged during the dependency upgrade. Validation logs are kept locally in `work/dependency-upgrade-*.log` and `work/ci-driver-conflict-*.log`.
 
 Local Docker cleanup reclaimed 15.74 GB of unused build cache and 659.3 MB from an unused image. Containers and persistent volumes were preserved.
 

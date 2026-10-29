@@ -1,6 +1,12 @@
 import { Prisma } from "@/generated/prisma/client";
 
 export function isPrismaTransactionConflict(error: unknown) {
+  if (error instanceof Error && error.name === "DriverAdapterError") {
+    const cause = error.cause;
+    return typeof cause === "object" && cause !== null && "kind" in cause
+      && cause.kind === "TransactionWriteConflict" && "originalCode" in cause
+      && (cause.originalCode === "40001" || cause.originalCode === "40P01");
+  }
   if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false;
   if (error.code === "P2034") return true;
   if (error.code !== "P2010") return false;
