@@ -14,6 +14,6 @@ ETFs como AUPO11 seguem o fluxo por unidades mesmo alocados em renda fixa. Produ
 
 Compras manuais atualizam somente quantidade e custo da posição, sem histórico local de operações. Apenas pendências e lotes ativos de conciliação são persistidos. Manter uma posição desconectada como manual materializa a quantidade efetiva uma única vez e remove suas pendências. Excluir o ativo ou sua classe resolve a projeção antes de remover a posição.
 
-Os resultados do cálculo permanecem na memória do navegador até clicar em Calcular novamente. Atualizações das integrações e registros de compra não invalidam nem recalculam a lista. Registros e decisões continuam coordenados pela trava operacional existente; decisões de conflito desatualizadas são recusadas.
+Os resultados do cálculo permanecem na memória do navegador até clicar em Calcular novamente. Atualizações das integrações e registros de compra não invalidam nem recalculam a lista. Aportes por unidades do Open Finance conferem a quantidade exibida da posição selecionada no momento do registro; uma mudança na quantidade exige conferir a posição antes de somar unidades, enquanto mudanças isoladas de preço, câmbio e data não bloqueiam o registro. Registros e decisões continuam coordenados pela trava operacional existente; decisões de conflito desatualizadas são recusadas.
 
 Pendências migradas sem um lote seguro exigem revisão explícita. Aplique a [migração de pendências](pending-contributions-migration.md) com a versão anterior parada.

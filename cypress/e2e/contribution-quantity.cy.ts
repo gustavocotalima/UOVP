@@ -41,6 +41,27 @@ describe("aportes com quantidade temporária Open Finance", () => {
     cy.get<string>("@testUserEmail").then((email) => cy.task("getPluggyQuantityOverrideState", { email }).should("include", { quantity: "115", overrideQuantity: "115", providerQuantity: "100" }));
   });
 
+  it("preserva a prévia e recusa duplicar uma compra já incorporada pela instituição", () => {
+    cy.visit("/carteira"); cy.waitForHydration();
+    cy.contains("button", /^Aportar$/).first().click();
+    cy.get("#contribution-value").type("{selectall}500");
+    cy.contains("button", "Calcular").click();
+    const table = 'table[aria-label="Sugestões de investimento"]:visible';
+    cy.get(table).invoke("text").as("originalPreview");
+    cy.get<string>("@testUserEmail").then((email) => cy.task("seedSyncedContributionQuantity", { email, quantity: 110 }));
+    cy.get(table).contains("button", "Aportar").click();
+    cy.get("#contribution-quantity").type("{selectall}10");
+    cy.get("#contribution-unit-price").type("50");
+    cy.get('[role="dialog"]').contains("button", /^Aportar$/).click();
+    cy.contains("A quantidade desta posição mudou").should("exist");
+    cy.get('[role="dialog"]').should("be.visible");
+    cy.get<string>("@originalPreview").then((original) => cy.get(table).invoke("text").should("equal", original));
+    cy.get<string>("@testUserEmail").then((email) => {
+      cy.task("getPluggyQuantityOverrideState", { email }).should("include", { quantity: "110", overrideQuantity: null, providerQuantity: "110" });
+      cy.task("getPendingContributionCount", { email }).should("equal", 0);
+    });
+  });
+
   it("permite manter temporariamente e depois escolher a instituição no celular", () => {
     cy.viewport(390, 844); cy.visit("/carteira"); cy.waitForHydration();
     record("10", "500");

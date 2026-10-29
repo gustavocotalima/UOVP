@@ -14,6 +14,6 @@ ETFs such as AUPO11 use the unit flow even when allocated to fixed income. Produ
 
 Manual purchases update only position quantity and cost, without a local operation history. Only pending contributions and active reconciliation batches are persisted. Keeping a disconnected position manual materializes its effective quantity once and removes its pending entries. Deleting an asset or class resolves its projection before removing the position.
 
-Calculation results stay in browser memory until Calculate is clicked again. Integration updates and recorded purchases do not invalidate or recalculate the list. Recording and decisions remain coordinated by the existing operation lease; stale conflict decisions are rejected.
+Calculation results stay in browser memory until Calculate is clicked again. Integration updates and recorded purchases do not invalidate or recalculate the list. Unit-based Open Finance purchases check the selected holding's displayed quantity when recording; a changed quantity requires checking the position before adding units, while price, FX and timestamp changes alone do not block recording. Recording and decisions remain coordinated by the existing operation lease; stale conflict decisions are rejected.
 
 Migrated pending entries without a safe batch require explicit review. Apply the [pending-contribution migration](pending-contributions-migration.md) with the previous application version stopped.

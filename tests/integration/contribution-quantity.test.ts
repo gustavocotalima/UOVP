@@ -2,7 +2,7 @@ import { createPrismaClient } from "../../lib/prisma-client";
 import { randomUUID } from "node:crypto";
 import { Prisma, type InstrumentType, type InvestmentClass } from "@/generated/prisma/client";
 import { afterAll, describe, expect, it, vi } from "vitest";
-import { deleteAssetAction, deleteAssetClassAction, recordContributionAction, reviewAwaitingContributionAction, saveAwaitingContributionPriceAction } from "@/features/portfolio/actions";
+import { calculateContributionAction, deleteAssetAction, deleteAssetClassAction, recordContributionAction, reviewAwaitingContributionAction, saveAwaitingContributionPriceAction } from "@/features/portfolio/actions";
 import { GET as holdingTransactions } from "@/app/api/portfolio/holdings/[holdingId]/transactions/route";
 import { getPortfolioData } from "@/features/portfolio/data";
 import { getOpenFinanceData } from "@/features/open-finance/data";
@@ -51,8 +51,10 @@ suite("Open Finance contribution quantity reconciliation", () => {
   }
   async function buy(f: Fixture, quantity = 10, paidPrice = 12) {
     current.userId = f.user.id;
+    const holding = await position(f);
     const result = await recordContributionAction({
       assetId: f.asset.id, quantity, paidUnitPrice: paidPrice,
+      expectedHoldingQuantity: holding.quantity.toString(),
       fxRateToBrl: f.holding.fxRateToBrl?.toNumber() ?? null,
       holdingId: f.holding.id });
     expect(result).toMatchObject({ awaitingSync: true });
@@ -88,6 +90,42 @@ suite("Open Finance contribution quantity reconciliation", () => {
     expect(portfolio.assets[0].awaitingSyncContributions).toHaveLength(1);
     const details = await portfolioTools.find((t) => t.name === "get_holding_details")!.execute({ userId: f.user.id, scopes: ["portfolio:read"], clientId: "test", grantId: "test", timeZone: "America/Sao_Paulo" }, { holdingId: f.holding.id });
     expect(details).toMatchObject({ holding: { quantity: "110", investedValue: "1120", quantityOverride: { source: "CONTRIBUTION", restoresAutomatically: true } } });
+  });
+  it.each([
+    ["STOCK", "BRAZILIAN_STOCKS"], ["ETF", "FIXED_INCOME"],
+  ] as const)("does not add an already-synchronized purchase to a stale %s preview", async (type, investmentClass) => {
+    const f = await fixture(type, investmentClass);
+    await db!.investmentTarget.create({ data: { userId: f.user.id, investmentClass, percentage: 100 } });
+    const preview = await calculateContributionAction(100);
+    const snapshot = preview.assetSnapshot[0].holdings.find((holding) => holding.id === f.holding.id)!;
+    const originalPreview = JSON.stringify(preview);
+    await provider(f, 110);
+    await expect(recordContributionAction({ assetId: f.asset.id, holdingId: f.holding.id,
+      quantity: 10, paidUnitPrice: 12, expectedHoldingQuantity: snapshot.quantity,
+    })).resolves.toMatchObject({ error: expect.stringContaining("A quantidade desta posição mudou") });
+    expect((await position(f)).quantity.toString()).toBe("110");
+    expect(await db!.pendingContribution.count({ where: { assetId: f.asset.id } })).toBe(0);
+    expect(await db!.pluggyContributionBatch.count({ where: { linkId: f.link.id } })).toBe(0);
+    expect(JSON.stringify(preview)).toBe(originalPreview);
+    await provider(f, 110);
+    expect((await position(f)).quantity.toString()).toBe("110");
+  });
+  it("requires the displayed quantity for unit-based Open Finance purchases", async () => {
+    const f = await fixture();
+    await expect(recordContributionAction({ assetId: f.asset.id, holdingId: f.holding.id,
+      quantity: 10, paidUnitPrice: 12,
+    })).resolves.toMatchObject({ error: expect.stringContaining("A quantidade desta posição mudou") });
+    expect((await position(f)).quantity.toString()).toBe("100");
+    expect(await db!.pendingContribution.count({ where: { assetId: f.asset.id } })).toBe(0);
+  });
+  it("accepts the displayed quantity after quote, FX and timestamp changes", async () => {
+    const f = await fixture("STOCK", "INTERNATIONAL_STOCKS", "USD");
+    await db!.assetHolding.update({ where: { id: f.holding.id }, data: { unitPrice: 11, fxRateToBrl: 6, priceUpdatedAt: new Date() } });
+    await db!.pluggyInvestment.update({ where: { id: f.investment.id }, data: { providerUpdatedAt: new Date() } });
+    await expect(recordContributionAction({ assetId: f.asset.id, holdingId: f.holding.id,
+      quantity: 10, paidUnitPrice: 12, expectedHoldingQuantity: "100",
+    })).resolves.toMatchObject({ awaitingSync: true });
+    expect((await position(f)).quantity.toString()).toBe("110");
   });
   it("accumulates contributions, recognizes a FIFO prefix and resumes autosync on the full match", async () => {
     const f = await fixture(); const first = await buy(f, 10); const second = await buy(f, 5);
@@ -246,7 +284,7 @@ suite("Open Finance contribution quantity reconciliation", () => {
     const old = (await getPortfolioData(f.user.id)).quantityChanges[0];
     await provider(f, 107);
     await expect(resolvePluggyQuantityChangeAction({ ...old, expectedProviderQuantity: old.providerQuantity, decision: "PROVIDER" })).resolves.toEqual({ status: "CONFLICT" });
-    await expect(recordContributionAction({ assetId: f.asset.id, quantity: 5, paidUnitPrice: 12, holdingId: f.holding.id })).rejects.toThrow("Resolva a revisão");
+    await expect(recordContributionAction({ assetId: f.asset.id, quantity: 5, paidUnitPrice: 12, holdingId: f.holding.id, expectedHoldingQuantity: "110" })).rejects.toThrow("Resolva a revisão");
   });
   it("materializes the projected position once when keeping a disconnected holding manual", async () => {
     const f = await fixture(); const s = await buy(f); await markPluggyItemDisconnected(f.item.pluggyItemId);
@@ -294,7 +332,7 @@ suite("Open Finance contribution quantity reconciliation", () => {
   });
   it("does not duplicate a purchase when concurrent registration requests race", async () => {
     const f = await fixture();
-    const results = await Promise.allSettled([1, 2].map(() => recordContributionAction({ assetId: f.asset.id, quantity: 10, paidUnitPrice: 12, holdingId: f.holding.id })));
+    const results = await Promise.allSettled([1, 2].map(() => recordContributionAction({ assetId: f.asset.id, quantity: 10, paidUnitPrice: 12, holdingId: f.holding.id, expectedHoldingQuantity: "100" })));
     expect(results.some((r) => r.status === "fulfilled")).toBe(true);
     expect(await db!.pendingContribution.count({ where: { assetId: f.asset.id, contributionBatchId: { not: null } } })).toBe(1);
     expect((await position(f)).quantity.toString()).toBe("110");

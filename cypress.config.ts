@@ -795,6 +795,18 @@ export default defineConfig({
             await prisma.$disconnect();
           }
         },
+        async seedSyncedContributionQuantity({ email, quantity }: { email: string; quantity: number }) {
+          if (!/^cypress-[^@]+@example\.com$/.test(email)) throw new Error("Only Cypress users may be seeded");
+          const prisma = createPrismaClient();
+          try {
+            const link = await prisma.pluggyInvestmentDiagramLink.findFirstOrThrow({ where: { user: { email }, investment: { code: "ITUB3" } } });
+            await prisma.$transaction([
+              prisma.pluggyInvestment.update({ where: { id: link.pluggyInvestmentDbId }, data: { quantity, balance: quantity * 50, providerUpdatedAt: new Date() } }),
+              prisma.assetHolding.update({ where: { id: link.assetHoldingId! }, data: { quantity, providerCurrentValue: quantity * 50 } }),
+            ]);
+            return null;
+          } finally { await prisma.$disconnect(); }
+        },
         async getPluggyQuantityOverrideState({ email }: { email: string }) {
           if (!/^cypress-[^@]+@example\.com$/.test(email)) throw new Error("Only Cypress users may be inspected");
           const prisma = createPrismaClient();

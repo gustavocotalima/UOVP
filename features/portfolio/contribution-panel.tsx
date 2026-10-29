@@ -219,13 +219,17 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
                   maturityDate: contributionModal.newHolding.maturityDate || null,
                 },
               }
-          : quantityProjection && selectedHolding ? { holdingId: selectedHolding.id } : undefined;
-        await recordContributionAction({
+          : quantityProjection && selectedHolding ? { holdingId: selectedHolding.id, expectedHoldingQuantity: selectedHolding.quantity } : undefined;
+        const result = await recordContributionAction({
           assetId: selectedSuggestion.assetId, quantity: selectedQuantity,
           paidUnitPrice: isFixedIncome ? undefined : selectedUnitPricePaid, ...destination,
           fxRateToBrl: quantityProjection ? paidCurrency === "BRL" ? 1 : Number(selectedHolding?.fxRateToBrl)
             : selectedSuggestion.fxRateToBrl ? Number(selectedSuggestion.fxRateToBrl) : null,
         });
+        if ("error" in result) {
+          setMessage(result.error);
+          return;
+        }
         setRecordedAssets((current) => new Set(current).add(selectedSuggestion.assetId));
         setContributionModal(undefined);
         router.refresh();

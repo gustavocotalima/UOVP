@@ -2050,7 +2050,7 @@ export async function calculateContributionAction(
 
 export async function recordContributionAction(input: {
   assetId: string; quantity: number; paidUnitPrice?: number; holdingId?: string;
-  newHolding?: FixedIncomeHoldingInput; fxRateToBrl?: number | null;
+  newHolding?: FixedIncomeHoldingInput; fxRateToBrl?: number | null; expectedHoldingQuantity?: string;
 }) {
   const userId = await requireUserId();
   const parsed = z.object({
@@ -2058,6 +2058,12 @@ export async function recordContributionAction(input: {
     quantity: z.number().finite().positive().max(1e9).refine((value) => new Prisma.Decimal(value.toString()).decimalPlaces() <= 10, "Informe até dez casas decimais."),
     paidUnitPrice: z.number().finite().positive().max(1e9).optional(),
     fxRateToBrl: z.number().finite().positive().max(1e9).nullable().optional(),
+    expectedHoldingQuantity: z.string().max(64).refine((value) => {
+      try {
+        const quantity = new Prisma.Decimal(value);
+        return quantity.isFinite() && quantity.gte(0) && quantity.decimalPlaces() <= 10;
+      } catch { return false; }
+    }, "Informe uma quantidade válida para a posição exibida.").optional(),
     newHolding: fixedIncomeHoldingSchema.optional(),
   }).parse(input);
   const result = await withUserOperationLease({ userId, operation: "pluggy-sync", leaseMs: 60_000, action: (lease) => lease.runFencedTransaction(async (tx) => {
@@ -2085,6 +2091,9 @@ export async function recordContributionAction(input: {
     const value = fixed ? quantity : quantity.mul(nativePrice!).mul(fx);
     if (holding.positionSource !== "MANUAL") {
       if (!fixed && holding.positionSource === "PLUGGY" && CONTRIBUTION_UNIT_TYPES.includes(asset.instrumentType)) {
+        if (parsed.expectedHoldingQuantity === undefined || !holding.quantity.eq(parsed.expectedHoldingQuantity)) {
+          return { error: "A quantidade desta posição mudou. Confira a posição antes de registrar a compra." };
+        }
         await registerContributionQuantity(tx, { userId, assetId: asset.id, holdingId: holding.id, quantity, paidUnitPrice: nativePrice! });
         return { awaitingSync: true };
       }
@@ -2122,6 +2131,7 @@ export async function recordContributionAction(input: {
     await tx.asset.update({ where: { id: asset.id }, data: { updatedAt: new Date() } });
     return { awaitingSync: false };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }) });
+  if ("error" in result) return result;
   revalidatePath("/carteira"); revalidatePath("/home"); revalidatePath("/open-finance");
   return result;
 }
