@@ -32,6 +32,29 @@ function assertCash(input: AllocationInput, r: ReturnType<typeof allocateContrib
 }
 
 describe("coordinated contribution baskets and budget policies", () => {
+  for (const method of methods) for (const scope of ["USD", "BRL"] as const) {
+    it.each([100, 400, 5000])(`${method}/${scope} keeps identical purchases below the global ceiling for budget %i`, (contribution) => {
+      const input = screenshot(); input.contribution = contribution;
+      if (scope === "BRL") {
+        input.assets = input.assets.map((a) => ({ ...a, investmentClass: a.investmentClass === "INTERNATIONAL_STOCKS" ? "BRAZILIAN_STOCKS" : a.investmentClass === "STORE_OF_VALUE" ? "REAL_ESTATE_FUNDS" : "FIXED_INCOME" }));
+        input.targets = { ...zeros, BRAZILIAN_STOCKS: 15, REAL_ESTATE_FUNDS: 2, FIXED_INCOME: 83 };
+      }
+      const capped = allocateContribution(input, method);
+      const full = allocateContribution({ ...input, budgetPolicy: "FULL_BUDGET" }, method);
+      const purchases = (r: typeof capped) => r.suggestions.map((s) => [s.assetId, s.quantity.toString(), s.value.toString()]);
+      expect(purchases(full)).toEqual(purchases(capped));
+      expect(full.unallocatedAmount.toString()).toBe(capped.unallocatedAmount.toString());
+      expect(full.calculation.budgetPolicy).toBe("FULL_BUDGET");
+    });
+  }
+  it("full mode cannot relax scores when only an overweight asset can receive purchases", () => {
+    const input: AllocationInput = { contribution: 1000, targets: { ...zeros, BRAZILIAN_STOCKS: 100 }, assets: [
+      { id: "high", ticker: "HIGH", name: "Overweight eligible", investmentClass: "BRAZILIAN_STOCKS", currentValue: 9000, unitPrice: 1, quantity: 0, score: 5, fractional: true },
+      { id: "low", ticker: "LOW", name: "Excluded underweight", investmentClass: "BRAZILIAN_STOCKS", currentValue: 0, unitPrice: 1, quantity: 0, score: 5, fractional: true, eligibleToReceive: false },
+    ] };
+    expect(allocateContribution(input).suggestions).toEqual([]);
+    expect(allocateContribution({ ...input, budgetPolicy: "FULL_BUDGET" }).suggestions).toEqual([]);
+  });
   it("water-fills lower/upper bounds without selling overweight holdings", () => {
     const values = waterFill([new Money(80), new Money(20), new Money(0)], [new Money(1), new Money(1), new Money(1)], new Money(60), [new Money(200), new Money(200), new Money(30)]);
     expect(values.map(String)).toEqual(["0", "30", "30"]);
@@ -144,6 +167,14 @@ describe("coordinated contribution baskets and budget policies", () => {
         })),
       };
       const result = allocateContribution(input, method); assertCash(input, result);
+      if (policy === "FULL_BUDGET") {
+        const capped = allocateContribution({ ...input, budgetPolicy: "TARGET_CAPPED" }, method);
+        for (const first of capped.suggestions) {
+          const combined = result.suggestions.find((s) => s.assetId === first.assetId);
+          expect(combined?.quantity.gte(first.quantity), first.assetId).toBe(true);
+          expect(combined?.value.gte(first.value), first.assetId).toBe(true);
+        }
+      }
       for (const s of result.suggestions) {
         const a = input.assets.find((a) => a.id === s.assetId)!;
         expect(a.eligibleToReceive && a.score > 0).toBe(true);

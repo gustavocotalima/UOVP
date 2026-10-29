@@ -1,4 +1,4 @@
-import { Prisma, type PricingSource } from "@prisma/client";
+import { Prisma, type PricingSource } from "@/generated/prisma/client";
 import { fetchBrapiQuotes, normalizeBrapiSymbol, readCachedBrapiQuotes } from "@/features/portfolio/brapi";
 import { requireBrapiCredentials } from "@/features/portfolio/brapi-credentials";
 import {

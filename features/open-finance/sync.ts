@@ -1,4 +1,4 @@
-import { Prisma } from "@prisma/client";
+import { Prisma } from "@/generated/prisma/client";
 import { selectPluggyItemsForAutomaticSync } from "@/lib/automatic-refresh-policy";
 import { projectAccountInvestment } from "@/features/finance/account-investments";
 import { prisma } from "@/lib/prisma";
@@ -96,7 +96,7 @@ function nullableDecimal(value: string | number | null | undefined) {
   }
 }
 
-function nullableJson(value: unknown): Prisma.InputJsonValue | Prisma.NullTypes.DbNull {
+function nullableJson(value: unknown): Prisma.InputJsonValue | typeof Prisma.DbNull {
   if (value === null || value === undefined) return Prisma.DbNull;
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 }

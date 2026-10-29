@@ -1,5 +1,6 @@
+import { createPrismaClient } from "../../lib/prisma-client";
 import { randomUUID } from "node:crypto";
-import { Prisma, PrismaClient } from "@prisma/client";
+import { Prisma } from "@/generated/prisma/client";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { reconcilePluggyInvestmentsForUser } from "@/features/open-finance/diagram-sync";
 import { PLUGGY_DIAGRAM_EXCLUSION_REASON } from "@/features/open-finance/diagram-exclusion";
@@ -16,7 +17,7 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 import { portfolioTools } from "@/features/mcp/portfolio-tools";
 
 const enabled = Boolean(process.env.DATABASE_URL);
-const db = enabled ? new PrismaClient() : null;
+const db = enabled ? createPrismaClient() : null;
 const suite = enabled ? describe : describe.skip;
 
 suite("quantidade temporária de posições Pluggy", () => {

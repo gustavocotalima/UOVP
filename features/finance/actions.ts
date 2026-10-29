@@ -1,12 +1,13 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { Prisma, type BudgetCategory, type FinancialAccountType } from "@prisma/client";
+import { Prisma, type BudgetCategory, type FinancialAccountType } from "@/generated/prisma/client";
 import { z } from "zod";
 import { projectAccountInvestment, setAccountInvestmentPreference } from "./account-investments";
 import { BUDGET_CATEGORIES, type BudgetCategoryKey } from "@/features/budget/constants";
 import { requireUserId } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
+import { isPrismaTransactionConflict } from "@/lib/prisma-errors";
 import {
   classifyFinanceTransactionsForUser,
   learnFinanceClassificationRule,
@@ -48,9 +49,7 @@ async function withSerializableRetry<T>(operation: (tx: Prisma.TransactionClient
         isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
       });
     } catch (error) {
-      const retryable = error instanceof Prisma.PrismaClientKnownRequestError
-        && (error.code === "P2034" || (error.code === "P2010"
-          && ["40001", "40P01"].includes(String(error.meta?.code))));
+      const retryable = isPrismaTransactionConflict(error);
       if (!retryable || attempt === SERIALIZABLE_RETRY_LIMIT - 1) throw error;
     }
   }

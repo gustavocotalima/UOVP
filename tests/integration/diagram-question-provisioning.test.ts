@@ -1,6 +1,6 @@
+import { createPrismaClient } from "../../lib/prisma-client";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { PrismaClient } from "@prisma/client";
 import { afterAll, describe, expect, it } from "vitest";
 import {
   backfillUserDiagramQuestions,
@@ -11,7 +11,7 @@ import {
 import { DEFAULT_QUESTIONS, defaultQuestionTemplateKey } from "@/features/portfolio/questions";
 import { getDiagramData } from "@/features/portfolio/data";
 
-const db = process.env.DATABASE_URL ? new PrismaClient() : null;
+const db = process.env.DATABASE_URL ? createPrismaClient() : null;
 const suite = db ? describe : describe.skip;
 
 suite("provisionamento seguro de perguntas e respostas legadas", () => {

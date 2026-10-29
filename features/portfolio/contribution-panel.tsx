@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Calculator, CheckCircle2, Clock3, DollarSign, Info } from "lucide-react";
+import { Calculator, CheckCircle2, DollarSign, Info } from "lucide-react";
 import { PrivateValue } from "@/components/ui/private-value";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,7 +13,6 @@ import { Select } from "@/components/ui/select";
 import { DonutChart } from "@/components/charts/donut-chart";
 import { formatCurrency, formatMoney, formatPercent } from "@/lib/money";
 import { executeContributionAction, simulateContributionAction } from "./actions";
-import { ALLOCATION_LABELS, BUDGET_POLICY_LABELS } from "./calculation/types";
 import { PORTFOLIO_SIMULATION_INVALIDATED_EVENT } from "./client-events";
 import {
   currencyOnlyContributionScope,
@@ -278,10 +277,6 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
               }
             : item),
         });
-        if (result.quantityProjected) setSimulation(undefined);
-        setMessage(result.awaitingSync
-          ? result.quantityProjected ? "Aporte registrado. A quantidade já inclui a compra e aguarda confirmação da instituição." : "Aporte planejado. Faça o investimento na instituição e sincronize o provedor para confirmar."
-          : "Aporte registrado.");
         setContributionModal(undefined);
         router.refresh();
       } catch (error) {
@@ -354,16 +349,6 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
         </CardContent>
       </Card>
       {message && <p role="status" className="rounded-xl border bg-[var(--card)] p-4 text-sm">{message}</p>}
-      {simulation && <p className="text-sm text-muted-foreground" role="status">Sistema de cálculo: {ALLOCATION_LABELS[simulation.allocationMethod ?? "IMPROVED"]}.
-        {" "}Orçamento: {BUDGET_POLICY_LABELS[simulation.calculation?.budgetPolicy ?? "TARGET_CAPPED"]}.
-        {simulation.calculation?.warnings.map((warning) => <span className="mt-1 block text-amber-700 dark:text-amber-400" key={warning}>{warning}</span>)}
-        {simulation.calculation?.unallocatedReasons?.map((reason) => <span className="mt-1 block" key={reason}>{
-          reason === "TARGET_LIMIT" ? `Parte do aporte ficou disponível para preservar as metas.${isCurrencyScoped ? " Marque “Usar todo o aporte” para permitir ultrapassá-las." : ""}`
-            : reason === "NO_ELIGIBLE_ASSETS" ? "Não há ativos elegíveis para receber este aporte com os filtros, notas, preços e metas atuais."
-              : reason === "METHOD_RULES" ? "As regras de distribuição e arredondamento do Diagrama do Cerrado deixaram um saldo não alocado."
-                : "Arredondamentos e limites de equilíbrio deixaram um saldo não alocado."
-        }</span>)}
-      </p>}
       {simulation && (
         <div className="space-y-6">
           <Card>
@@ -426,11 +411,9 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
                         <div className="col-span-2"><dt className="text-[10px] uppercase text-[var(--muted-foreground)]">Total após aporte</dt><dd className="mt-1 font-semibold">{formatPercent(item.totalAfterSuggestionPercentage)}</dd></div>
                       </dl>
                       <div className="mt-4">
-                        {item.executed
-                          ? <span className="inline-flex min-h-11 w-full items-center justify-center gap-1 rounded-xl bg-[var(--success)]/10 text-sm text-[var(--success)]"><CheckCircle2 className="size-4" /> Registrado</span>
-                          : item.executionStatus === "AWAITING_SYNC"
-                            ? <span className="inline-flex min-h-11 w-full items-center justify-center gap-1 rounded-xl bg-[var(--primary)]/10 text-sm text-[var(--primary)]"><Clock3 className="size-4" /> Aguardando sync</span>
-                            : <Button className="w-full" onClick={() => openContribution(item.id, item.quantity)} disabled={pending}><DollarSign className="size-5" /> Aportar</Button>}
+                        {item.executed || item.executionStatus === "AWAITING_SYNC"
+                          ? <span className="inline-flex min-h-11 w-full items-center justify-center gap-1 rounded-xl bg-[var(--success)]/10 text-sm text-[var(--success)]"><CheckCircle2 className="size-4" /> Aporte registrado</span>
+                          : <Button className="w-full" onClick={() => openContribution(item.id, item.quantity)} disabled={pending}><DollarSign className="size-5" /> Aportar</Button>}
                       </div>
                     </article>
                   );
@@ -466,11 +449,9 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
                           <td className="px-4 py-4 text-center font-semibold text-[var(--success)]"><MoneyWithNative brl={item.value} native={item.nativeValue} currency={item.nativeCurrency} /></td>
                           <td className="px-4 py-4 text-center font-semibold"><PrivateValue>{formatQuantity(item.quantity)}</PrivateValue></td>
                           <td className="px-4 py-4 text-center">
-                            {item.executed
-                              ? <span className="inline-flex items-center gap-1 text-xs text-[var(--success)]"><CheckCircle2 className="size-4" /> Registrado</span>
-                              : item.executionStatus === "AWAITING_SYNC"
-                                ? <span className="inline-flex items-center gap-1 text-xs text-[var(--primary)]"><Clock3 className="size-4" /> Aguardando sync</span>
-                                : <Button onClick={() => openContribution(item.id, item.quantity)} disabled={pending}><DollarSign className="size-5" /> Aportar</Button>}
+                            {item.executed || item.executionStatus === "AWAITING_SYNC"
+                              ? <span className="inline-flex items-center gap-1 text-xs text-[var(--success)]"><CheckCircle2 className="size-4" /> Aporte registrado</span>
+                              : <Button onClick={() => openContribution(item.id, item.quantity)} disabled={pending}><DollarSign className="size-5" /> Aportar</Button>}
                           </td>
                         </tr>
                       );
@@ -593,16 +574,16 @@ export function ContributionPanel({ assets, catalog }: { assets: AssetDto[]; cat
                 )}
               </div>
             )}
-            {providerControlled && (
+            {providerControlled && !quantityProjection && (
               <div className="rounded-xl border border-[var(--primary)]/50 bg-[var(--primary)]/10 p-4 text-sm">
                 {selectedHolding?.positionSource === "ACCOUNT_BALANCE"
                   ? "Este aporte registra apenas o planejamento. Faça o depósito fora deste fluxo. O saldo e a Carteira só mudarão pelos mecanismos normais da conta; uma mudança no câmbio não confirma o depósito."
-                  : quantityProjection ? "Registre uma compra já realizada. A quantidade será atualizada temporariamente; quando a instituição informar a mesma posição, a sincronização automática será retomada. Nenhuma ordem será enviada à instituição." : "Esta posição é controlada por um provedor. O aporte ficará aguardando e só alterará a carteira depois que a sincronização confirmar a compra."}
+                  : "Esta posição é controlada por um provedor. O aporte ficará aguardando e só alterará a carteira depois que a sincronização confirmar a compra."}
               </div>
             )}
             <div className="flex justify-center pt-5">
               <Button className="min-w-40" onClick={executeContribution} disabled={pending || !Number.isFinite(selectedQuantity) || selectedQuantity <= 0 || !paidUnitPriceValid || Boolean(quantityProjection && !selectedHolding) || Boolean(isFixedIncome && contributionModal.destination === "EXISTING" && !contributionModal.holdingId) || Boolean(isFixedIncome && contributionModal.destination === "NEW" && ((!contributionModal.newHolding.catalogItemId && contributionModal.newHolding.customTypeName.trim().length < 2) || contributionModal.newHolding.issuer.trim().length < 2 || contributionModal.newHolding.productName.trim().length < 2))}>
-                {pending ? "Salvando…" : quantityProjection ? "Registrar aporte" : providerControlled ? "Planejar aporte" : "Aportar"}
+                {pending ? "Salvando…" : providerControlled && !quantityProjection ? "Planejar aporte" : "Aportar"}
               </Button>
             </div>
           </div>

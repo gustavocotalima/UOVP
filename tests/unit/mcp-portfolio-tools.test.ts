@@ -1,4 +1,4 @@
-import { Prisma } from "@prisma/client";
+import { Prisma } from "@/generated/prisma/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { analysisHoldingValuation, portfolioTools } from "@/features/mcp/portfolio-tools";
 import type { McpContext } from "@/features/mcp/types";

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { Prisma, type PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@/generated/prisma/client";
 import { DEFAULT_QUESTIONS, defaultQuestionTemplateKey } from "./questions";
 
 /** Match the deployed SQL backfill; legacy questions retain their own identity. */

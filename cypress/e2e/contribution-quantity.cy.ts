@@ -9,12 +9,28 @@ describe("aportes com quantidade temporária Open Finance", () => {
     cy.get("#contribution-value").type(`{selectall}${value}`);
     cy.contains("button", "Calcular").click();
     cy.get('table[aria-label="Sugestões de investimento"]:visible, [data-testid="mobile-contribution-card"]:visible').contains("button", "Aportar").click();
+    cy.get('[role="dialog"]').should("be.visible");
     cy.get("#contribution-institution").should("not.have.value", "");
     cy.get("#contribution-quantity").type(`{selectall}${quantity}`);
     cy.get("#contribution-unit-price").type("50");
-    cy.contains("button", "Registrar aporte").click();
-    cy.contains("A quantidade já inclui a compra").should("be.visible");
+    cy.get('[role="dialog"]').contains("button", /^Aportar$/).click();
+    cy.contains("A quantidade já inclui a compra").should("not.exist");
+    cy.get('[role="dialog"]').should("not.exist");
+    cy.contains("Distribuição do investimento").should("be.visible");
+    cy.get('table[aria-label="Sugestões de investimento"]:visible, [data-testid="mobile-contribution-card"]:visible').should("contain.text", "Aporte registrado");
   }
+
+  it("abrir o formulário de aporte não registra compra nem descarta o cálculo", () => {
+    cy.visit("/carteira"); cy.waitForHydration();
+    cy.contains("button", /^Aportar$/).first().click();
+    cy.get("#contribution-value").type("{selectall}500");
+    cy.contains("button", "Calcular").click();
+    cy.get('table[aria-label="Sugestões de investimento"]:visible').contains("button", "Aportar").click();
+    cy.get('[role="dialog"]').should("be.visible");
+    cy.get("#contribution-unit-price").should("have.value", "");
+    cy.contains("A quantidade já inclui a compra").should("not.exist");
+    cy.get<string>("@testUserEmail").then((email) => cy.task("getPluggyQuantityOverrideState", { email }).should("include", { quantity: "100", overrideQuantity: null, providerQuantity: "100" }));
+  });
 
   it("acumula compras, persiste no reload e mantém o provedor intacto", () => {
     cy.visit("/carteira"); cy.waitForHydration();

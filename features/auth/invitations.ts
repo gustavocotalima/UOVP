@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { Prisma } from "@prisma/client";
+import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 
 const INVITE_LIFETIME_MS = 7 * 24 * 60 * 60_000;

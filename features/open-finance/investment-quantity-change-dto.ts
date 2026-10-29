@@ -1,4 +1,4 @@
-import type { Prisma } from "@prisma/client";
+import type { Prisma } from "@/generated/prisma/client";
 import type { PluggyQuantityChangeDto } from "@/features/portfolio/types";
 import { canEditPluggyInvestmentQuantity, pendingPluggyQuantityChange } from "./investment-quantity-override";
 import { resolvePluggyInstitutionName } from "./institution-logo";

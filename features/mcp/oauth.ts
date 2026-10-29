@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { Prisma } from "@prisma/client";
+import { Prisma } from "@/generated/prisma/client";
 import {
   AuthorizationServer, DateInterval, JwtService, OAuthException, OAuthRequest,
   type OAuthAuthCode, type OAuthAuthCodeRepository, type OAuthClient,

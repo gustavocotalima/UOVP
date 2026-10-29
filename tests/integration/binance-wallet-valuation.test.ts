@@ -1,5 +1,5 @@
+import { createPrismaClient } from "../../lib/prisma-client";
 import { randomUUID } from "node:crypto";
-import { PrismaClient } from "@prisma/client";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BinanceQuoteResult } from "@/features/portfolio/binance";
 import type { BinanceWalletSnapshot } from "@/features/portfolio/binance-wallet-client";
@@ -19,7 +19,7 @@ import { getBinanceConnectionStatus } from "@/features/portfolio/binance-wallet-
 import { syncBinanceWalletForUser } from "@/features/portfolio/binance-wallet-sync";
 
 const enabled = Boolean(process.env.DATABASE_URL);
-const db = enabled ? new PrismaClient() : null;
+const db = enabled ? createPrismaClient() : null;
 const suite = enabled ? describe : describe.skip;
 const quoteAt = new Date("2026-10-21T12:00:00Z");
 const quote: BinanceQuoteResult["quotes"][number] = { requestedAsset: "BTC", symbol: "BTC", pair: "BTCUSDT", price: 100, currency: "USDT", fxRateToBrl: 5, asOf: quoteAt };

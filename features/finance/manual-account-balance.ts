@@ -1,4 +1,4 @@
-import { Prisma, type FinancialAccountType } from "@prisma/client";
+import { Prisma, type FinancialAccountType } from "@/generated/prisma/client";
 
 export function accountBalanceDelta(
   type: FinancialAccountType,

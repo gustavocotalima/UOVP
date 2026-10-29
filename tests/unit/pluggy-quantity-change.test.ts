@@ -1,4 +1,4 @@
-import { Prisma } from "@prisma/client";
+import { Prisma } from "@/generated/prisma/client";
 import { describe, expect, it } from "vitest";
 import { pendingPluggyQuantityChange } from "@/features/open-finance/investment-quantity-override";
 import { pluggyQuantityChangeDto } from "@/features/open-finance/investment-quantity-change-dto";

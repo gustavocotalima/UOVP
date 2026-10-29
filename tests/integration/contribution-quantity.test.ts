@@ -1,5 +1,7 @@
+import { createPrismaClient } from "../../lib/prisma-client";
+import { ALLOCATION_VERSIONS } from "@/features/portfolio/calculation/types";
 import { randomUUID } from "node:crypto";
-import { Prisma, PrismaClient, type InstrumentType, type InvestmentClass } from "@prisma/client";
+import { Prisma, type InstrumentType, type InvestmentClass } from "@/generated/prisma/client";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { deleteAssetAction, deleteAssetClassAction, executeContributionAction, reviewAwaitingContributionAction, saveAwaitingContributionPriceAction } from "@/features/portfolio/actions";
 import { GET as holdingTransactions } from "@/app/api/portfolio/holdings/[holdingId]/transactions/route";
@@ -14,7 +16,7 @@ import { portfolioTools } from "@/features/mcp/portfolio-tools";
 const current = vi.hoisted(() => ({ userId: "" }));
 vi.mock("@/lib/current-user", () => ({ requireUserId: async () => current.userId }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
-const db = process.env.DATABASE_URL ? new PrismaClient() : null;
+const db = process.env.DATABASE_URL ? createPrismaClient() : null;
 const suite = db ? describe : describe.skip;
 
 suite("Open Finance contribution quantity reconciliation", () => {
@@ -48,7 +50,7 @@ suite("Open Finance contribution quantity reconciliation", () => {
   async function simulation(f: Fixture, quantity = 10) {
     const portfolio = await db!.portfolio.findUniqueOrThrow({ where: { id: f.user.portfolio!.id } });
     return db!.contributionSimulation.create({ data: {
-      userId: f.user.id, portfolioVersion: portfolio.version, allocationMethod: "IMPROVED", calculationVersion: "3",
+      userId: f.user.id, portfolioVersion: portfolio.version, allocationMethod: "IMPROVED", calculationVersion: ALLOCATION_VERSIONS.IMPROVED,
       inputAmount: quantity * 12, requestedAmount: quantity * 12, unallocatedAmount: 0,
       suggestions: { create: { assetId: f.asset.id, quantity, value: quantity * 12, suggestionPercentage: 100, totalAfterSuggestionPercentage: 100 } },
     }, include: { suggestions: true } });

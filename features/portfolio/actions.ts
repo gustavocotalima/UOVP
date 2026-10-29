@@ -1,7 +1,9 @@
 "use server";
 
+import { isPrismaTransactionConflict } from "@/lib/prisma-errors";
+
 import { revalidatePath } from "next/cache";
-import { Prisma, type DiagramType, type FixedIncomeIndexation, type InstrumentType, type InvestmentClass, type MarketRegion, type RateConvention } from "@prisma/client";
+import { Prisma, type DiagramType, type FixedIncomeIndexation, type InstrumentType, type InvestmentClass, type MarketRegion, type RateConvention } from "@/generated/prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { setAccountInvestmentPreference } from "@/features/finance/account-investments";
@@ -2412,7 +2414,7 @@ export async function executeContributionAction(
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }) });
     if (execution === "INVALIDATED") return { status: "INVALIDATED" as const };
   } catch (error) {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034") {
+    if (isPrismaTransactionConflict(error)) {
       return { status: "INVALIDATED" as const };
     }
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {

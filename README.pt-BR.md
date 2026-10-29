@@ -83,7 +83,7 @@ A conta continua sendo a única fonte do valor da posição. Alterações do sal
 - Notas, classificações e grupos definidos pelo usuário sobrevivem à sincronização. As perguntas de pontuação podem ser personalizadas.
 - Ativos internacionais exibem valores nativos junto dos equivalentes em BRL.
 - Aportes aceitam BRL ou USD e todos os ativos elegíveis ou apenas os da moeda selecionada. O sistema de cálculo é uma preferência por usuário em Configurações, compartilhada com o MCP: [Melhorado](docs/allocation/melhorado/README.pt-BR.md), o padrão, prioriza o equilíbrio das metas, depois as proporções das notas dentro de cada classe e, por último, o aproveitamento do orçamento, com tolerância conforme as cotas; [Diagrama do Cerrado](docs/allocation/diagrama-do-cerrado/README.pt-BR.md) reproduz a lógica reconstruída da AUVP. Trocar o método invalida rascunhos e preserva aportes registrados. A distribuição usa as posições existentes, admite sobras e não exige uma prova de ótimo global.
-- A opção “Usar todo o aporte” aparece nos aportes somente em BRL ou somente em USD e começa desmarcada nos dois métodos. Desmarcada, limita as compras pelas metas globais; marcada, permite ultrapassá-las, mantendo as proporções relativas entre as metas dos saldos finais elegíveis e o equilíbrio das notas. Nenhum modo ultrapassa o orçamento; cotas inteiras e regras do método podem deixar sobra.
+- A opção “Usar todo o aporte” aparece nos aportes somente em BRL ou somente em USD e começa desmarcada nos dois métodos. Desmarcada, limita as compras pelas metas globais; marcada, preserva essas compras normais e depois distribui apenas a sobra além das metas globais, mantendo as proporções relativas entre as metas dos saldos finais elegíveis e o equilíbrio das notas. Nenhum modo ultrapassa o orçamento; cotas inteiras e regras do método podem deixar sobra.
 - Ativos internacionais permitem sugestões fracionadas; instrumentos equivalentes negociados na B3 usam unidades inteiras.
 - Aportes registrados em investimentos por unidades do Open Finance atualizam imediatamente a quantidade temporária da Carteira, acumulando compras por posição/instituição. Quantidades correspondentes do provedor restauram a sincronização automática; correspondências parciais confirmam aportes completos em ordem, e diferenças não explicadas exigem uma escolha. Produtos de renda fixa como CDBs, posições Binance e saldos bancários mantêm o comportamento atual de espera pela sincronização. Consulte o [guia de sincronização de aportes](docs/open-finance-contributions.pt-BR.md).
 - Há importação e exportação XLSX. A importação da carteira aceita até 2 MB, 1.000 linhas de dados e 40 colunas, com leitura em Web Worker.
@@ -204,10 +204,10 @@ O manifesto inclui ícones normais/maskable e inicia em `/home?source=pwa`. A in
 ## Tecnologias e requisitos
 
 - Next.js 16 App Router, React 19, TypeScript, Tailwind CSS e componentes no padrão shadcn/ui.
-- Prisma 6 com PostgreSQL; Redis opcional.
+- Prisma 7 com PostgreSQL; Redis opcional.
 - Autenticação por credenciais com Auth.js, Lucide, Recharts, Leaflet e React Leaflet.
 - Vitest para testes unitários/de integração e Cypress para testes de navegador.
-- Node.js 22 ou mais recente, pnpm 10.13.1 e PostgreSQL 18.4.
+- Node.js 24 (veja `.nvmrc`), pnpm 12.16.1 e PostgreSQL 18.4.
 - Python 3 para os testes dos scripts de CI/deploy; não é necessário para executar a aplicação.
 - Docker Compose opcional para PostgreSQL 18.4 e Redis 7.2.15, nas mesmas versões dos serviços de desenvolvimento e produção.
 
@@ -261,7 +261,7 @@ O manifesto inclui ícones normais/maskable e inicia em `/home?source=pwa`. A in
 
    Acesse [http://localhost:3000](http://localhost:3000). O primeiro usuário cadastrado torna-se administrador; os cadastros seguintes exigem convite criado pelo administrador.
 
-Use pnpm de forma consistente. `pnpm db:migrate` executa `prisma migrate dev` para desenvolver alterações de schema; `prisma migrate deploy` aplica as migrations existentes.
+Use pnpm de forma consistente. `pnpm db:migrate` executa `prisma migrate dev` para desenvolver alterações de schema; `prisma migrate deploy` aplica as migrations existentes. A configuração do Prisma e do seed fica em `prisma.config.ts`; o cliente gerado em `generated/prisma` é excluído do Git. Após mudar o schema, execute `pnpm db:generate` explicitamente. O Cypress usa o Google Chrome instalado. Consulte as [notas de atualização de dependências](docs/dependency-upgrades.md) para a compatibilidade das ferramentas.
 
 ## Variáveis de ambiente
 
@@ -318,6 +318,8 @@ O Cypress testa o app compilado por um proxy HTTPS local temporário em `https:/
 O check `CI passed` exige sucesso em todos os jobs de validação. A proteção de `main` exige pull request, esse check com a base atualizada e conversas de revisão resolvidas; force push e exclusão da branch ficam bloqueados. Não é exigida aprovação adicional de outro revisor.
 
 O dev só recebe deploy depois que o CI passa em `dev`. O deploy direto por push do Coolify fica desativado. O job fixa o commit testado antes de chamar a cópia versionada do CLI `coolify-deploy` do Gustavo, aguarda a conclusão e verifica a saúde do dev. Commits substituídos por versões mais novas são ignorados. Produção mantém seu deploy existente pelo Coolify em `main`, após merge protegido.
+
+Depois que o CI passa, árvores de código iguais em `dev` e `main` fazem o app de dev, Redis e PostgreSQL pararem, preservando todos os volumes. Novas alterações testadas iniciam as dependências antes do deploy. Use a entrada manual do CI `dev_mode=deploy` para ativar o dev mesmo com branches iguais. Consulte o [guia do ciclo de vida do dev](docs/dev-environment-lifecycle.md).
 
 Após o merge de um PR de `dev` → `main`, `Sync dev after merge` alinha `dev` ao mesmo commit de `main`, inclusive em squash merges. A sincronização é pulada se alguma branch avançou e usa `--force-with-lease` com o commit esperado para preservar pushes concorrentes em dev. Se main avançar durante o push, o workflow informa uma falha e não dispara o CI até as branches serem reconciliadas. Caso contrário, dispara explicitamente o CI em `dev`; o deploy continua aguardando todos os checks. Se o disparo falhar, execute novamente o workflow pelo Actions informando o número do PR já integrado. O workflow executa apenas código confiável de main e mantém sua proteção. Antes de retomar o trabalho local, salve as alterações e alinhe seu `dev` com `origin/dev`; não envie novamente o histórico antigo.
 

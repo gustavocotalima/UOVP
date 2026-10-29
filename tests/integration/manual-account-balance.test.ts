@@ -1,9 +1,9 @@
+import { createPrismaClient } from "../../lib/prisma-client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { PrismaClient } from "@prisma/client";
 import { absorbManualTransactionsIntoBalance } from "@/features/finance/manual-account-balance";
 
 const enabled = Boolean(process.env.DATABASE_URL);
-const db = enabled ? new PrismaClient() : null;
+const db = enabled ? createPrismaClient() : null;
 const suite = enabled ? describe : describe.skip;
 
 suite("marcos de saldo de contas manuais", () => {

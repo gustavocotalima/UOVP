@@ -1,3 +1,4 @@
+import { createPrismaClient } from "../lib/prisma-client";
 /**
  * Preview: pnpm exec tsx scripts/repair-financial-integrity.ts [--user-id=ID] [--batch-size=100]
  * Apply:   pnpm exec tsx scripts/repair-financial-integrity.ts --apply [--user-id=ID]
@@ -10,7 +11,7 @@
  * row compare-and-set. Concurrently modified records are skipped, never retried
  * from their stale snapshot. Run preview again to inspect skipped records.
  */
-import { Prisma, PrismaClient } from "@prisma/client";
+import { Prisma } from "@/generated/prisma/client";
 import {
   parseFinancialIntegrityRepairOptions,
   planReportingAmountRepair,
@@ -18,7 +19,7 @@ import {
 
 const options = parseFinancialIntegrityRepairOptions(process.argv.slice(2));
 // Disable Prisma error logging as database errors may contain financial fields.
-const prisma = new PrismaClient({ log: [] });
+const prisma = createPrismaClient({ log: [] });
 const mode = options.apply ? "apply" : "dry-run";
 
 function report(value: Record<string, unknown>) {

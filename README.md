@@ -83,7 +83,7 @@ The account remains the only source of the position's value. Balance changes and
 - User scores, classifications, and groups survive provider synchronization. Scoring questions can be customized.
 - International assets display native values alongside BRL equivalents.
 - Contributions accept BRL or USD and all eligible assets or only those in the selected currency. The calculation method is a per-user setting shared with MCP: [Improved (Melhorado)](docs/allocation/melhorado/README.md), the default, prioritizes class balance, then score proportions within each class, and finally budget use, with lot-aware allowances; [Diagrama do Cerrado](docs/allocation/diagrama-do-cerrado/README.md) reproduces the reconstructed AUVP logic. Switching methods invalidates drafts and preserves recorded contributions. Allocation accounts for existing positions, permits remainders and does not require proof of a global optimum.
-- The “Usar todo o aporte” checkbox is available for BRL-only or USD-only contributions and is off by default for both methods. Leave it off to cap purchases at global class targets; enable it to invest beyond those targets while preserving relative target weights among eligible final holdings and score balance. Neither mode exceeds the budget; whole units and method rules may leave a remainder.
+- The “Usar todo o aporte” checkbox is available for BRL-only or USD-only contributions and is off by default for both methods. Leave it off to cap purchases at global class targets; enable it to keep those normal purchases and then distribute only the remainder beyond global targets, preserving relative target weights among eligible final holdings and score balance. Neither mode exceeds the budget; whole units and method rules may leave a remainder.
 - International securities support fractional suggestions; equivalent B3 securities use whole units.
 - Recorded contributions to unit-based Open Finance investments immediately update the temporary portfolio quantity, including accumulated contributions per institution/holding. Matching provider quantities restore automatic synchronization; partial matches confirm complete contributions in order, and unexplained differences require a choice. Fixed-income products such as CDBs, Binance holdings and bank-account balances retain their existing awaiting-sync behavior. See the [contribution synchronization guide](docs/open-finance-contributions.en.md).
 - XLSX import and export are available. Portfolio imports are limited to 2 MB, 1,000 data rows, and 40 columns, with parsing in a Web Worker.
@@ -204,10 +204,10 @@ The manifest includes standard/maskable icons and starts at `/home?source=pwa`. 
 ## Technology and requirements
 
 - Next.js 16 App Router, React 19, TypeScript, Tailwind CSS, and shadcn/ui-style components.
-- Prisma 6 with PostgreSQL; optional Redis.
+- Prisma 7 with PostgreSQL; optional Redis.
 - Auth.js credentials authentication, Lucide, Recharts, Leaflet, and React Leaflet.
 - Vitest for unit/integration tests and Cypress for browser tests.
-- Node.js 22 or newer, pnpm 10.13.1, and PostgreSQL 18.4.
+- Node.js 24 (see `.nvmrc`), pnpm 12.16.1, and PostgreSQL 18.4.
 - Python 3 for CI/deployment script tests; it is not required to run the application.
 - Optional Docker Compose for PostgreSQL 18.4 and Redis 7.2.15, matching the development and production services.
 
@@ -261,7 +261,7 @@ The manifest includes standard/maskable icons and starts at `/home?source=pwa`. 
 
    Open [http://localhost:3000](http://localhost:3000). The first registered user becomes administrator; later registration requires an invitation created by the administrator.
 
-Use pnpm consistently. `pnpm db:migrate` runs `prisma migrate dev` for developing new schema changes; `prisma migrate deploy` applies existing migrations.
+Use pnpm consistently. `pnpm db:migrate` runs `prisma migrate dev` for developing new schema changes; `prisma migrate deploy` applies existing migrations. Prisma configuration and seeding are defined in `prisma.config.ts`; the generated client in `generated/prisma` is excluded from Git. After a schema change, run `pnpm db:generate` explicitly. Cypress uses an installed Google Chrome browser. See the [dependency upgrade notes](docs/dependency-upgrades.md) for toolchain compatibility.
 
 ## Environment variables
 
@@ -318,6 +318,8 @@ Cypress tests the built app through a temporary local HTTPS proxy at `https://uo
 The `CI passed` check requires every validation job to succeed. Protection on `main` requires a pull request, this check against an up-to-date base, and resolved review conversations; force pushes and branch deletion are disabled. No additional reviewer approval is required.
 
 Dev deploys only after CI passes on `dev`. Coolify's direct push deployment is disabled. The deployment job pins the tested commit before invoking the checked-in copy of Gustavo's `coolify-deploy` CLI, waits for completion, and checks dev health. Superseded commits are skipped. Production keeps its existing Coolify deployment on `main` after a protected merge.
+
+After CI passes, equal `dev` and `main` source trees put the dev app, Redis and PostgreSQL to sleep while preserving all volumes. New tested changes wake the dependencies before deployment. Use the manual CI input `dev_mode=deploy` to activate dev even when the branches match. See the [dev lifecycle guide](docs/dev-environment-lifecycle.md).
 
 After a `dev` → `main` PR merges, `Sync dev after merge` moves `dev` to the same commit as `main`, including after squash merges. It skips if either branch has advanced and uses an exact `--force-with-lease` to protect concurrent dev pushes. If main advances during the push, the workflow reports a failure and withholds CI dispatch until the branches are reconciled. Otherwise it explicitly dispatches CI on `dev`; deployment still waits for all checks. A failed dispatch can be retried from Actions using the merged PR number. The workflow runs only trusted main code and does not change main protection. Before resuming local work after synchronization, save local changes and align your local `dev` with `origin/dev`; do not push its old history back.
 

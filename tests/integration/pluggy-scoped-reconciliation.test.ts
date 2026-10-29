@@ -1,5 +1,6 @@
+import { createPrismaClient } from "../../lib/prisma-client";
 import { randomUUID } from "node:crypto";
-import { Prisma, PrismaClient } from "@prisma/client";
+import { Prisma } from "@/generated/prisma/client";
 import { afterAll, describe, expect, it } from "vitest";
 import { reconcilePluggyInvestmentsForUser } from "@/features/open-finance/diagram-sync";
 import {
@@ -9,7 +10,7 @@ import {
 } from "@/lib/operation-security";
 
 const enabled = Boolean(process.env.DATABASE_URL);
-const db = enabled ? new PrismaClient() : null;
+const db = enabled ? createPrismaClient() : null;
 const suite = enabled ? describe : describe.skip;
 const quoteAt = new Date("2026-01-01T12:00:00Z");
 

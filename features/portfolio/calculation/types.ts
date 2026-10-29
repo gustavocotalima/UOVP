@@ -6,7 +6,7 @@ export type AllocationMethod = (typeof ALLOCATION_METHODS)[number];
 export const ALLOCATION_LABELS: Record<AllocationMethod, string> = {
   IMPROVED: "Melhorado", CERRADO: "Diagrama do Cerrado",
 };
-export const ALLOCATION_VERSIONS = { IMPROVED: "3", CERRADO: "2" } as const;
+export const ALLOCATION_VERSIONS = { IMPROVED: "4", CERRADO: "3" } as const;
 export const BUDGET_POLICIES = ["TARGET_CAPPED", "FULL_BUDGET"] as const;
 export type BudgetPolicy = (typeof BUDGET_POLICIES)[number];
 export const BUDGET_POLICY_LABELS: Record<BudgetPolicy, string> = { TARGET_CAPPED: "Limitar às metas", FULL_BUDGET: "Usar todo o aporte" };
@@ -41,6 +41,7 @@ export type CalculationDiagnostics = {
   originalTargets?: Record<string, string>;
   planningTargets?: Record<string, string>;
   unallocatedReasons?: Array<"TARGET_LIMIT" | "ROUNDING" | "NO_ELIGIBLE_ASSETS" | "METHOD_RULES">;
+  budgetStages?: { cappedAmount: string; remainderBudget: string; additionalAmount: string };
   heuristic?: { priorities: string[]; iterations: number; evaluations: number; stopReason: "stable" | "iteration_limit" | "time_limit" };
 };
 export type AllocationResult = {

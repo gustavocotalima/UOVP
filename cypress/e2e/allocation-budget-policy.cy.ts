@@ -26,7 +26,9 @@ describe("política de orçamento dos aportes", () => {
         cy.contains("tr", "BUDGETBRL").should("contain.text", "411");
         cy.contains("EXCLUDED").should("not.exist");
       });
-      cy.contains("Parte do aporte ficou disponível para preservar as metas.").should("be.visible");
+      cy.contains("Sistema de cálculo:").should("not.exist");
+      cy.contains("Parte do aporte ficou disponível para preservar as metas.").should("not.exist");
+      cy.contains("Arredondamentos e limites de equilíbrio").should("not.exist");
       cy.get("#contribution-use-full-amount").check();
       cy.get('table[aria-label="Sugestões de investimento"]').should("not.exist");
       cy.get("#contribution-value").should("have.value", "1000");
@@ -107,7 +109,7 @@ describe("política de orçamento dos aportes", () => {
             expect(calculate.left - scope.right).to.be.lessThan(25);
           }
         });
-        if (Cypress.env("captureContributionLayout")) {
+        if (Cypress.expose("captureContributionLayout")) {
           cy.get('[data-testid="contribution-form"]').parent().screenshot(`contribution-form-${theme}-${width}`);
         }
       }

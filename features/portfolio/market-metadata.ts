@@ -4,7 +4,7 @@ import {
   MarketMetadataProvider,
   MarketMetadataSource,
   MarketMetadataStatus,
-} from "@prisma/client";
+} from "@/generated/prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import {

@@ -1,4 +1,4 @@
-import { Prisma } from "@prisma/client";
+import { Prisma } from "@/generated/prisma/client";
 import { projectAccountInvestment } from "@/features/finance/account-investments";
 import { OperationLeaseLostError, type UserOperationLeaseContext, withUserOperationLease } from "@/lib/operation-security";
 import { prisma } from "@/lib/prisma";

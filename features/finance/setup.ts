@@ -1,4 +1,5 @@
-import { Prisma } from "@prisma/client";
+import { isPrismaTransactionConflict } from "@/lib/prisma-errors";
+import { Prisma } from "@/generated/prisma/client";
 import { BUDGET_CATEGORIES, type BudgetCategoryKey } from "@/features/budget/constants";
 import { prisma } from "@/lib/prisma";
 import { DEFAULT_FINANCE_TAGS } from "./classification";
@@ -108,8 +109,8 @@ export async function ensureFinanceSetup(userId: string) {
     } catch (error) {
       // A tag may also be created/renamed outside the setup repair. Re-read after
       // a uniqueness race; the next plan reuses it instead of creating a duplicate.
-      const retryable = error instanceof Prisma.PrismaClientKnownRequestError
-        && ["P2002", "P2034"].includes(error.code);
+      const retryable = isPrismaTransactionConflict(error)
+        || (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002");
       if (!retryable || attempt === 2) throw error;
     }
   }

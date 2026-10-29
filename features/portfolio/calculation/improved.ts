@@ -1,16 +1,16 @@
 import Decimal from "decimal.js";
 import { ALLOCATION_VERSIONS, Money, sum, finish, validateInput, type AllocationInput, type AllocationResult } from "./types";
 import { balancePurchases, type BalanceModel, type BalanceSolution } from "./balanced-search";
-import { prepareBudgetPolicy, describeBudgetRemainder } from "./budget-policy";
+import { prepareBudgetPolicy, describeBudgetRemainder, prepareRemainderAllocation, combineBudgetStages } from "./budget-policy";
 
 export const IMPROVED_VERSION = ALLOCATION_VERSIONS.IMPROVED;
 
 /** Class targets -> score proportions -> budget use. Financial amounts stay
  * in Decimal; only bounded numeric apportionment runs in the native worker. */
-export function* improvedCalculation(input: AllocationInput): Generator<BalanceModel, AllocationResult, BalanceSolution> {
+function* improvedStage(input: AllocationInput, capGlobalTargets = true): Generator<BalanceModel, AllocationResult, BalanceSolution> {
   validateInput(input);
-  const plan = prepareBudgetPolicy(input, "IMPROVED");
-  const targets = plan.policy === "FULL_BUDGET" ? plan.targets : input.targets;
+  const plan = prepareBudgetPolicy(input, "IMPROVED", capGlobalTargets);
+  const targets = input.targets;
   if (input.assets.length > 256) throw new Error("O cálculo Melhorado aceita até 256 grupos de ativos por simulação.");
   const amount = new Money(input.contribution), budget = amount.mul(100).floor().toNumber();
   const assets = [...input.assets].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
@@ -96,6 +96,14 @@ export function* improvedCalculation(input: AllocationInput): Generator<BalanceM
     classTolerancesBrl: Object.fromEntries([...tolerances].map(([cls, value]) => [cls, value.toString()])), reservedAmount: reserved.toString(),
     heuristic: { priorities: ["class_balance", "score_balance", "budget_use"], iterations: solution.iterations, evaluations: solution.evaluations, stopReason: solution.stopReason },
   }), plan);
+}
+
+export function* improvedCalculation(input: AllocationInput): Generator<BalanceModel, AllocationResult, BalanceSolution> {
+  validateInput(input);
+  const capped = yield* improvedStage({ ...input, budgetPolicy: "TARGET_CAPPED" });
+  const remainder = prepareRemainderAllocation(input, capped);
+  const extra = remainder ? yield* improvedStage(remainder, false) : undefined;
+  return combineBudgetStages(input, capped, extra);
 }
 
 export function allocateImproved(input: AllocationInput) {

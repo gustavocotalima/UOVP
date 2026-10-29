@@ -13,6 +13,7 @@ export default defineConfig([
   },
   globalIgnores([
     ".next/**",
+    "generated/prisma/**",
     "coverage/**",
     "cypress/screenshots/**",
     "cypress/videos/**",

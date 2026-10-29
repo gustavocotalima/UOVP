@@ -1,4 +1,4 @@
-import { Prisma, type FinancialFxSource } from "@prisma/client";
+import { Prisma, type FinancialFxSource } from "@/generated/prisma/client";
 
 export type FinancialIntegrityRepairOptions = {
   apply: boolean;

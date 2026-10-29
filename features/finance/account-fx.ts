@@ -1,6 +1,6 @@
 import "server-only";
 
-import { Prisma } from "@prisma/client";
+import { Prisma } from "@/generated/prisma/client";
 import { projectAccountInvestment } from "./account-investments";
 import { ensureHistoricalFxRates } from "@/features/finance/fx";
 import {

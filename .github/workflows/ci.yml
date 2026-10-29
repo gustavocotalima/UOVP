@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [main, dev]
   workflow_dispatch:
+    inputs:
+      dev_mode:
+        description: "Dev lifecycle: auto sleeps when equal to main; deploy keeps dev available"
+        type: choice
+        options: [auto, deploy]
+        default: auto
 
 permissions:
   contents: read
@@ -30,7 +36,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup
@@ -43,7 +49,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup
@@ -74,16 +80,16 @@ jobs:
           --health-cmd "redis-cli ping"
           --health-interval 5s --health-timeout 5s --health-retries 12
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup
-      - run: node scripts/ci/check-services.mjs
+      - run: pnpm exec tsx scripts/ci/check-services.mjs
       - run: pnpm exec prisma migrate deploy
       - run: pnpm db:seed
       - run: pnpm test:integration --reporter=default --reporter=json --outputFile=work/integration-results.json
       - run: node scripts/ci/check-test-results.mjs work/integration-results.json
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: integration-results
@@ -95,7 +101,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup
@@ -104,7 +110,7 @@ jobs:
         run: |
           mkdir -p work
           tar --exclude='.next/cache' -czf work/production-build.tar.gz .next
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: production-build
           path: work/production-build.tar.gz
@@ -139,17 +145,17 @@ jobs:
           --health-cmd "redis-cli ping"
           --health-interval 5s --health-timeout 5s --health-retries 12
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: production-build
           path: work
       - name: Restore build dependency links
         run: tar -xzf work/production-build.tar.gz
-      - run: node scripts/ci/check-services.mjs
+      - run: pnpm exec tsx scripts/ci/check-services.mjs
       - run: pnpm exec prisma migrate deploy
       - run: pnpm db:seed
       - name: Install Cypress browser
@@ -157,7 +163,7 @@ jobs:
       - name: Resolve the temporary HTTPS origin
         run: echo '127.0.0.1 uovp-ci.test' | sudo tee -a /etc/hosts
       - run: bash scripts/ci/run-e2e.sh
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
           name: browser-failure-artifacts
@@ -200,11 +206,12 @@ jobs:
       group: coolify-development
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Deploy the tested commit with coolify-deploy
         env:
+          DEV_MODE: ${{ inputs.dev_mode || 'auto' }}
           GH_TOKEN: ${{ github.token }}
           COOLIFY_URL: ${{ vars.COOLIFY_URL }}
           COOLIFY_APP_UUID: ${{ vars.COOLIFY_DEV_APP_UUID }}

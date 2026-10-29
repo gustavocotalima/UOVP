@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Prisma } from "@prisma/client";
+import { Prisma } from "@/generated/prisma/client";
 import { consumeAuthRateLimit } from "@/lib/auth-security";
 import { prisma } from "@/lib/prisma";
 

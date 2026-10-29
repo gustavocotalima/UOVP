@@ -1,4 +1,4 @@
-import { Prisma } from "@prisma/client";
+import { Prisma } from "@/generated/prisma/client";
 import { z } from "zod";
 import { BALANCE_META } from "@/features/balance-sheet/constants";
 import { BUDGET_CATEGORIES, BUDGET_CATEGORY_META } from "@/features/budget/constants";

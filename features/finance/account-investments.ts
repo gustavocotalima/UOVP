@@ -1,6 +1,6 @@
 import "server-only";
 
-import { Prisma } from "@prisma/client";
+import { Prisma } from "@/generated/prisma/client";
 import { z } from "zod";
 import { FIXED_INCOME_INDEXATION_META } from "@/features/portfolio/constants";
 import { bumpPortfolioAndInvalidateDrafts } from "@/features/portfolio/invalidation";
