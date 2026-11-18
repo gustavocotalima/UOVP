@@ -36,8 +36,10 @@ describe("MCP OAuth client metadata compatibility and transport safeguards", () 
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it("accepts public none from the supported-methods list even when the legacy preference is private_key_jwt", async () => {
+  it("refreshes ChatGPT metadata advertising JWT bearer while using public none", async () => {
+    mocks.findUnique.mockResolvedValue({ id: clientId, metadataUrl: clientId, updatedAt: new Date(0) });
     respond(metadata({
+      grant_types: ["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:jwt-bearer"],
       token_endpoint_auth_methods_supported: ["none", "private_key_jwt"],
       token_endpoint_auth_method: "private_key_jwt",
     }));

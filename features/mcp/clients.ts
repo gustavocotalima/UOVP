@@ -9,7 +9,8 @@ const metadataSchema = z.object({
   redirect_uris: z.array(z.string().max(2048)).min(1).max(10),
   token_endpoint_auth_method: z.string().max(100).optional(),
   token_endpoint_auth_methods_supported: z.array(z.string().max(100)).min(1).max(10).optional(),
-  grant_types: z.array(z.enum(["authorization_code", "refresh_token"])).optional(),
+  // Advertised capabilities only; token exchange has its own grant allowlist.
+  grant_types: z.array(z.enum(["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:jwt-bearer"])).optional(),
 });
 
 export function isTrustedClientMetadataUrl(value: string) {

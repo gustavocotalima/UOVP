@@ -4,7 +4,7 @@ const mocks = vi.hoisted(() => ({ resolveMcpClient: vi.fn() }));
 vi.mock("@/lib/prisma", () => ({ prisma: {} }));
 vi.mock("@/features/mcp/clients", () => ({ resolveMcpClient: mocks.resolveMcpClient }));
 
-import { authorizationQuerySchema, getMcpAuthorizationRequest } from "@/features/mcp/oauth";
+import { authorizationQuerySchema, exchangeMcpToken, getMcpAuthorizationRequest } from "@/features/mcp/oauth";
 import { MCP_SCOPES } from "@/features/mcp/types";
 
 const clientId = "https://chatgpt.com/oauth/client.json";
@@ -114,5 +114,13 @@ describe("MCP authorization request validation with locale hints", () => {
     vi.stubEnv("MCP_OAUTH_ACTIVE_KEY", "missing");
     await expect(getMcpAuthorizationRequest({ ...query(), ui_locales: "pt-BR" })).rejects.toMatchObject({ code: "SERVER_CONFIG" });
     expect(mocks.resolveMcpClient).not.toHaveBeenCalled();
+  });
+
+  it("does not enable JWT bearer token exchange", async () => {
+    await expect(exchangeMcpToken({
+      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+      client_id: clientId,
+      resource,
+    })).rejects.toMatchObject({ code: "unsupported_grant_type" });
   });
 });
