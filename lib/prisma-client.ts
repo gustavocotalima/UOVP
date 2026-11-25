@@ -1,5 +1,16 @@
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient, type Prisma } from "../generated/prisma/client";
+import { serializePostgresTransaction } from "./prisma-transaction";
+
+class SerializedPrismaPg extends PrismaPg {
+  override async connect() {
+    const adapter = await super.connect();
+    const startTransaction = adapter.startTransaction.bind(adapter);
+    adapter.startTransaction = async (...args) =>
+      serializePostgresTransaction(await startTransaction(...args));
+    return adapter;
+  }
+}
 
 export function databaseConnectionOptions(connectionString: string) {
   let url: URL;
@@ -27,5 +38,5 @@ export function databaseConnectionOptions(connectionString: string) {
 export function createPrismaClient(options: Pick<Prisma.PrismaClientOptions, "log" | "errorFormat" | "transactionOptions"> = {}) {
   if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required.");
   const { schema, ...connection } = databaseConnectionOptions(process.env.DATABASE_URL);
-  return new PrismaClient({ ...options, adapter: new PrismaPg(connection, { schema }) });
+  return new PrismaClient({ ...options, adapter: new SerializedPrismaPg(connection, { schema }) });
 }

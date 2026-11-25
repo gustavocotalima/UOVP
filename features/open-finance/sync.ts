@@ -709,6 +709,17 @@ async function ensureOwnedItem(userId: string, pluggyItemId: string) {
   return item;
 }
 
+function itemLogo(
+  remote: ReturnType<typeof itemData>,
+  existing: { connectorImageUrl: string | null; institutionName: string | null; displayName: string | null } | null,
+  bankCodes: ReadonlyArray<string | null> = [],
+) {
+  return resolvePluggyInstitutionLogo(remote.connectorImageUrl, bankCodes, {
+    previousLogo: existing?.connectorImageUrl,
+    institutionNames: [existing?.institutionName, remote.connectorName, existing?.displayName],
+  });
+}
+
 export async function registerPluggyItemForUser(userId: string, pluggyItemId: string) {
   const credentials = await requirePluggyCredentials(userId);
   const remote = await getPluggyItem(credentials, pluggyItemId);
@@ -718,13 +729,16 @@ export async function registerPluggyItemForUser(userId: string, pluggyItemId: st
   const reconnectionData = remote.status === "DELETED"
     ? {}
     : { disconnectedAt: null, disconnectionResolution: null };
+  const data = itemData(remote, userId);
+  const connectorImageUrl = itemLogo(data, existing);
   return prisma.pluggyItem.upsert({
     where: { pluggyItemId },
     update: {
-      ...itemData(remote, userId),
+      ...data,
+      connectorImageUrl,
       ...reconnectionData,
     },
-    create: { pluggyItemId, ...itemData(remote, userId) },
+    create: { pluggyItemId, ...data, connectorImageUrl },
   });
 }
 
@@ -736,13 +750,16 @@ export async function bootstrapLegacyPluggyItem(userId: string, pluggyItemId: st
   const reconnectionData = remote.status === "DELETED"
     ? {}
     : { disconnectedAt: null, disconnectionResolution: null };
+  const data = itemData(remote, userId);
+  const connectorImageUrl = itemLogo(data, existing);
   return prisma.pluggyItem.upsert({
     where: { pluggyItemId },
     update: {
-      ...itemData(remote, userId),
+      ...data,
+      connectorImageUrl,
       ...reconnectionData,
     },
-    create: { pluggyItemId, ...itemData(remote, userId) },
+    create: { pluggyItemId, ...data, connectorImageUrl },
   });
 }
 
@@ -768,10 +785,7 @@ async function syncPluggyItemForUserUnlocked(
     const bankCodes = accounts.map((account) =>
       parseBankNumber(account.bankData?.transferNumber ?? account.number).bankCode
     );
-    const connectorImageUrl = resolvePluggyInstitutionLogo(
-      remoteItemData.connectorImageUrl,
-      bankCodes,
-    );
+    const connectorImageUrl = itemLogo(remoteItemData, stored, bankCodes);
     const institutionName = resolvePluggyInstitutionName(
       stored.institutionName,
       remoteItemData.connectorName,

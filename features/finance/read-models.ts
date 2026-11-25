@@ -152,7 +152,8 @@ export function mapFinancialAccount(
     institutionName: account.source === "PLUGGY"
       ? resolvePluggyInstitutionName(account.institutionName, null, bankCodes) : account.institutionName,
     institutionImageUrl: account.source === "PLUGGY"
-      ? resolvePluggyInstitutionLogo(account.institutionImageUrl, bankCodes) : account.institutionImageUrl,
+      ? resolvePluggyInstitutionLogo(account.institutionImageUrl, bankCodes, { institutionNames: [account.institutionName] })
+      : account.institutionImageUrl,
     accountNumber: account.accountNumber, agency: account.agency, numberLastFour: account.numberLastFour,
     bankCode: account.bankCode, brand: account.brand, balance: account.balance.toString(),
     balanceBrl: account.balanceBrl?.toString() ?? null,
@@ -232,7 +233,7 @@ export function mapFinanceTransaction(
     accountId: transaction.accountId,
     accountName: transaction.account.name,
     accountType: transaction.account.type,
-    accountImageUrl: transaction.source === "PLUGGY"
+    accountImageUrl: transaction.source === "PLUGGY" || transaction.account.providerItemId
       ? resolvePluggyInstitutionLogo(
           transaction.account.institutionImageUrl,
           [
@@ -241,6 +242,7 @@ export function mapFinanceTransaction(
               ? bankCodesByProviderItem.get(transaction.account.providerItemId) ?? []
               : []),
           ],
+          { institutionNames: [transaction.account.institutionName] },
         )
       : transaction.account.institutionImageUrl,
     institutionName: transaction.source === "PLUGGY"
