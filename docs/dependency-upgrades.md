@@ -4,7 +4,7 @@ Reviewed on 2026-10-28. The upgrade was validated locally before publication.
 
 ## Toolchain and compatibility
 
-- Node.js 24.22.2 and pnpm 12.16.1 are pinned. GitHub Actions use Node 24-compatible releases pinned to commit SHAs.
+- Node.js 24.22.3 and pnpm 12.16.1 are pinned. GitHub Actions use Node 24-compatible releases pinned to commit SHAs.
 - pnpm lifecycle scripts use explicit, version-pinned `allowBuilds` entries. The removed `onlyBuiltDependencies` setting is no longer used; unreviewed dependency builds still fail installation.
 - The `tsc` command uses TypeScript 7.0.2. The `typescript` package name points to the official TypeScript 6 compatibility API for Next.js and ESLint tooling; `@typescript/native` provides the native TypeScript 7 compiler, following Microsoft's supported side-by-side configuration.
 - Prisma CLI, client and PostgreSQL adapter are pinned together at 7.3.0. Version 7.10.1 reproduced upstream migration regression [#30640](https://github.com/prisma/orm/issues/30640): historical PostgreSQL temporary tables using `ON COMMIT DROP` disappear between statements. The complete unchanged migration history and seed pass on 7.3.0. Prisma 8 release candidates were excluded. Configuration and seeding moved to `prisma.config.ts`; the generated client uses `generated/prisma`, which is ignored by Git. Existing migration SQL and database models are unchanged.

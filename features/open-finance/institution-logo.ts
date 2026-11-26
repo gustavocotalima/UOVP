@@ -1,6 +1,6 @@
 const PLUGGY_ICON_BASE = "https://cdn.pluggy.ai/assets/connector-icons";
 
-// Pluggy's MeuPluggy connector uses a generic sandbox logo. The account still
+// MeuPluggy returns a generic connector logo. The account can still
 // exposes the institution's COMPE code, which can be mapped to Pluggy's public
 // connector icon.
 const COMPE_TO_PLUGGY_ICON: Record<string, string> = {
@@ -104,13 +104,27 @@ function normalizeBankCode(value: string | null | undefined) {
 }
 
 function isMeuPluggyPlaceholder(value: string | null | undefined) {
-  if (!value) return true;
+  if (!value?.trim()) return true;
   try {
-    return new URL(value).pathname.replace(/\/+$/, "").endsWith("/sandbox.svg");
+    const { hostname, pathname } = new URL(value);
+    const path = pathname.replace(/\/+$/, "");
+    return path.endsWith("/sandbox.svg")
+      || (hostname === "cdn.pluggy.ai" && path === "/assets/connector-icons/200.svg");
   } catch {
     return value.split("?")[0]?.replace(/\/+$/, "").endsWith("/sandbox.svg") ?? false;
   }
 }
+
+function normalizeInstitutionName(value: string) {
+  return value.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+const INSTITUTION_TO_COMPE = new Map([
+  ...Object.entries(COMPE_TO_INSTITUTION_NAME).map(([code, name]) => [normalizeInstitutionName(name), code] as const),
+  ["bancointer", "077"],
+  ["bancoitau", "341"],
+  ["itauunibanco", "341"],
+] as const);
 
 function isGenericPluggyName(value: string | null | undefined) {
   const normalized = value?.trim().toLocaleLowerCase("pt-BR").replace(/\s+/g, "");
@@ -162,11 +176,21 @@ export function resolvePluggyInstitutionName(
 
 export function resolvePluggyInstitutionLogo(
   connectorImageUrl: string | null | undefined,
-  bankCodes: Array<string | null | undefined>,
+  bankCodes: ReadonlyArray<string | null | undefined>,
+  fallback: {
+    previousLogo?: string | null;
+    institutionNames?: ReadonlyArray<string | null | undefined>;
+  } = {},
 ) {
   if (!isMeuPluggyPlaceholder(connectorImageUrl)) return connectorImageUrl ?? null;
+  if (!isMeuPluggyPlaceholder(fallback.previousLogo)) return fallback.previousLogo ?? null;
   for (const bankCode of bankCodes) {
     const icon = pluggyInstitutionIconForBankCode(bankCode);
+    if (icon) return icon;
+  }
+  for (const name of fallback.institutionNames ?? []) {
+    if (!name) continue;
+    const icon = pluggyInstitutionIconForBankCode(INSTITUTION_TO_COMPE.get(normalizeInstitutionName(name)));
     if (icon) return icon;
   }
   return null;

@@ -1,4 +1,13 @@
 describe("autenticação e navegação", () => {
+  it("bloqueia POST na raiz sem alterar o redirecionamento normal", () => {
+    cy.request({ method: "POST", url: "/", failOnStatusCode: false }).then((response) => {
+      expect(response.status).to.equal(405);
+      expect(response.headers.allow).to.equal("GET, HEAD");
+    });
+    cy.visit("/");
+    cy.location("pathname").should("eq", "/login");
+  });
+
   it("cria um usuário e acessa todos os itens do menu lateral", () => {
     cy.registerAndLogin();
     const routes = [

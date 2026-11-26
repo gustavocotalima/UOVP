@@ -101,6 +101,7 @@ export async function getOpenFinanceData(userId: string) {
     resolvePluggyInstitutionLogo(
       item.connectorImageUrl,
       bankCodesByItem.get(item.pluggyItemId) ?? [],
+      { institutionNames: [item.institutionName, item.connectorName, item.displayName] },
     );
   const itemInstitutionName = (item: (typeof items)[number]) =>
     resolvePluggyInstitutionName(

@@ -20,6 +20,7 @@ vi.mock("@/features/portfolio/yahoo-finance", () => ({ fetchYahooFxRates: provid
 vi.mock("@/features/finance/fx", () => ({ ensureHistoricalFxRates: providers.historicalFx }));
 
 import { PluggySyncError, syncAllPluggyItemsForUser, syncPluggyItemForUser } from "@/features/open-finance/sync";
+import { getOpenFinanceData } from "@/features/open-finance/data";
 import { requestPluggySync } from "@/features/open-finance/sync-requests";
 
 const suite = process.env.DATABASE_URL ? describe : describe.skip;
@@ -97,6 +98,30 @@ suite("ciclo de sincronização Pluggy e falhas intermediárias", () => {
   afterAll(async () => {
     if (users.length) await prisma.user.deleteMany({ where: { id: { in: users } } });
     await prisma.$disconnect();
+  });
+
+  it("corrige o logo genérico na leitura e mantém o logo da instituição na sincronização", async () => {
+    const f = await fixture();
+    const generic = "https://cdn.pluggy.ai/assets/connector-icons/200.svg";
+    const itau = "https://cdn.pluggy.ai/assets/connector-icons/201.svg";
+    await prisma.pluggyItem.update({
+      where: { id: f.item.id },
+      data: { connectorName: "MeuPluggy", connectorImageUrl: generic, displayName: "Itaú" },
+    });
+    const data = await getOpenFinanceData(f.user.id);
+    expect(data.items).toEqual([expect.objectContaining({ connectorName: "Itaú", connectorImageUrl: itau })]);
+    expect((await prisma.pluggyItem.findUniqueOrThrow({ where: { id: f.item.id } })).connectorImageUrl).toBe(generic);
+
+    providers.item.mockResolvedValue({
+      id: f.item.pluggyItemId, clientUserId: f.user.id, status: "UPDATED",
+      connector: { id: 200, name: "MeuPluggy", imageUrl: generic },
+    });
+    await syncPluggyItemForUser(f.user.id, f.item.pluggyItemId);
+    expect((await prisma.pluggyItem.findUniqueOrThrow({ where: { id: f.item.id } })).connectorImageUrl).toBe(itau);
+    expect(await prisma.financialAccount.findMany({
+      where: { userId: f.user.id },
+      select: { institutionImageUrl: true },
+    })).toEqual([{ institutionImageUrl: itau }, { institutionImageUrl: itau }]);
   });
 
   it("reporta commits parciais e o retry converge sem duplicar contas ou transações", async () => {

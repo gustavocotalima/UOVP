@@ -8,6 +8,8 @@ import {
 } from "@/features/open-finance/institution-logo";
 
 describe("Pluggy institution logos", () => {
+  const genericLogo = "https://cdn.pluggy.ai/assets/connector-icons/200.svg";
+
   it("keeps a real connector logo", () => {
     const logo = "https://cdn.pluggy.ai/assets/connector-icons/999.svg";
     expect(resolvePluggyInstitutionLogo(logo, ["348"])).toBe(logo);
@@ -20,6 +22,35 @@ describe("Pluggy institution logos", () => {
         ["348"],
       ),
     ).toBe("https://cdn.pluggy.ai/assets/connector-icons/202.svg");
+  });
+
+  it.each([
+    ["208", "214"],
+    ["323", "206"],
+    ["348", "202"],
+    ["077", "215"],
+  ])("replaces the new MeuPluggy logo for COMPE %s", (bankCode, icon) => {
+    expect(resolvePluggyInstitutionLogo(`${genericLogo}?v=1`, [null, bankCode]))
+      .toBe(`https://cdn.pluggy.ai/assets/connector-icons/${icon}.svg`);
+  });
+
+  it("uses an exact known institution label when a card-only connection has no bank code", () => {
+    expect(resolvePluggyInstitutionLogo(genericLogo, [], { institutionNames: ["MeuPluggy", "Itaú"] }))
+      .toBe("https://cdn.pluggy.ai/assets/connector-icons/201.svg");
+    expect(resolvePluggyInstitutionLogo(genericLogo, [], { institutionNames: ["Bradescard"] }))
+      .toBeNull();
+  });
+
+  it("keeps known-good logos when a subsequent sync returns a placeholder or no logo", () => {
+    const previousLogo = "https://cdn.pluggy.ai/assets/connector-icons/999.svg";
+    expect(resolvePluggyInstitutionLogo(genericLogo, ["348"], { previousLogo })).toBe(previousLogo);
+    expect(resolvePluggyInstitutionLogo(null, [], { previousLogo })).toBe(previousLogo);
+    expect(resolvePluggyInstitutionLogo(null, [], { previousLogo: genericLogo })).toBeNull();
+  });
+
+  it("prefers the bank code to a display label when the two conflict", () => {
+    expect(resolvePluggyInstitutionLogo(genericLogo, ["077"], { institutionNames: ["Itaú"] }))
+      .toBe("https://cdn.pluggy.ai/assets/connector-icons/215.svg");
   });
 
   it("normalizes shorter COMPE codes", () => {
