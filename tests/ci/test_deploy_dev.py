@@ -8,11 +8,53 @@ import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 
 spec = importlib.util.spec_from_file_location("ci_deploy", Path(__file__).resolve().parents[2] / "scripts/ci/deploy-dev.py")
 deploy = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(deploy)
+
+
+class DeploymentApiTests(unittest.TestCase):
+    url = "https://coolify.cotalima.com.br/api/v1/applications/example"
+
+    def test_transient_read_failures_then_success(self):
+        gateway_error = HTTPError(self.url, 504, "Gateway Timeout", {}, io.BytesIO())
+        with (patch.object(deploy.urllib.request, "urlopen", side_effect=[
+                URLError(TimeoutError("timed out")), gateway_error, io.BytesIO(b'{"ok": true}')]) as urlopen,
+              patch.object(deploy.time, "sleep") as sleep,
+              contextlib.redirect_stdout(io.StringIO()) as log):
+            self.assertEqual(deploy.request_json(self.url, "test-secret"), {"ok": True})
+            self.assertEqual(urlopen.call_count, 3)
+            self.assertEqual([call.args for call in sleep.call_args_list], [(2,), (5,)])
+            self.assertNotIn("test-secret", log.getvalue())
+        self.assertTrue(gateway_error.fp.closed)
+
+    def test_reads_stop_after_bounded_timeout_retries(self):
+        with (patch.object(deploy.urllib.request, "urlopen", side_effect=TimeoutError) as urlopen,
+              patch.object(deploy.time, "sleep"),
+              contextlib.redirect_stdout(io.StringIO()),
+              self.assertRaisesRegex(RuntimeError, r"GET to coolify\.cotalima\.com\.br timed out \(attempt 4/4\)")):
+            deploy.request_json(self.url, "test-secret")
+        self.assertEqual(urlopen.call_count, 4)
+
+    def test_authentication_failure_is_not_retried(self):
+        error = HTTPError(self.url, 401, "Unauthorized", {}, io.BytesIO())
+        with (patch.object(deploy.urllib.request, "urlopen", side_effect=error) as urlopen,
+              patch.object(deploy.time, "sleep") as sleep,
+              self.assertRaisesRegex(RuntimeError, "HTTP 401")):
+            deploy.request_json(self.url, "test-secret")
+        urlopen.assert_called_once()
+        sleep.assert_not_called()
+
+    def test_mutation_with_uncertain_result_is_not_retried(self):
+        with (patch.object(deploy.urllib.request, "urlopen", side_effect=TimeoutError) as urlopen,
+              patch.object(deploy.time, "sleep") as sleep,
+              self.assertRaisesRegex(RuntimeError, "PATCH .* timed out")):
+            deploy.request_json(self.url, "test-secret", "PATCH", {"git_commit_sha": "a" * 40})
+        urlopen.assert_called_once()
+        sleep.assert_not_called()
 
 
 class DevDeploymentTests(unittest.TestCase):

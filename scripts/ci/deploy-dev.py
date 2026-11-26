@@ -1,11 +1,14 @@
 """Deploy tested dev changes, or sleep dev when its source matches main."""
+import errno
 import json
 import os
 from pathlib import Path
 import re
+import socket
 import subprocess
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 REPOSITORY = "gustavocotalima/UOVP"
@@ -14,6 +17,9 @@ DEV_DATABASES = (
     ("dt9ys3pgackztxfgfhfkhlfn", "uovp-dev-postgres", "standalone-postgresql"),
     ("efuywn9zjf5euk494d2ihjee", "uovp-dev-redis", "standalone-redis"),
 )
+API_RETRY_DELAYS = (2, 5, 10)
+RETRYABLE_HTTP_STATUS = {408, 429, 502, 503, 504}
+RETRYABLE_NETWORK_ERRNO = {errno.ENETUNREACH, errno.EHOSTUNREACH, socket.EAI_AGAIN}
 
 
 def revision_state(tested_sha):
@@ -126,11 +132,27 @@ def request_json(url, token, method="GET", data=None):
             "User-Agent": "UOVP-CI",
         },
     )
-    try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            return json.load(response)
-    except urllib.error.HTTPError as error:
-        raise RuntimeError(f"Deployment API request failed: HTTP {error.code}") from None
+    # Retry reads only. A timed-out mutation may already have taken effect.
+    delays = API_RETRY_DELAYS if method == "GET" else ()
+    host = urllib.parse.urlsplit(url).hostname
+    for attempt in range(len(delays) + 1):
+        try:
+            with urllib.request.urlopen(request, timeout=12 if delays else 30) as response:
+                return json.load(response)
+        except urllib.error.HTTPError as error:
+            retryable = error.code in RETRYABLE_HTTP_STATUS
+            detail = f"HTTP {error.code}"
+            error.close()
+        except (urllib.error.URLError, OSError) as error:
+            cause = error.reason if isinstance(error, urllib.error.URLError) else error
+            retryable = (isinstance(cause, (TimeoutError, ConnectionError))
+                         or getattr(cause, "errno", None) in RETRYABLE_NETWORK_ERRNO)
+            detail = "timed out" if isinstance(cause, TimeoutError) else "connection failed"
+        message = f"Deployment API {method} to {host} {detail}"
+        if not retryable or attempt == len(delays):
+            raise RuntimeError(f"{message} (attempt {attempt + 1}/{len(delays) + 1}).")
+        print(f"{message}; retrying in {delays[attempt]}s.", flush=True)
+        time.sleep(delays[attempt])
 
 
 def main():
@@ -214,7 +236,7 @@ def main():
                 if response.status == 200 and json.load(response).get("status") == "ok":
                     print("The tested commit is deployed and dev is healthy.")
                     return
-        except (urllib.error.URLError, ValueError):
+        except (urllib.error.URLError, TimeoutError, ValueError):
             pass
         time.sleep(5)
     raise RuntimeError("Dev health check failed after deployment.")

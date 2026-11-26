@@ -10,6 +10,7 @@ The development job runs only after `CI passed` on `dev`. It checks the current 
 - When their source differs, start PostgreSQL and Redis if needed, wait for healthy dependencies, pin the exact tested commit, deploy the dev app, and verify its health endpoint.
 - Skip superseded commits. Recheck branch equality before each stop and before deployment. An active deployment prevents sleeping the environment.
 - Validate the exact dev application and database identities before mutations. Production resources are excluded. CI serializes lifecycle operations through the existing development concurrency group.
+- API reads retry transient connectivity and gateway errors with bounded backoff. Authentication errors and mutating requests are not retried; an upstream mutation may already have taken effect even when its response was lost.
 
 ## Manual activation
 
